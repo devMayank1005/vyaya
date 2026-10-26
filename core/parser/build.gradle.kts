@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kover)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 kotlin {
@@ -13,6 +14,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":core:model"))
+            implementation(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
