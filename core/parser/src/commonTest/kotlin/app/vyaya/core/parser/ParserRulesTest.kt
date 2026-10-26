@@ -38,6 +38,26 @@ class ParserRulesTest {
     }
 
     @Test
+    fun duplicate_ids_and_a_missing_amount_group_fail_at_load_time() {
+        val dup = """{"version": 1, "rules": [{"id": "a", "pattern": "x(\\d)", "direction": "DEBIT", "amountGroup": 1},
+            {"id": "a", "pattern": "y(\\d)", "direction": "DEBIT", "amountGroup": 1}]}"""
+        assertFailsWith<IllegalArgumentException> { ParserRules.load(dup) }
+        val noGroup = """{"version": 1, "rules": [{"id": "a", "pattern": "x(\\d)", "direction": "DEBIT", "amountGroup": 0}]}"""
+        assertFailsWith<IllegalArgumentException> { ParserRules.load(noGroup) }
+    }
+
+    @Test
+    fun a_match_without_a_valid_amount_or_with_an_empty_counterparty() {
+        val json = """{"version": 1, "rules": [{"id": "r", "pattern": "paid (\\w+) to ?(\\w*)", "direction": "DEBIT",
+            "amountGroup": 1, "counterpartyGroup": 2}, {"id": "far", "pattern": "got (\\d+)", "direction": "CREDIT", "amountGroup": 7}]}"""
+        val (r, far) = ParserRules.load(json).rules
+        assertNull(r.match("paid abc to shop", Source.SMS, "x"), "amount group is not an amount")
+        assertNull(r.match("nothing here", Source.SMS, "x"), "no match")
+        assertEquals(RuleHit(Money(500), null), r.match("paid 5 to", Source.SMS, "x"), "empty counterparty becomes null")
+        assertNull(far.match("got 5", Source.SMS, "x"), "amount group index beyond the pattern")
+    }
+
+    @Test
     fun a_rule_can_be_limited_to_a_source_and_a_sender() {
         val json = """{"version": 1, "rules": [{"id": "only-sbi-sms", "pattern": "paid (\\d+)", "direction": "DEBIT",
             "amountGroup": 1, "sources": ["SMS"], "senderPattern": "SBI"}]}"""

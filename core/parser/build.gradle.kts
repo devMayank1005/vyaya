@@ -18,6 +18,7 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":core:fixtures"))
             implementation(libs.kotest.property)
             implementation(libs.kotlinx.coroutines.test)
         }

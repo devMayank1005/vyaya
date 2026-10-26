@@ -13,8 +13,9 @@ object Extractors {
 
     private val I = RegexOption.IGNORE_CASE
 
-    // "paid you" / "sent you" (GPay-style incoming) must win over the debit keyword "paid".
-    private val CREDIT_TO_YOU = Regex("""\b(?:paid|sent)\s+you\b""", I)
+    // "paid you" / "sent you" (GPay-style incoming) must win over the debit keyword "paid", but not when "you"
+    // starts the next sentence, as in a notification title + body: "Payment sent / You paid ₹60".
+    private val CREDIT_TO_YOU = Regex("""\b(?:paid|sent)\s+you\b(?!\s+(?:paid|sent|have|received)\b)""", I)
     private val DEBIT_WORDS = Regex("""\b(?:debited|paid|sent|spent|withdrawn)\b""", I)
     private val CREDIT_WORDS = Regex("""\b(?:credited|received|deposited|refunded)\b""", I)
 
@@ -50,13 +51,13 @@ object Extractors {
     )
 
     /** The 12-digit UPI reference / RRN. */
-    fun upiRef(text: String): String? = UPI_REF.find(text)?.groupValues?.get(1)
+    fun upiRef(text: String): String? = UPI_REF.find(text)?.let { it.groupValues[1] }
 
     private val ACCOUNT_MASK =
         Regex("""\b(?:a/c|acct|account|card(?:\s*no\.?)?)\s*(?:no\.?\s*)?[:.]?\s*[x*]+\s*(\d{3,6})(?!\d)""", I)
 
     /** The visible digits of a masked account or card number (`XX1234` → `1234`). */
-    fun accountMask(text: String): String? = ACCOUNT_MASK.find(text)?.groupValues?.get(1)
+    fun accountMask(text: String): String? = ACCOUNT_MASK.find(text)?.let { it.groupValues[1] }
 
     // What ends a counterparty name: a following keyword, an opening bracket or semicolon, or sentence punctuation.
     private const val END =
@@ -64,7 +65,8 @@ object Extractors {
     private val DEBIT_PARTY = Regex("""\b(?:to|at)\s+(?:VPA\s+)?(.+?)$END""", I)
     private val CREDIT_PARTY = Regex("""\b(?:from|by)\s+(?:VPA\s+)?(.+?)$END""", I)
     private val PAYER_BEFORE_PAID_YOU = Regex("""^(.+?)\s+(?:paid|sent)\s+you\b""", I)
-    private val NOT_A_PARTY = Regex("""^(?:₹|₨|INR\b|Rs\b|Rs\.|a/c|acct|account|your\b|\d)""", I)
+    // Candidates that are really an amount ("by Rs500"), an account, a bracketed reference or a pronoun.
+    private val NOT_A_PARTY = Regex("""^(?:₹|₨|INR(?:\b|\d)|Rs(?:\b|\d)|a/c|acct|account|your\b|\d|\()""", I)
     private const val MAX_PARTY_LENGTH = 60
 
     /** Who the money went to (debit) or came from (credit). */

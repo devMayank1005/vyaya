@@ -28,6 +28,12 @@ class ExtractorsTest {
     }
 
     @Test
+    fun you_starting_the_next_sentence_is_not_paid_you() {
+        // Notification title + body joined: "Payment sent" / "You paid ₹60 to Zomato" (found by the golden corpus).
+        assertEquals(Direction.DEBIT, Extractors.direction("Payment sent You paid ₹60 to Zomato")?.direction)
+    }
+
+    @Test
     fun the_first_keyword_decides_when_both_appear() {
         // ICICI style: the user's account is debited; the payee is "credited".
         assertEquals(Direction.DEBIT, Extractors.direction("Acct XX123 debited for Rs 120.00; SWIGGY credited.")?.direction)
@@ -126,7 +132,15 @@ class ExtractorsTest {
     }
 
     @Test
+    fun an_overlong_counterparty_is_dropped() {
+        assertNull(Extractors.counterparty("Paid ₹1 to " + "A".repeat(61), Direction.DEBIT))
+        assertEquals("A".repeat(60), Extractors.counterparty("Paid ₹1 to " + "A".repeat(60), Direction.DEBIT))
+    }
+
+    @Test
     fun no_counterparty() {
         assertNull(Extractors.counterparty("Rs.120 debited", Direction.DEBIT))
+        // "by Rs500" is an amount and "(Ref no …)" a reference, not a payer (found by the golden corpus).
+        assertNull(Extractors.counterparty("ur A/cX5678 credited by Rs500 on 26Oct26 by (Ref no 429112345681)", Direction.CREDIT))
     }
 }

@@ -20,6 +20,17 @@ class MoneyTest {
     }
 
     @Test
+    fun ofRupees_with_negative_rupees_applies_the_sign_to_the_paise_too() {
+        assertEquals(Money(-550), Money.ofRupees(-5, 50))
+    }
+
+    @Test
+    fun ofRupees_rejects_rupees_that_would_overflow() {
+        assertFailsWith<IllegalArgumentException> { Money.ofRupees(Long.MAX_VALUE / 100) }
+        assertFailsWith<IllegalArgumentException> { Money.ofRupees(Long.MIN_VALUE / 100) }
+    }
+
+    @Test
     fun ofRupees_rejects_paise_outside_0_to_99() {
         assertFailsWith<IllegalArgumentException> { Money.ofRupees(1, 100) }
         assertFailsWith<IllegalArgumentException> { Money.ofRupees(1, -1) }

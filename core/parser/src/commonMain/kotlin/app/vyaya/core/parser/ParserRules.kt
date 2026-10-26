@@ -31,10 +31,14 @@ class CompiledRule internal constructor(val spec: RuleSpec) {
         if (source !in spec.sources) return null
         if (senderRegex != null && !senderRegex.containsMatchIn(sender)) return null
         val match = regex.find(text) ?: return null
-        val amount = match.groups[spec.amountGroup]?.value?.let(AmountReader::read) ?: return null
-        val counterparty = spec.counterpartyGroup?.let { match.groups[it]?.value?.trim() }?.takeIf { it.isNotEmpty() }
+        val amount = group(match, spec.amountGroup)?.let(AmountReader::read) ?: return null
+        val counterparty = spec.counterpartyGroup?.let { group(match, it) }?.trim()?.takeIf { it.isNotEmpty() }
         return RuleHit(amount, counterparty)
     }
+
+    // A group index beyond the pattern means "not captured", never a crash while parsing a live message.
+    private fun group(match: MatchResult, index: Int): String? =
+        if (index < match.groups.size) match.groups[index]?.value else null
 }
 
 class RuleSet(val version: Int, val rules: List<CompiledRule>)

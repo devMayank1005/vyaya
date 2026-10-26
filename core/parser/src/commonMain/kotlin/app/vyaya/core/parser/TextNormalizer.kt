@@ -25,7 +25,7 @@ object TextNormalizer {
                 out.append(' ')
                 pendingSpace = false
             }
-            out.append(if (c.isDigit() && c !in '0'..'9') '0' + c.digitToInt() else c)
+            out.append(if (c in '0'..'9' || !c.isDigit()) c else '0' + c.digitToInt())
         }
         return out.toString()
     }
