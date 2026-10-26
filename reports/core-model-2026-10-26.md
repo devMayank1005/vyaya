@@ -181,7 +181,7 @@ Every fix started with a failing test.
 | 4 FLAW-004 | ✅ Fixed `321dd47` | `CapturedAt` and `MonthSchedule.monthOf` compute the month in the entry's capture zone |
 | 5 DATA-005 | ✅ Fixed `9f11650` | `INR.`, `Rs:` and `₨` are accepted |
 | 6 DATA-006 | ✅ Fixed `9f11650` | one trailing `.` or `,` is ignored |
-| 7 DATA-007 | 🟡 Partly addressed | normalisation uses common Unicode tables, not regex classes; still unverified on iOS until the macOS CI job runs |
+| 7 DATA-007 | ✅ Verified for tested inputs | normalisation uses common Unicode tables; the same 47 tests (incl. Devanagari/fullwidth digits and NBSP) pass on the iOS simulator in CI (run on `52da16b`) |
 | 8 SEC-008 | ⏳ Open | carried into the `core/backup` threat model |
 | 9 PEN-009 | ⏳ Open | awaiting decision |
 | 10 PEN-010 | ⏳ Open | carried into the ingestion queue design |

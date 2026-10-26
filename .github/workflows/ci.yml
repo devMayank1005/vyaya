@@ -13,12 +13,12 @@ jobs:
   core-jvm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew jvmTest koverVerify --console=plain
       - if: always()
         run: python3 scripts/test-summary.py jvmTest
@@ -27,12 +27,12 @@ jobs:
   core-ios:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - run: ./gradlew iosSimulatorArm64Test --console=plain
       - if: always()
         run: python3 scripts/test-summary.py iosSimulatorArm64Test
