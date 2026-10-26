@@ -21,3 +21,4 @@ include(":core:parser")
 
 // Test support (synthetic messages) and the user simulation; never shipped.
 include(":core:fixtures")
+include(":core:simulation")

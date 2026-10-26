@@ -184,7 +184,7 @@ Every fix started with a failing test.
 | 7 DATA-007 | ✅ Verified for tested inputs | normalisation uses common Unicode tables; the same 47 tests (incl. Devanagari/fullwidth digits and NBSP) pass on the iOS simulator in CI (run on `52da16b`) |
 | 8 SEC-008 | ⏳ Open | carried into the `core/backup` threat model |
 | 9 PEN-009 | ⏳ Open | awaiting decision |
-| 10 PEN-010 | ⏳ Open | carried into the ingestion queue design |
+| 10 PEN-010 | ✅ Fixed `ee5cbc8` | `MessageParser` rejects texts over 2,000 characters before normalising (`NotTransaction(TOO_LONG)`) |
 | 11 DATA-011 | ✅ Fixed `9f11650` | `TextNormalizer` converts Unicode digits to ASCII |
 | 12 FLAW-012 | ✅ Fixed `9f11650` | `AmountReader` drops ₹0 |
 | 13–19 | ⏳ Open | awaiting decision (accept the risk or fix with related work) |
