@@ -1,0 +1,32 @@
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+local.properties
+
+# IDEs
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Android
+captures/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# iOS / Xcode
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
+Pods/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Never commit real SMS/notification samples; only anonymised ones in test resources.
+private-samples/
