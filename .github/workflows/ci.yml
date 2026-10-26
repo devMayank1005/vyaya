@@ -20,6 +20,8 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew jvmTest koverVerify --console=plain
+      - if: always()
+        run: python3 scripts/test-summary.py jvmTest
 
   # Shared core compiled and tested for iOS (CLAUDE.md rule 8.6: no platform code in core).
   core-ios:
@@ -32,3 +34,5 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: ./gradlew iosSimulatorArm64Test --console=plain
+      - if: always()
+        run: python3 scripts/test-summary.py iosSimulatorArm64Test
