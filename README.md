@@ -14,9 +14,10 @@ Phase 0: foundation. The shared Kotlin core is being built test-first.
 
 | Module | What it does |
 |---|---|
-| `core/model` | `Money` (paise, parsing from SMS/notification text, Indian lakh/crore formatting) and `BudgetMonth` (custom month start, timezone-aware) |
+| `core/model` | `Money` (paise, strict parsing, Indian lakh/crore formatting), `BudgetMonth` (custom month start), `MonthSchedule` (start-day changes apply from the next month), `CapturedAt` (entries keep the zone they were logged in) |
+| `core/parser` | `TextNormalizer` (Unicode spaces and digits) and `AmountReader` (`Rs.500/-`, `INR.`, `₨`, trailing dot; drops ₹0) |
 
-Next modules: `core/parser`, `core/filters`, `core/dedup`, `core/engine`, `core/data`, `core/backup`,
+Next modules: the rest of `core/parser`, `core/filters`, `core/dedup`, `core/engine`, `core/data`, `core/backup`,
 then `androidApp` and `iosApp`.
 
 ## Getting started

@@ -12,7 +12,7 @@
 - The iOS target. No Mac is available in the cloud session, so CI's macOS job will be the first iOS run.
 - Integration tests. This feature has no I/O; they start with `core/data` and the pipeline.
 
-**Status:** reported only. **Nothing fixed.** Each point is waiting for discussion.
+**Status:** reported on 2026-10-26, then discussed. The agreed fixes are listed under *Resolution* at the end.
 
 ## Simulation result (Money.parse)
 
@@ -162,3 +162,35 @@ matter. A real rate needs the anonymised SMS corpus planned for Phase 0.
 - **#1, #2, #5, #6, #11:** does normalisation happen in `Money.parse` or in the SMS extractor?
 - **#3, #4:** product behaviour when the month start day or the time zone changes.
 - **#12:** should ₹0 messages be ignored?
+
+## Resolution (2026-10-26)
+
+Decisions by the user:
+- Messy text is cleaned by a separate normaliser, and `Money.parse` stays strict.
+- A start-day change applies from the next month.
+- Each entry keeps the zone it was logged in.
+- ₹0 is ignored.
+
+Every fix started with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed `9f11650` | `AmountReader` accepts `/-` |
+| 2 DATA-002 | ✅ Fixed `9f11650` | `TextNormalizer` turns Unicode spaces into plain spaces |
+| 3 FLAW-003 | ✅ Fixed `5486bcc` | `MonthSchedule`: a change takes effect at the end of the current month; past months are unchanged (property-tested) |
+| 4 FLAW-004 | ✅ Fixed `321dd47` | `CapturedAt` and `MonthSchedule.monthOf` compute the month in the entry's capture zone |
+| 5 DATA-005 | ✅ Fixed `9f11650` | `INR.`, `Rs:` and `₨` are accepted |
+| 6 DATA-006 | ✅ Fixed `9f11650` | one trailing `.` or `,` is ignored |
+| 7 DATA-007 | 🟡 Partly addressed | normalisation uses common Unicode tables, not regex classes; still unverified on iOS until the macOS CI job runs |
+| 8 SEC-008 | ⏳ Open | carried into the `core/backup` threat model |
+| 9 PEN-009 | ⏳ Open | awaiting decision |
+| 10 PEN-010 | ⏳ Open | carried into the ingestion queue design |
+| 11 DATA-011 | ✅ Fixed `9f11650` | `TextNormalizer` converts Unicode digits to ASCII |
+| 12 FLAW-012 | ✅ Fixed `9f11650` | `AmountReader` drops ₹0 |
+| 13–19 | ⏳ Open | awaiting decision (accept the risk or fix with related work) |
+| 20 SIM-020 | ⏳ Open | rerun once the real anonymised corpus exists |
+
+New design choice to confirm:
+- **MIN_TRANSITION_DAYS = 7.** When the start day changes, the first month under the new day is merged
+  into the following one if it would be shorter than 7 days. Example: changing 1 → 3 gives 1 Apr–3 May
+  rather than a 2-day month.
