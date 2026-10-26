@@ -200,11 +200,11 @@ class SimulationResult(
         appendLine("users=$users messages=$messages personas=$personas")
         appendLine("latency_us p50=${percentile(0.50)} p95=${percentile(0.95)} p99=${percentile(0.99)} max=${latenciesMicros.lastOrNull() ?: 0}")
         appendLine("-- real payments by template (no chaos): n | recognised | all fields right | wrong amount/dir/party/ref/mask")
-        byTemplate.toSortedMap().forEach { (k, t) -> appendLine(row(k, t)) }
+        byTemplate.entries.sortedBy { it.key }.forEach { (k, t) -> appendLine(row(k, t)) }
         appendLine("-- real payments by chaos")
-        byChaos.toSortedMap().forEach { (k, t) -> appendLine(row(k.name, t)) }
+        byChaos.entries.sortedBy { it.key.ordinal }.forEach { (k, t) -> appendLine(row(k.name, t)) }
         appendLine("-- noise: n | parsed as a transaction")
-        noise.toSortedMap().forEach { (k, t) -> appendLine("$k | ${t.n} | ${t.recognised} (${t.pct(t.recognised)})") }
+        noise.entries.sortedBy { it.key.ordinal }.forEach { (k, t) -> appendLine("$k | ${t.n} | ${t.recognised} (${t.pct(t.recognised)})") }
         appendLine("-- multipart SMS second halves: ${fragments.n} | parsed as a transaction ${fragments.recognised} (${fragments.pct(fragments.recognised)})")
         appendLine("-- examples of wrong results")
         wrongExamples.forEach { (k, v) -> v.forEach { appendLine("[$k] $it") } }

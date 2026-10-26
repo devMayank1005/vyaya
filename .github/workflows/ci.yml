@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew jvmTest koverVerify --console=plain
+      - run: ./gradlew compileCommonMainKotlinMetadata jvmTest koverVerify --console=plain
       - if: always()
         run: python3 scripts/test-summary.py jvmTest
 
