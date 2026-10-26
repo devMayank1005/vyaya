@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 
 // Shared core: pure Kotlin, no Android or iOS APIs (CLAUDE.md rule 8.6).
 include(":core:model")
+include(":core:parser")
