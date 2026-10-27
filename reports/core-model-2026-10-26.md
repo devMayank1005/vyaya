@@ -1,6 +1,6 @@
 # Findings: core/model (Money, BudgetMonth): 2026-10-26
 
-**Scope:** `Money` (parse, format, arithmetic) and `BudgetMonth` (custom start day, time zone), at commit `f1aaa18`.
+**Scope:** `Money` (parse, format, arithmetic) and `BudgetMonth` (custom start day, time zone), at commit `093c20b`.
 
 **Method:**
 - Break phase: crafted, unicode, oversized and edge-value inputs, run on the JVM.
@@ -175,18 +175,18 @@ Every fix started with a failing test.
 
 | # | Status | Fix |
 |---|---|---|
-| 1 DATA-001 | ✅ Fixed `9f11650` | `AmountReader` accepts `/-` |
-| 2 DATA-002 | ✅ Fixed `9f11650` | `TextNormalizer` turns Unicode spaces into plain spaces |
-| 3 FLAW-003 | ✅ Fixed `5486bcc` | `MonthSchedule`: a change takes effect at the end of the current month; past months are unchanged (property-tested) |
-| 4 FLAW-004 | ✅ Fixed `321dd47` | `CapturedAt` and `MonthSchedule.monthOf` compute the month in the entry's capture zone |
-| 5 DATA-005 | ✅ Fixed `9f11650` | `INR.`, `Rs:` and `₨` are accepted |
-| 6 DATA-006 | ✅ Fixed `9f11650` | one trailing `.` or `,` is ignored |
-| 7 DATA-007 | ✅ Verified for tested inputs | normalisation uses common Unicode tables; the same 47 tests (incl. Devanagari/fullwidth digits and NBSP) pass on the iOS simulator in CI (run on `52da16b`) |
+| 1 DATA-001 | ✅ Fixed `f4f84a2` | `AmountReader` accepts `/-` |
+| 2 DATA-002 | ✅ Fixed `f4f84a2` | `TextNormalizer` turns Unicode spaces into plain spaces |
+| 3 FLAW-003 | ✅ Fixed `aec9d43` | `MonthSchedule`: a change takes effect at the end of the current month; past months are unchanged (property-tested) |
+| 4 FLAW-004 | ✅ Fixed `7da18e1` | `CapturedAt` and `MonthSchedule.monthOf` compute the month in the entry's capture zone |
+| 5 DATA-005 | ✅ Fixed `f4f84a2` | `INR.`, `Rs:` and `₨` are accepted |
+| 6 DATA-006 | ✅ Fixed `f4f84a2` | one trailing `.` or `,` is ignored |
+| 7 DATA-007 | ✅ Verified for tested inputs | normalisation uses common Unicode tables; the same 47 tests (incl. Devanagari/fullwidth digits and NBSP) pass on the iOS simulator in CI (run on `4952b91`) |
 | 8 SEC-008 | ⏳ Open | carried into the `core/backup` threat model |
 | 9 PEN-009 | ⏳ Open | awaiting decision |
-| 10 PEN-010 | ✅ Fixed `ee5cbc8` | `MessageParser` rejects texts over 2,000 characters before normalising (`NotTransaction(TOO_LONG)`) |
-| 11 DATA-011 | ✅ Fixed `9f11650` | `TextNormalizer` converts Unicode digits to ASCII |
-| 12 FLAW-012 | ✅ Fixed `9f11650` | `AmountReader` drops ₹0 |
+| 10 PEN-010 | ✅ Fixed `53af741` | `MessageParser` rejects texts over 2,000 characters before normalising (`NotTransaction(TOO_LONG)`) |
+| 11 DATA-011 | ✅ Fixed `f4f84a2` | `TextNormalizer` converts Unicode digits to ASCII |
+| 12 FLAW-012 | ✅ Fixed `f4f84a2` | `AmountReader` drops ₹0 |
 | 13–19 | ⏳ Open | awaiting decision (accept the risk or fix with related work) |
 | 20 SIM-020 | ⏳ Open | rerun once the real anonymised corpus exists |
 

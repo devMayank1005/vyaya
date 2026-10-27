@@ -1,6 +1,6 @@
 # Findings: core/parser (MessageParser, rules, extractors, sender classifier): 2026-10-26
 
-**Scope:** commits `ee5cbc8` to `db04aa0`. The parser turns one SMS, notification or OCR text into a
+**Scope:** commits `53af741` to `312f08e`. The parser turns one SMS, notification or OCR text into a
 transaction, or says why it isn't one.
 
 **Method:**
