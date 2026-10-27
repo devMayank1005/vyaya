@@ -30,6 +30,13 @@ class Sha256Test {
     }
 
     @Test
+    fun the_digest_is_final() {
+        val sha = Sha256().apply { update("abc") }
+        assertEquals(sha.hexDigest(), sha.hexDigest())
+        kotlin.test.assertFailsWith<IllegalStateException> { sha.update("more") }
+    }
+
+    @Test
     fun feeding_in_pieces_gives_the_same_digest() = runTest {
         checkAll(200, Arb.string(0..300), Arb.int(0..300)) { text, cut ->
             val at = minOf(cut, text.length)

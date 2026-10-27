@@ -11,10 +11,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
-class BackupCodecTest {
+/** Schema v1 files (written by earlier versions) must keep restoring: v1 → Snapshot is the migration path. */
+class BackupV1MigrationTest {
 
-    private fun failure(text: String, maxChars: Int = BackupCodec.MAX_CHARS): List<String> =
-        when (val r = BackupCodec.decode(text, maxChars)) {
+    private fun failure(text: String, maxChars: Int = BackupLimits().maxV1Chars): List<String> =
+        when (val r = BackupCodec.decode(text, now = NOW, limits = BackupLimits(maxV1Chars = maxChars))) {
             is DecodeResult.Failure -> r.problems
             is DecodeResult.Success -> fail("expected failure but decoded: ${r.snapshot}")
         }
@@ -24,33 +25,33 @@ class BackupCodecTest {
     // --- the format (plan.md Part D), identical on every platform -----------------------------
 
     @Test
-    fun encodes_exactly_the_golden_file() {
-        // This same test runs on the JVM (Android) and the iOS simulator in CI: identical bytes on both.
-        assertEquals(GOLDEN_JSON, BackupCodec.encode(GOLDEN_SNAPSHOT, META))
+    fun the_v1_golden_file_is_what_v1_wrote() {
+        // Fixture check: the internal v1 writer (kept only to produce migration fixtures) still matches the golden file.
+        assertEquals(GOLDEN_JSON, BackupCodec.encodeV1(GOLDEN_SNAPSHOT, META))
     }
 
     @Test
     fun decodes_the_golden_file() {
-        val result = assertIs<DecodeResult.Success>(BackupCodec.decode(GOLDEN_JSON))
+        val result = assertIs<DecodeResult.Success>(BackupCodec.decode(GOLDEN_JSON, now = NOW))
         assertEquals(GOLDEN_SNAPSHOT.normalized(), result.snapshot)
         assertEquals(META, result.meta)
     }
 
     @Test
-    fun export_import_export_is_identical_for_any_snapshot() = runTest {
+    fun any_v1_file_still_restores_exactly() = runTest {
         checkAll(300, Arb.long()) { seed ->
             val snapshot = randomSnapshot(Random(seed))
-            val text = BackupCodec.encode(snapshot, META)
-            val decoded = assertIs<DecodeResult.Success>(BackupCodec.decode(text), "seed=$seed").snapshot
+            val text = BackupCodec.encodeV1(snapshot, META_LATE)
+            val decoded = assertIs<DecodeResult.Success>(BackupCodec.decode(text, now = LATE), "seed=$seed").snapshot
             assertEquals(snapshot.normalized(), decoded, "seed=$seed")
-            assertEquals(text, BackupCodec.encode(decoded, META), "seed=$seed")
+            assertEquals(text, BackupCodec.encodeV1(decoded, META_LATE), "seed=$seed")
         }
     }
 
     @Test
     fun record_order_does_not_change_the_file() {
         val shuffled = GOLDEN_SNAPSHOT.copy(categories = GOLDEN_SNAPSHOT.categories.reversed())
-        assertEquals(BackupCodec.encode(GOLDEN_SNAPSHOT, META), BackupCodec.encode(shuffled, META))
+        assertEquals(BackupCodec.encodeV1(GOLDEN_SNAPSHOT, META), BackupCodec.encodeV1(shuffled, META))
     }
 
     // --- never throws; every problem is reported --------------------------------------------
@@ -130,8 +131,8 @@ class BackupCodecTest {
         assertTrue(failure(golden { it.replace("2026-10-26T13:05:00Z", "2101-01-01T00:00:00Z") }).any { "out of range" in it })
         assertTrue(failure(golden { it.replace("\"date\": \"2026-10-20\"", "\"date\": \"2101-01-01\"") }).any { "out of range" in it })
         assertTrue(failure(golden { it.replace("\"date\": \"2026-10-20\"", "\"date\": \"20 Oct\"") }).any { "not a valid date" in it })
-        assertIs<DecodeResult.Success>(BackupCodec.decode(golden { it.replace("2026-10-26T13:05:00Z", "2000-01-01T00:00:00Z") }))
-        assertIs<DecodeResult.Success>(BackupCodec.decode(golden { it.replace("\"date\": \"2026-10-20\"", "\"date\": \"2100-12-31\"") }))
+        assertIs<DecodeResult.Success>(BackupCodec.decode(now = NOW, text = golden { it.replace("2026-10-26T13:05:00Z", "2000-01-01T00:00:00Z") }))
+        assertIs<DecodeResult.Success>(BackupCodec.decode(now = NOW, text = golden { it.replace("\"date\": \"2026-10-20\"", "\"date\": \"2100-12-31\"") }))
     }
 
     @Test

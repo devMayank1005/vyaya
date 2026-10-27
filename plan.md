@@ -173,22 +173,30 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 
 ---
 
-## Part D: Backup format v1 (identical on both platforms)
-```json
-{
-  "format": "vyaya-backup", "schemaVersion": 1, "appVersion": "1.0.0",
-  "createdOn": "android", "exportedAt": "2026-10-26T10:00:00Z", "currency": "INR",
-  "settings": {}, "accounts": [], "categories": [], "entries": [], "recurring": [],
-  "people": [], "ledger": [], "budgets": [], "merchantRules": [], "parserRules": []
-}
-```
-- Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
-- Old schema versions are always upgradable.
-- Optional password encryption (`.vyaya`, AES-GCM).
-- A `.zip` variant includes receipts.
-- CSV columns are the same on both platforms.
+## Part D: Backup format (identical on both platforms)
 
----
+**Schema v2 (current).** One compact JSON object per line:
+```
+{"t":"header","format":"vyaya-backup","schemaVersion":2,"appVersion":"1.0.0","createdOn":"android","exportedAt":"…","currency":"INR","settings":{…},"counts":{…}}
+{"t":"account",…}  {"t":"category",…}  {"t":"entry",…}  {"t":"recurring",…}  {"t":"person",…}  {"t":"ledger",…}  {"t":"budget",…}  {"t":"merchantRule",…}
+{"t":"end","records":N,"sha256":"<SHA-256 of every line above, each followed by \n>"}
+```
+- Written and read line by line, so there's no huge string in memory. Records are ordered by type, then by
+  id, so the same data always gives the same bytes.
+- **Shared limits:** the writer refuses anything the reader would refuse (64 KB per line, 2 million
+  records), so the app can always restore its own backups.
+- **Integrity:**
+  - The checksum detects damage, edits and cut-off files.
+  - Duplicate keys are refused.
+  - Records newer than the backup, or a backup from the future, are refused.
+  - A leading BOM and Windows line endings are accepted.
+- Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
+- Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
+- **v1** files (one pretty-printed JSON document) still restore. The app only writes v2.
+- **Planned before release:**
+  - optional password encryption (`.vyaya`, AES-GCM, platform crypto), which adds authenticity;
+  - a `.zip` variant with receipts.
+- CSV columns are the same on both platforms (export only).
 
 ## Part E: Scale simulation harness
 

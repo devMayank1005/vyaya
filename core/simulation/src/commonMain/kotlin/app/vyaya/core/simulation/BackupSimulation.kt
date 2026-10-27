@@ -40,6 +40,7 @@ enum class BackupPersona(val years: Int, val entriesPerDay: Double) {
 }
 
 private val META = ExportMeta("1.0.0", "android", Instant.parse("2026-10-27T12:00:00Z"))
+private val NOW = Instant.parse("2026-10-28T00:00:00Z")
 private val PAYEES = listOf("Swiggy", "Zomato", "Rahul Sharma", "BigBasket", "Uber India", "Café Coffee Day", "Sharma & Sons", "\"Quotes\" Ltd", "line\nbreak")
 private val ZONES = listOf("Asia/Kolkata", "Asia/Kolkata", "Asia/Kolkata", "America/New_York", "Asia/Dubai")
 
@@ -103,13 +104,13 @@ object BackupSimulation {
             val persona = if (random.nextBoolean()) BackupPersona.STUDENT else BackupPersona.SALARIED
             val snapshot = personaSnapshot(persona, random, entryCap = 400)
             val text = BackupCodec.encode(snapshot, META)
-            val decoded = BackupCodec.decode(text)
+            val decoded = BackupCodec.decode(text, NOW)
             if (decoded is DecodeResult.Success && decoded.snapshot == snapshot.normalized() && BackupCodec.encode(decoded.snapshot, META) == text) identical++ else failed++
             repeat(fuzzPerUser) {
                 fuzz++
                 val mutated = mutate(text, random)
                 try {
-                    when (val r = BackupCodec.decode(mutated)) {
+                    when (val r = BackupCodec.decode(mutated, NOW)) {
                         is DecodeResult.Failure -> rejected++
                         is DecodeResult.Success -> if (r.snapshot == snapshot.normalized()) unchanged++ else {
                             changed++
@@ -132,7 +133,7 @@ object BackupSimulation {
         val text = BackupCodec.encode(snapshot, META)
         val encodeMs = mark.elapsedNow().inWholeMilliseconds
         mark = TimeSource.Monotonic.markNow()
-        val decoded = BackupCodec.decode(text)
+        val decoded = BackupCodec.decode(text, NOW)
         val decodeMs = mark.elapsedNow().inWholeMilliseconds
         mark = TimeSource.Monotonic.markNow()
         val csv = CsvExport.export(snapshot)
@@ -142,7 +143,7 @@ object BackupSimulation {
         val mergeMs = mark.elapsedNow().inWholeMilliseconds
         val ok = decoded is DecodeResult.Success && decoded.snapshot == snapshot.normalized() && merged == snapshot.normalized()
         return "entries=$entries json=${text.length / 1024 / 1024}MB (${text.length} chars) encode=${encodeMs}ms decode=${decodeMs}ms csv=${csv.length / 1024 / 1024}MB ${csvMs}ms merge=${mergeMs}ms fidelity=${if (ok) "ok" else "BROKEN"}" +
-            if (text.length > BackupCodec.MAX_CHARS) " OVER-LIMIT(${BackupCodec.MAX_CHARS})" else ""
+            ""
     }
 
     private fun mutate(text: String, random: Random): String {

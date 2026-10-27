@@ -31,6 +31,11 @@ fun id(s: String) = EntityId.parse(s)!!
 val T = Instant.parse("2026-10-27T10:00:00Z")
 val IST = TimeZone.of("Asia/Kolkata")
 val META = ExportMeta(appVersion = "1.0.0", createdOn = "android", exportedAt = Instant.parse("2026-10-27T12:00:00Z"))
+val NOW = Instant.parse("2026-10-28T00:00:00Z")
+
+/** For random snapshots, whose timestamps run up to 2099: an export made (and restored) at the very end of the range. */
+val LATE = Instant.parse("2100-12-31T00:00:00Z")
+val META_LATE = META.copy(exportedAt = LATE)
 
 // ids chosen so the golden file is easy to read
 val ACC = id("00000000-0000-4000-8000-000000000001")

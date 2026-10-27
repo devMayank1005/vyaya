@@ -28,6 +28,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
 /** Everything Vyaya stores: what a backup contains and what a restore produces. */
@@ -82,11 +83,10 @@ object BackupCodec {
 
     const val FORMAT = "vyaya-backup"
     const val SCHEMA_VERSION = 1
-    const val MAX_CHARS = 64 * 1024 * 1024
     const val MAX_PROBLEMS = 20
 
     @OptIn(ExperimentalSerializationApi::class)
-    private val json = Json {
+    internal val json = Json {
         prettyPrint = true
         prettyPrintIndent = "  "
         encodeDefaults = true
@@ -94,9 +94,38 @@ object BackupCodec {
         ignoreUnknownKeys = false
     }
 
-    fun encode(snapshot: Snapshot, meta: ExportMeta): String {
+    /**
+     * Writes the backup (schema v2) line by line to [sink]; each call is one line without its newline.
+     *
+     * Refuses, with [EncodeResult.Failure], anything the reader would refuse ([limits] are shared), so the app
+     * never writes a backup it can't restore (DATA-001). On failure, part of the file may already have been
+     * written, so callers write to a temporary file and keep it only on [EncodeResult.Success].
+     */
+    fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult =
+        BackupV2.write(toFile(snapshot, meta), limits, sink)
+
+    /** Reads a backup from its lines (v2, or a v1 file from an earlier version). Never throws. */
+    fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
+        BackupV2.read(lines, now, limits)
+
+    /** The whole v2 file as one string (convenience for tests and small backups). */
+    fun encode(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits()): String {
+        val out = StringBuilder()
+        val result = write(snapshot, meta, limits) { out.append(it).append('\n') }
+        require(result is EncodeResult.Success) { (result as EncodeResult.Failure).reason }
+        return out.toString()
+    }
+
+    fun decode(text: String, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
+        read(text.lineSequence(), now, limits)
+
+    /** Writes the old v1 format. Kept only to produce migration test fixtures; the app always writes v2. */
+    internal fun encodeV1(snapshot: Snapshot, meta: ExportMeta): String =
+        json.encodeToString(BackupFileV1.serializer(), toFile(snapshot, meta))
+
+    internal fun toFile(snapshot: Snapshot, meta: ExportMeta): BackupFileV1 {
         val s = snapshot.normalized()
-        val file = BackupFileV1(
+        return BackupFileV1(
             format = FORMAT,
             schemaVersion = SCHEMA_VERSION,
             appVersion = meta.appVersion,
@@ -135,11 +164,11 @@ object BackupCodec {
             budgets = s.budgets.map { BudgetV1(it.id.value, it.categoryId.value, it.limit.paise, it.updatedAt.toString(), it.deleted) },
             merchantRules = s.merchantRules.map { MerchantRuleV1(it.id.value, it.payee, it.categoryId.value, it.updatedAt.toString(), it.deleted) },
         )
-        return json.encodeToString(BackupFileV1.serializer(), file)
     }
 
-    fun decode(text: String, maxChars: Int = MAX_CHARS): DecodeResult {
-        if (text.length > maxChars) return fail("Backup file is too large (${text.length} characters, limit $maxChars)")
+    internal fun decodeV1(text: String, now: Instant, maxChars: Int): DecodeResult {
+        if (text.length > maxChars) return fail("Backup file is too large (more than $maxChars characters)")
+        JsonKeys.firstDuplicate(text)?.let { return fail("The backup file has a duplicate key '$it' (it was edited)") }
         val root = try {
             json.parseToJsonElement(text)
         } catch (e: Exception) {
@@ -159,14 +188,14 @@ object BackupCodec {
         } catch (e: Exception) {
             return fail("The backup file is damaged or was edited: ${e.message?.lineSequence()?.firstOrNull()?.take(200)}")
         }
-        return Reader(file).read()
+        return Reader(file, now).read()
     }
 
-    private fun fail(problem: String) = DecodeResult.Failure(listOf(problem))
+    internal fun fail(problem: String) = DecodeResult.Failure(listOf(problem))
 }
 
 /** Turns a decoded v1 file into validated domain records, collecting every problem instead of throwing. */
-private class Reader(private val file: BackupFileV1) {
+internal class Reader(private val file: BackupFileV1, private val now: Instant) {
 
     private val problems = mutableListOf<String>()
 
@@ -178,6 +207,9 @@ private class Reader(private val file: BackupFileV1) {
     fun read(): DecodeResult {
         if (file.currency != "INR") problems += "Unsupported currency '${file.currency}' (only INR)"
         val exportedAt = instant(file.exportedAt, "exportedAt")
+        if (exportedAt != null && exportedAt > now + 1.days) {
+            problems += "This backup says it was made in the future ($exportedAt). The phone's clock may have been wrong when it was exported."
+        }
         val settings = settings()
 
         val accounts = file.accounts.mapNotNull { a ->
@@ -246,6 +278,21 @@ private class Reader(private val file: BackupFileV1) {
         val merchantRules = file.merchantRules.mapNotNull { m ->
             val id = id(m.id, "merchant rule") ?: return@mapNotNull null
             record("merchant rule $id") { MerchantRule(id, m.payee, ref(m.categoryId, categoryIds, "category", "rule")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
+        }
+
+        // SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge.
+        if (exportedAt != null) {
+            fun after(what: String, id: EntityId, vararg times: Instant) {
+                if (times.any { it > exportedAt }) problems += "$what $id: changed after the backup was made ($exportedAt)"
+            }
+            accounts.forEach { after("account", it.id, it.updatedAt) }
+            categories.forEach { after("category", it.id, it.updatedAt) }
+            people.forEach { after("person", it.id, it.updatedAt) }
+            entries.forEach { after("entry", it.id, it.createdAt, it.updatedAt) }
+            recurring.forEach { after("recurring rule", it.id, it.updatedAt) }
+            ledger.forEach { after("ledger entry", it.id, it.updatedAt) }
+            budgets.forEach { after("budget", it.id, it.updatedAt) }
+            merchantRules.forEach { after("merchant rule", it.id, it.updatedAt) }
         }
 
         listOf(
