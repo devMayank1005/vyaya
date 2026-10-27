@@ -14,12 +14,13 @@ Phase 0: foundation. The shared Kotlin core is being built test-first.
 
 | Module | What it does |
 |---|---|
-| `core/model` | `Money` (paise, strict parsing, Indian lakh/crore formatting), `BudgetMonth` (custom month start), `MonthSchedule` (start-day changes apply from the next month), `CapturedAt` (entries keep the zone they were logged in) |
+| `core/model` | `Money`, `BudgetMonth`, `MonthSchedule` (+ validated `restore`), `CapturedAt`, and the domain records: accounts, categories (fixed `sys.*` ids), entries, recurring rules, people, lent/borrowed, budgets, merchant rules, settings |
 | `core/parser` | `MessageParser`: SMS / UPI notification text → transaction (amount, direction, payee, UPI ref, account mask). `TextNormalizer`, `AmountReader`, generic `Extractors`, data-driven `ParserRules` (versioned JSON), `SenderClassifier` |
+| `core/backup` | Backup file v1 (byte-identical JSON on Android and iOS; validated restore that never throws; merge or replace) and CSV export (formula-injection safe) |
 | `core/fixtures` | Test support: synthetic bank SMS, UPI notifications and noise (never shipped) |
-| `core/simulation` | Test support: simulates thousands of users; `./gradlew :core:simulation:jvmTest -Psim.users=10000` writes `core/simulation/build/simulation/report.txt` |
+| `core/simulation` | Test support: simulates thousands of users. Parser: `-Psim.users=10000`; backup: `-Psim.backup.users=2000` (add `-Psim.backup.big=true` for 10k–200k-entry datasets). Reports go to `core/simulation/build/simulation/` |
 
-Next modules: `core/filters`, `core/dedup`, `core/engine`, `core/data`, `core/backup`,
+Next modules: `core/filters`, `core/dedup`, `core/engine`, `core/data`,
 then `androidApp` and `iosApp`.
 
 ## Getting started
