@@ -1,11 +1,8 @@
 package app.vyaya.core.simulation
 
 import app.vyaya.core.backup.BackupCodec
-import app.vyaya.core.backup.CsvExport
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.ExportMeta
-import app.vyaya.core.backup.Restore
-import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.AccountKind
@@ -28,7 +25,6 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlin.random.Random
 import kotlin.time.Instant
-import kotlin.time.TimeSource
 
 /*
  * Backup simulation: synthetic users of every size export, import and re-export their data; every file is
@@ -39,8 +35,8 @@ enum class BackupPersona(val years: Int, val entriesPerDay: Double) {
     STUDENT(1, 2.0), SALARIED(5, 5.0), HEAVY_UPI(5, 12.0), SHOPKEEPER_10Y(10, 55.0),
 }
 
-private val META = ExportMeta("1.0.0", "android", Instant.parse("2026-10-27T12:00:00Z"))
-private val NOW = Instant.parse("2026-10-28T00:00:00Z")
+internal val META = ExportMeta("1.0.0", "android", Instant.parse("2026-10-27T12:00:00Z"))
+internal val NOW = Instant.parse("2026-10-28T00:00:00Z")
 private val PAYEES = listOf("Swiggy", "Zomato", "Rahul Sharma", "BigBasket", "Uber India", "Café Coffee Day", "Sharma & Sons", "\"Quotes\" Ltd", "line\nbreak")
 private val ZONES = listOf("Asia/Kolkata", "Asia/Kolkata", "Asia/Kolkata", "America/New_York", "Asia/Dubai")
 
@@ -94,7 +90,7 @@ object BackupSimulation {
 
     private const val MUTATION_CHARS = "0123456789abcdefXYZ\"{}[],: -.\\"
 
-    fun run(users: Int, fuzzPerUser: Int = 10, big: Boolean = false, seed: Long = 7): BackupSimulationResult {
+    fun run(users: Int, fuzzPerUser: Int = 10, seed: Long = 7): BackupSimulationResult {
         val random = Random(seed)
         var identical = 0; var failed = 0
         var fuzz = 0; var rejected = 0; var unchanged = 0; var changed = 0; var crashed = 0
@@ -123,27 +119,8 @@ object BackupSimulation {
                 }
             }
         }
-        val bigLines = if (!big) emptyList() else listOf(10_000, 100_000, 200_000).map { n -> measure(n, random) }
+        val bigLines = emptyList<String>()
         return BackupSimulationResult(users, identical, failed, fuzz, rejected, unchanged, changed, crashed, crashes, silent, bigLines)
-    }
-
-    private fun measure(entries: Int, random: Random): String {
-        val snapshot = personaSnapshot(BackupPersona.SHOPKEEPER_10Y, random, entryCap = entries)
-        var mark = TimeSource.Monotonic.markNow()
-        val text = BackupCodec.encode(snapshot, META)
-        val encodeMs = mark.elapsedNow().inWholeMilliseconds
-        mark = TimeSource.Monotonic.markNow()
-        val decoded = BackupCodec.decode(text, NOW)
-        val decodeMs = mark.elapsedNow().inWholeMilliseconds
-        mark = TimeSource.Monotonic.markNow()
-        val csv = CsvExport.export(snapshot)
-        val csvMs = mark.elapsedNow().inWholeMilliseconds
-        mark = TimeSource.Monotonic.markNow()
-        val merged = Restore.apply(snapshot, snapshot, RestoreMode.MERGE)
-        val mergeMs = mark.elapsedNow().inWholeMilliseconds
-        val ok = decoded is DecodeResult.Success && decoded.snapshot == snapshot.normalized() && merged == snapshot.normalized()
-        return "entries=$entries json=${text.length / 1024 / 1024}MB (${text.length} chars) encode=${encodeMs}ms decode=${decodeMs}ms csv=${csv.length / 1024 / 1024}MB ${csvMs}ms merge=${mergeMs}ms fidelity=${if (ok) "ok" else "BROKEN"}" +
-            ""
     }
 
     private fun mutate(text: String, random: Random): String {

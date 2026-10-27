@@ -155,3 +155,22 @@ These times are on a desktop JVM. Expect a mid-range phone to be several times s
 - **#8:** which settings should a merge restore keep?
 - **#9:** build encrypted backups before the first release?
 - **#10, #11, #12:** fix now or later?
+
+## Resolution (2026-10-27)
+
+Decisions by the user: compact + streaming, a checksum (format v2), refuse future timestamps, reject
+duplicate keys and accept a BOM, and encryption before release. Every fix started with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed `597557a` | Writer and reader share `BackupLimits`; the app refuses to write what it can't restore |
+| 2 PEN-002 | ✅ Fixed `597557a` | Line-by-line write and read; 200k entries now fit a 512 MB heap (little margin left, see v2 report PEN-003) |
+| 3 DATA-003 | ✅ Fixed `597557a` | SHA-256 end line; silent changes went from 577 to 0 of 20,000 corruptions (integrity only, see v2 report SEC-001) |
+| 4 DATA-004 | ⏸ Not fixed (your choice) | Amounts above ₹100 crore are still accepted |
+| 5 SEC-005 | ✅ Fixed `597557a` | Records newer than the export, or an export from the future, are refused (side effect: v2 report FLAW-004) |
+| 6 FLAW-006 | ✅ Fixed `597557a` | Duplicate keys refused in v1 and v2, comparing keys after unescaping |
+| 7 FLAW-007 | ✅ Fixed `597557a` | A leading BOM and CRLF line endings are accepted |
+| 8 FLAW-008 | ⏳ Open | Which settings a merge keeps |
+| 9 SEC-009 | 📅 Agreed: before release | Encrypted backups, built with the app modules (needs platform crypto) |
+| 10–12 | ⏳ Open | Awaiting decision |
+| 14 FLAW-014 | ✅ Fixed `597557a` | Compact JSON lines (100k entries: 62 M chars → 46 MB) |

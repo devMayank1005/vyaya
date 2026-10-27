@@ -68,3 +68,14 @@ FLAW-003 and FLAW-004 and had not had their own break phase until now, so this c
 - **#1:** should a change dated before the latest change already in effect be rejected, or applied
   from the next upcoming month?
 - **#2:** fix now? It's a small change.
+
+## Resolution (2026-10-27)
+
+| # | Status | Fix |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed `dadadfc` | `withStartDay` throws when a change would take effect before one already in place (test first) |
+| 2 FLAW-002 | ✅ Fixed `dadadfc` | `@ConsistentCopyVisibility`: `copy()` is private (compile-time; verified the bypass no longer compiles) |
+| 3 PEN-003 | ⏳ Open | Lookup cost linear in the number of changes |
+| 4 DATA-004 | ⏳ Open | Zone-name aliases unequal |
+| 5 PEN-005 | 🟡 Covered at the backup boundary | Dates outside 2000–2100 are refused on restore (`7e1c842`) |
+| 6–8 | Info | — |
