@@ -63,6 +63,22 @@ data class MonthSchedule private constructor(val initialStartDay: Int, val chang
     companion object {
         const val MIN_TRANSITION_DAYS = 7
 
+        /** Rebuilds a stored schedule (backup restore); null unless it is exactly what [withStartDay] produces. */
+        fun restore(initialStartDay: Int, changes: List<StartDayChange>): MonthSchedule? = try {
+            if (initialStartDay !in 1..31) return null
+            var schedule = of(initialStartDay)
+            for (change in changes) {
+                if (change.startDay !in 1..31) return null
+                // Replaying the change on the day before it took effect must reproduce it exactly.
+                val next = schedule.withStartDay(change.startDay, change.effectiveFrom.minus(1, DateTimeUnit.DAY))
+                if (next.changes.size != schedule.changes.size + 1 || next.changes.last() != change) return null
+                schedule = next
+            }
+            schedule
+        } catch (e: Exception) {
+            null // dates outside what kotlinx-datetime can do arithmetic on
+        }
+
         fun of(startDay: Int): MonthSchedule {
             requireStartDay(startDay)
             return MonthSchedule(startDay, emptyList())
