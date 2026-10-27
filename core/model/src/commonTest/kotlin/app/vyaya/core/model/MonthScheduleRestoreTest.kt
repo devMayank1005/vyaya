@@ -33,6 +33,8 @@ class MonthScheduleRestoreTest {
     fun tampered_or_impossible_schedules_are_rejected() {
         val good = MonthSchedule.of(1).withStartDay(25, LocalDate(2026, 3, 10)).changes.single()
         assertNull(MonthSchedule.restore(0, emptyList()), "initial day out of range")
+        assertNull(MonthSchedule.restore(32, emptyList()), "initial day out of range")
+        assertNull(MonthSchedule.restore(1, listOf(good.copy(startDay = 0))), "start day out of range")
         assertNull(MonthSchedule.restore(1, listOf(good.copy(startDay = 40))), "start day out of range")
         assertNull(MonthSchedule.restore(1, listOf(good.copy(transitionEnd = LocalDate(2026, 4, 20)))), "wrong transition end")
         assertNull(MonthSchedule.restore(1, listOf(good.copy(effectiveFrom = LocalDate(2026, 4, 5)))), "not on a month boundary")

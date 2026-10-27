@@ -30,7 +30,7 @@ value class EntityId private constructor(val value: String) {
             else -> text.lowercase().takeIf { UUID.matches(it) }?.let(::EntityId)
         }
 
-        internal fun system(name: String): EntityId = requireNotNull(parse("sys.$name")) { "bad system id $name" }
+        internal fun system(name: String): EntityId = EntityId("sys.$name")
     }
 }
 

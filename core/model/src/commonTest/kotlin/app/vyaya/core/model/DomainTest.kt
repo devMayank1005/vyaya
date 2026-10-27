@@ -113,6 +113,32 @@ class DomainTest {
     }
 
     @Test
+    fun text_fields_have_length_limits() {
+        assertFailsWith<IllegalArgumentException> { entry().copy(payee = "x".repeat(101)) }
+        assertFailsWith<IllegalArgumentException> { entry().copy(note = "x".repeat(501)) }
+        assertFailsWith<IllegalArgumentException> { entry().copy(upiRef = "1".repeat(65)) }
+        assertFailsWith<IllegalArgumentException> { Account(id(), "HDFC", AccountKind.BANK, "12", now, false) }
+        assertFailsWith<IllegalArgumentException> { Account(id(), "HDFC", AccountKind.BANK, "1234567", now, false) }
+        assertFailsWith<IllegalArgumentException> {
+            RecurringRule(id(), EntryType.INCOME, Money(100), 1, null, null, "x".repeat(501), false, LocalDate(2026, 1, 1), null, now, false)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            LedgerEntry(id(), id(), LedgerDirection.LENT, Money(100), LocalDate(2026, 1, 1), "x".repeat(501), false, now, false)
+        }
+    }
+
+    @Test
+    fun merchant_rules_compare_by_value() {
+        val a = MerchantRule(id(), "Swiggy", id(), now, false)
+        val same = MerchantRule(a.id, " SWIGGY", a.categoryId, now, false)
+        assertEquals(a, same)
+        assertEquals(a.hashCode(), same.hashCode())
+        assertNotEquals(a, MerchantRule(a.id, "Swiggy", a.categoryId, now, true))
+        assertNotEquals<Any>(a, "swiggy")
+        assertTrue(a.toString().contains("payee=swiggy"))
+    }
+
+    @Test
     fun recurring_rules_need_a_valid_day_and_amount() {
         fun rule(day: Int, amount: Long) = RecurringRule(
             id(), EntryType.EXPENSE, Money(amount), day, null, null, "Spotify", false, LocalDate(2026, 1, 5), null, now, false,
