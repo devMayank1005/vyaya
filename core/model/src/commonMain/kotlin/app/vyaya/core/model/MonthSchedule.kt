@@ -25,6 +25,8 @@ data class StartDayChange(val effectiveFrom: LocalDate, val transitionEnd: Local
  *
  * Create one with [of] and change it with [withStartDay], so the invariants always hold.
  */
+// copy() gets the same private visibility as the constructor, so it can't bypass the rules (FLAW-002).
+@ConsistentCopyVisibility
 data class MonthSchedule private constructor(val initialStartDay: Int, val changes: List<StartDayChange>) {
 
     fun monthContaining(date: LocalDate): BudgetMonth {
@@ -44,10 +46,20 @@ data class MonthSchedule private constructor(val initialStartDay: Int, val chang
 
     fun previous(month: BudgetMonth): BudgetMonth = monthContaining(month.start.minus(1, DateTimeUnit.DAY))
 
-    /** The schedule after the user picks [newStartDay] on [changedOn]. */
+    /**
+     * The schedule after the user picks [newStartDay] on [changedOn].
+     *
+     * Throws if [changedOn] is so early that the change would take effect before a change already in the
+     * schedule. That only happens with a wrong phone clock or a backdated caller, and accepting it would
+     * rewrite months that have already happened (FLAW-001).
+     */
     fun withStartDay(newStartDay: Int, changedOn: LocalDate): MonthSchedule {
         requireStartDay(newStartDay)
         val effectiveFrom = monthContaining(changedOn).endExclusive
+        val latest = changes.lastOrNull()?.effectiveFrom
+        require(latest == null || effectiveFrom >= latest) {
+            "change dated $changedOn would take effect before the change already in place from $latest"
+        }
         // A change that has not taken effect yet is replaced by this one.
         val kept = changes.filter { it.effectiveFrom < effectiveFrom }
         val dayInEffect = kept.lastOrNull()?.startDay ?: initialStartDay

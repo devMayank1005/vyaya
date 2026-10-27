@@ -91,6 +91,17 @@ class MonthScheduleTest {
     }
 
     @Test
+    fun a_change_dated_before_one_already_in_place_is_rejected() { // FLAW-001
+        val schedule = MonthSchedule.of(1).withStartDay(25, changedOn = date(2026, 3, 10)) // effective 1 Apr
+        val mayBefore = schedule.monthContaining(date(2026, 5, 10))
+        // Phone clock wrongly set to February: this would delete the April change and move May.
+        assertFailsWith<IllegalArgumentException> { schedule.withStartDay(10, changedOn = date(2026, 2, 5)) }
+        assertEquals(mayBefore, schedule.monthContaining(date(2026, 5, 10)))
+        // Replacing a change that hasn't taken effect yet (same effective date) is still allowed.
+        assertEquals(date(2026, 4, 1), schedule.withStartDay(10, changedOn = date(2026, 3, 20)).changes.single().effectiveFrom)
+    }
+
+    @Test
     fun next_and_previous_follow_the_schedule() {
         val schedule = MonthSchedule.of(startDay = 1).withStartDay(25, changedOn = date(2026, 3, 10))
         val march = schedule.monthContaining(date(2026, 3, 5))
