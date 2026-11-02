@@ -14,7 +14,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.time.Instant
 
 /*
- * Backup file format, schema version 2 (plan.md Part D). FROZEN like v1: changes need a new schema version.
+ * Line-based backup files: schema versions 2 and 3 (plan.md Part D). Each version is FROZEN; v3 differs from v2
+ * only in the entry lines (see BackupV3.kt). The app writes v3 and reads both.
  *
  *   {"t":"header", format, schemaVersion: 2, appVersion, createdOn, exportedAt, currency, settings, counts}
  *   {"t":"account", ...}   one compact JSON object per record, the v1 record fields, ordered by type then id
@@ -66,17 +67,16 @@ internal data class CountsV2(
 @Serializable
 internal data class TrailerV2(val records: Int, val sha256: String)
 
-internal object BackupV2 {
-
-    const val SCHEMA_VERSION = 2
+internal object BackupLines {
     private val compact = Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = false }
     private val strict = Json { ignoreUnknownKeys = false }
 
     // ---------------------------------------------------------------------------------------------- write
 
-    fun write(file: BackupFileV1, limits: BackupLimits, sink: (String) -> Unit): EncodeResult {
-        val total = file.accounts.size + file.categories.size + file.entries.size + file.recurring.size +
-            file.people.size + file.ledger.size + file.budgets.size + file.merchantRules.size
+    /** Writes [file] as schema [version] (3; 2 only for test fixtures). */
+    fun write(file: BackupContent, version: Int, limits: BackupLimits, sink: (String) -> Unit): EncodeResult {
+        require(version == 2 || version == BackupCodec.SCHEMA_VERSION) { "can't write schema $version" }
+        val total = file.recordCount
         if (total > limits.maxRecords) return EncodeResult.Failure("Too many records to back up: $total (limit ${limits.maxRecords})")
 
         val sha = Sha256()
@@ -95,7 +95,7 @@ internal object BackupV2 {
         }
 
         val header = HeaderV2(
-            BackupCodec.FORMAT, SCHEMA_VERSION, file.appVersion, file.createdOn, file.exportedAt, file.currency, file.settings,
+            BackupCodec.FORMAT, version, file.appVersion, file.createdOn, file.exportedAt, file.currency, file.settings,
             CountsV2(file.accounts.size, file.categories.size, file.entries.size, file.recurring.size, file.people.size,
                 file.ledger.size, file.budgets.size, file.merchantRules.size),
         )
@@ -104,7 +104,11 @@ internal object BackupV2 {
         emit("header", s(HeaderV2.serializer()), header, "The settings")?.let { return it }
         file.accounts.forEach { emit("account", s(AccountV1.serializer()), it, "Account ${it.id}")?.let { f -> return f } }
         file.categories.forEach { emit("category", s(CategoryV1.serializer()), it, "Category ${it.id}")?.let { f -> return f } }
-        file.entries.forEach { emit("entry", s(EntryV1.serializer()), it, "Entry ${it.id}")?.let { f -> return f } }
+        file.entries.forEach { e ->
+            val failure = if (version == 2) emit("entry", s(EntryV1.serializer()), e.toV1(), "Entry ${e.id}")
+            else emit("entry", s(EntryV3.serializer()), e, "Entry ${e.id}")
+            failure?.let { return it }
+        }
         file.recurring.forEach { emit("recurring", s(RecurringV1.serializer()), it, "Recurring rule ${it.id}")?.let { f -> return f } }
         file.people.forEach { emit("person", s(PersonV1.serializer()), it, "Person ${it.id}")?.let { f -> return f } }
         file.ledger.forEach { emit("ledger", s(LedgerV1.serializer()), it, "Ledger entry ${it.id}")?.let { f -> return f } }
@@ -153,10 +157,10 @@ internal object BackupV2 {
         }
         val version = (header["schemaVersion"] as? JsonPrimitive)?.intOrNull
             ?: return BackupCodec.fail("This is not a Vyaya backup file (no schema version)")
-        if (version > SCHEMA_VERSION) {
+        if (version > BackupCodec.SCHEMA_VERSION) {
             return BackupCodec.fail("This backup was made by a newer version of Vyaya (schema $version). Update the app to restore it.")
         }
-        if (version != SCHEMA_VERSION) return BackupCodec.fail("Unsupported backup schema version $version")
+        if (version != 2 && version != 3) return BackupCodec.fail("Unsupported backup schema version $version")
         val h = decode(HeaderV2.serializer(), header) ?: return BackupCodec.fail("Line 1 is damaged or was edited")
 
         val sha = Sha256().apply { update(first + "\n") }
@@ -189,7 +193,8 @@ internal object BackupV2 {
             val read = when (type) {
                 "account" -> decode(AccountV1.serializer(), obj)?.let { reader.account(it); 0 }
                 "category" -> decode(CategoryV1.serializer(), obj)?.let { reader.category(it); 1 }
-                "entry" -> decode(EntryV1.serializer(), obj)?.let { reader.entry(it); 2 }
+                "entry" -> (if (version == 2) decode(EntryV1.serializer(), obj)?.toV3() else decode(EntryV3.serializer(), obj))
+                    ?.let { reader.entry(it); 2 }
                 "recurring" -> decode(RecurringV1.serializer(), obj)?.let { reader.recurring(it); 3 }
                 "person" -> decode(PersonV1.serializer(), obj)?.let { reader.person(it); 4 }
                 "ledger" -> decode(LedgerV1.serializer(), obj)?.let { reader.ledger(it); 5 }

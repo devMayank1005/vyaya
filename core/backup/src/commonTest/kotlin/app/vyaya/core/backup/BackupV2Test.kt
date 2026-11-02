@@ -49,7 +49,7 @@ class BackupV2Test {
     @Test
     fun encodes_exactly_the_golden_lines_and_a_checksum_of_them() {
         // Runs on the JVM (Android) and the iOS simulator in CI: identical bytes on both.
-        assertEquals(signed(goldenBody), BackupCodec.encode(GOLDEN_SNAPSHOT, META))
+        assertEquals(signed(goldenBody), BackupCodec.encodeV2(GOLDEN_SNAPSHOT, META)) // v2 is frozen; the app now writes v3
     }
 
     @Test
@@ -127,7 +127,7 @@ class BackupV2Test {
 
     @Test
     fun a_newer_schema_is_refused_with_a_clear_message() {
-        val newer = goldenBody.toMutableList().apply { this[0] = this[0].replace("\"schemaVersion\":2", "\"schemaVersion\":3") }
+        val newer = goldenBody.toMutableList().apply { this[0] = this[0].replace("\"schemaVersion\":2", "\"schemaVersion\":4") }
         assertTrue(problems(signed(newer)).single().contains("newer version of Vyaya"))
     }
 

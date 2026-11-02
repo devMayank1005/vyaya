@@ -76,7 +76,7 @@ class BackupV1MigrationTest {
 
     @Test
     fun a_newer_schema_version_is_refused_with_a_clear_message() {
-        assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2") }).single().contains("newer version of Vyaya"))
+        assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 4") }).single().contains("newer version of Vyaya"))
         assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 0") }).single().contains("schema version 0"))
     }
 

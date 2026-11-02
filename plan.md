@@ -92,7 +92,8 @@ crash**, as numbered points.
   credits, personal numbers, lottery, KYC).
 - Works while the app is closed: messages are queued, with a "New payment detected" notification.
 - Screenshot sharing (PhonePe first, then all apps).
-- Recurring entries with catch-up; month-end Saved that self-adjusts; overspend and category-limit alerts.
+- Recurring entries with catch-up; month-end Saved, calculated from the month's entries (never stored, so it
+  is always right after an edit); overspend and category-limit alerts.
 - Lent and Borrowed, with per-person balances and settle-up.
 - JSON backup and restore, CSV export, and an automatic OS safety copy.
 - Privacy: no account, no server, no sync.
@@ -155,8 +156,9 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 3. Every record has `updatedAt` and a soft-delete flag.
 4. Times are stored in UTC plus the user's timezone; one shared month function, with a custom month start.
 5. System categories have fixed IDs (`sys.saved`, `sys.transfer`, `sys.lent`).
-6. Generated entries are idempotent (`ruleId+date`, `sys.saved+month`).
-7. Derived numbers are calculated, never stored.
+6. Generated entries are idempotent: one per rule and due date (`ruleId+date`). The entry's id is derived from
+   that key (a version-8 UUID from SHA-256), so two phones generate the same id and a merge keeps one copy.
+7. Derived numbers are calculated, never stored. That includes Saved, each month's leftover.
 8. Capability flags drive the UI per platform.
 9. No platform code in the shared core; CI compiles the shared core for iOS from day 1.
 10. Parser rules are versioned data files.
@@ -175,9 +177,9 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 
 ## Part D: Backup format (identical on both platforms)
 
-**Schema v2 (current).** One compact JSON object per line:
+**Schema v3 (current).** One compact JSON object per line:
 ```
-{"t":"header","format":"vyaya-backup","schemaVersion":2,"appVersion":"1.0.0","createdOn":"android","exportedAt":"…","currency":"INR","settings":{…},"counts":{…}}
+{"t":"header","format":"vyaya-backup","schemaVersion":3,"appVersion":"1.0.0","createdOn":"android","exportedAt":"…","currency":"INR","settings":{…},"counts":{…}}
 {"t":"account",…}  {"t":"category",…}  {"t":"entry",…}  {"t":"recurring",…}  {"t":"person",…}  {"t":"ledger",…}  {"t":"budget",…}  {"t":"merchantRule",…}
 {"t":"end","records":N,"sha256":"<SHA-256 of every line above, each followed by \n>"}
 ```
@@ -195,7 +197,10 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
   - A leading BOM and Windows line endings are accepted.
 - Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
 - Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
-- **v1** files (one pretty-printed JSON document) still restore. The app only writes v2.
+- An entry made by a recurring rule carries `"generatedBy":{"ruleId":…,"dueOn":…}` (otherwise `null`); its id must
+  be the one derived from that key, and the rule must be in the backup. This is the only change from v2.
+- **v1** files (one pretty-printed JSON document) and **v2** files still restore; their entries have no key.
+  The app only writes v3.
 - **Planned before release:**
   - optional password encryption (`.vyaya`, AES-GCM, platform crypto), which adds authenticity;
   - a `.zip` variant with receipts.
@@ -229,8 +234,9 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 **Invariants checked for every simulated user:**
 1. No payment logged twice; no real payment missed (vs. ground truth).
 2. "What's left" = income − expenses (excluding transfers, Saved, lent/borrowed) for every month.
-3. Saved for every past month equals that month's leftover after any edit.
-4. Recurring catch-up produces exactly one entry per due date.
+3. Saved for every past month equals that month's leftover after any edit (it is calculated, never stored).
+4. Recurring catch-up produces exactly one entry per due date, also after restoring or merging a backup from
+   another phone.
 5. Export → import → export is identical; Android ↔ iOS identical.
 6. Per-person lent/borrowed balances equal the sum of unsettled entries.
 7. No scam message ever becomes an entry; false-positive rate on real messages is under the target.

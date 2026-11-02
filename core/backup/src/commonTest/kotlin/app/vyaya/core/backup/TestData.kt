@@ -10,6 +10,7 @@ import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Generation
 import app.vyaya.core.model.LedgerDirection
 import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.MerchantRule
@@ -47,6 +48,17 @@ val L1 = id("00000000-0000-4000-8000-000000000006")
 val R1 = id("00000000-0000-4000-8000-000000000007")
 val B1 = id("00000000-0000-4000-8000-000000000008")
 val M1 = id("00000000-0000-4000-8000-000000000009")
+
+/** Spotify (rule R1) due on 5 Oct 2026: its id is derived from the rule and the date (CLAUDE.md rule 8.4). */
+val SPOTIFY_OCT = Generation(R1, LocalDate(2026, 10, 5))
+
+/** GOLDEN_SNAPSHOT plus one generated entry: what schema v3 adds. */
+val GOLDEN_V3_SNAPSHOT: Snapshot get() = GOLDEN_SNAPSHOT.copy(
+    entries = GOLDEN_SNAPSHOT.entries + Entry(
+        SPOTIFY_OCT.entryId, EntryType.EXPENSE, Money(11900), CapturedAt(Instant.parse("2026-10-05T04:30:00Z"), IST), ACC, null, FOOD,
+        "Spotify", "", emptyList(), EntrySource.RECURRING, null, emptyList(), null, T, T, false, SPOTIFY_OCT,
+    ),
+)
 
 /** A small snapshot with one of everything; its exact JSON is in GOLDEN_JSON. */
 val GOLDEN_SNAPSHOT = Snapshot(
@@ -208,7 +220,7 @@ private val ZONES = listOf("Asia/Kolkata", "America/New_York", "Europe/London", 
 private val NAMES = listOf("Food", "Rent", "Travel", "Rahul", "Priya", "HDFC", "Cash", "Swiggy", "Café ☕", "Sharma & Sons", "\"Quoted\"", "line\nbreak")
 
 /** A random, internally consistent snapshot (references always point at existing records). */
-fun randomSnapshot(random: Random, maxPerList: Int = 8): Snapshot {
+fun randomSnapshot(random: Random, maxPerList: Int = 8, generated: Boolean = false): Snapshot {
     fun instant() = Instant.fromEpochMilliseconds(random.nextLong(978_307_200_000, 4_102_444_799_000)) // 2001..2099
     fun date() = LocalDate(2001, 1, 1).plus(random.nextInt(0, 36_000), DateTimeUnit.DAY)
     fun money() = Money(random.nextLong(1, 10_00_00_000))
@@ -250,5 +262,13 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8): Snapshot {
     var day = LocalDate(2010, 1, 1)
     repeat(random.nextInt(0, 4)) { day = day.plus(random.nextInt(1, 500), DateTimeUnit.DAY); schedule = schedule.withStartDay(random.nextInt(1, 32), day) }
     val settings = Settings("INR", TimeZone.of(ZONES.random(random)), schedule, random.nextBoolean())
-    return Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, rules)
+    // Entries made by recurring rules: at most one per rule and due date, each with its derived id.
+    val generatedEntries = if (!generated) emptyList() else recurring.flatMap { r ->
+        List(random.nextInt(0, 4)) { r.startsOn.plus(it, DateTimeUnit.MONTH) }.map { due ->
+            val key = Generation(r.id, due)
+            Entry(key.entryId, r.type, r.amount, CapturedAt(instant(), TimeZone.of(ZONES.random(random))), r.accountId, null, r.categoryId,
+                null, r.note.take(500), emptyList(), EntrySource.RECURRING, null, emptyList(), null, instant(), instant(), random.nextBoolean(), key)
+        }
+    }
+    return Snapshot(settings, accounts, categories, entries + generatedEntries, recurring, people, ledger, budgets, rules)
 }

@@ -10,6 +10,7 @@ import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Generation
 import app.vyaya.core.model.LedgerDirection
 import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.MerchantRule
@@ -74,7 +75,8 @@ sealed interface DecodeResult {
 }
 
 /**
- * Reads and writes the Vyaya backup file (schema v1), byte-for-byte identical on Android and iOS.
+ * Reads and writes the Vyaya backup file (writes schema v3; reads v1, v2 and v3), byte-for-byte identical on
+ * Android and iOS.
  *
  * [decode] never throws. Anything wrong in the file becomes a reported problem and nothing is restored:
  * wrong format, a newer schema, oversized input, bad ids, unknown time zones (SEC-008), dates outside
@@ -83,7 +85,10 @@ sealed interface DecodeResult {
 object BackupCodec {
 
     const val FORMAT = "vyaya-backup"
-    const val SCHEMA_VERSION = 1
+
+    /** The schema this app writes. It reads every earlier one (v1 and v2 are migrated when read). */
+    const val SCHEMA_VERSION = 3
+    internal const val V1 = 1
     const val MAX_PROBLEMS = 20
 
     @OptIn(ExperimentalSerializationApi::class)
@@ -103,11 +108,11 @@ object BackupCodec {
      * written, so callers write to a temporary file and keep it only on [EncodeResult.Success].
      */
     fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult =
-        BackupV2.write(toFile(snapshot, meta), limits, sink)
+        BackupLines.write(toContent(snapshot, meta), SCHEMA_VERSION, limits, sink)
 
     /** Reads a backup from its lines (v2, or a v1 file from an earlier version). Never throws. */
     fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
-        BackupV2.read(lines, now, limits)
+        BackupLines.read(lines, now, limits)
 
     /** The whole v2 file as one string (convenience for tests and small backups). */
     fun encode(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits()): String {
@@ -120,15 +125,21 @@ object BackupCodec {
     fun decode(text: String, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
         read(text.lineSequence(), now, limits)
 
+    /** Writes the old v2 format. Kept only to produce migration test fixtures. */
+    internal fun encodeV2(snapshot: Snapshot, meta: ExportMeta): String {
+        val out = StringBuilder()
+        val result = BackupLines.write(toContent(snapshot, meta), 2, BackupLimits()) { out.append(it).append('\n') }
+        check(result is EncodeResult.Success) { (result as EncodeResult.Failure).reason }
+        return out.toString()
+    }
+
     /** Writes the old v1 format. Kept only to produce migration test fixtures; the app always writes v2. */
     internal fun encodeV1(snapshot: Snapshot, meta: ExportMeta): String =
-        json.encodeToString(BackupFileV1.serializer(), toFile(snapshot, meta))
+        json.encodeToString(BackupFileV1.serializer(), toContent(snapshot, meta).toV1File())
 
-    internal fun toFile(snapshot: Snapshot, meta: ExportMeta): BackupFileV1 {
+    internal fun toContent(snapshot: Snapshot, meta: ExportMeta): BackupContent {
         val s = snapshot.normalized()
-        return BackupFileV1(
-            format = FORMAT,
-            schemaVersion = SCHEMA_VERSION,
+        return BackupContent(
             appVersion = meta.appVersion,
             createdOn = meta.createdOn,
             exportedAt = meta.exportedAt.toString(),
@@ -144,11 +155,12 @@ object BackupCodec {
             accounts = s.accounts.map { AccountV1(it.id.value, it.name, it.kind.name, it.mask, it.updatedAt.toString(), it.deleted) },
             categories = s.categories.map { CategoryV1(it.id.value, it.name, it.kind.name, it.updatedAt.toString(), it.deleted) },
             entries = s.entries.map { e ->
-                EntryV1(
+                EntryV3(
                     e.id.value, e.type.name, e.amount.paise, e.occurredAt.instant.toString(), e.occurredAt.timeZone.id,
                     e.accountId?.value, e.toAccountId?.value, e.categoryId?.value, e.payee, e.note, e.tags, e.source.name,
                     e.upiRef, e.splits.map { SplitV1(it.categoryId.value, it.amount.paise) }, e.linkedEntryId?.value,
                     e.createdAt.toString(), e.updatedAt.toString(), e.deleted,
+                    e.generatedBy?.let { GenerationV3(it.ruleId.value, it.dueOn.toString()) },
                 )
             },
             recurring = s.recurring.map { r ->
@@ -183,13 +195,13 @@ object BackupCodec {
         if (version > SCHEMA_VERSION) {
             return fail("This backup was made by a newer version of Vyaya (schema $version). Update the app to restore it.")
         }
-        if (version < SCHEMA_VERSION) return fail("Unsupported backup schema version $version")
+        if (version != V1) return fail("Unsupported backup schema version $version")
         val file = try {
             json.decodeFromJsonElement(BackupFileV1.serializer(), root)
         } catch (e: Exception) {
             return fail("The backup file is damaged or was edited: ${e.message?.lineSequence()?.firstOrNull()?.take(200)}")
         }
-        return Reader.read(file, now)
+        return Reader.read(file.toContent(), now)
     }
 
     internal fun fail(problem: String) = DecodeResult.Failure(listOf(problem))
@@ -261,7 +273,7 @@ internal class Reader(private val now: Instant) {
             ?.also { notAfterExport("person", id, it.updatedAt) }?.let(people::add)
     }
 
-    fun entry(e: EntryV1) {
+    fun entry(e: EntryV3) {
         val id = id(e.id, "entry") ?: return
         record("entry $id") {
             val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
@@ -270,6 +282,7 @@ internal class Reader(private val now: Instant) {
                 ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee, e.note, e.tags,
                 enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
+                e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, date(it.dueOn, "generatedBy dueOn")!!) },
             )
         }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt) }?.let(entries::add)
     }
@@ -313,6 +326,7 @@ internal class Reader(private val now: Instant) {
         val categoryIds = categories.mapTo(HashSet()) { it.id } + SystemCategories.all.map { it.id }
         val personIds = people.mapTo(HashSet()) { it.id }
         val entryIds = entries.mapTo(HashSet()) { it.id }
+        val ruleIds = recurring.mapTo(HashSet()) { it.id }
         fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
             if (id != null && id !in known) problems += "$owner: unknown $what $id"
         }
@@ -320,7 +334,7 @@ internal class Reader(private val now: Instant) {
             val owner = "entry ${e.id}"
             check(owner, e.accountId, accountIds, "account"); check(owner, e.toAccountId, accountIds, "account")
             check(owner, e.categoryId, categoryIds, "category"); e.splits.forEach { check(owner, it.categoryId, categoryIds, "category") }
-            check(owner, e.linkedEntryId, entryIds, "linked entry")
+            check(owner, e.linkedEntryId, entryIds, "linked entry"); check(owner, e.generatedBy?.ruleId, ruleIds, "recurring rule")
         }
         recurring.forEach { r ->
             check("recurring rule ${r.id}", r.categoryId, categoryIds, "category"); check("recurring rule ${r.id}", r.accountId, accountIds, "account")
@@ -403,8 +417,8 @@ internal class Reader(private val now: Instant) {
         enumValues<E>().firstOrNull { it.name == raw } ?: throw IllegalArgumentException("unknown $what '${raw.take(40)}'")
 
     companion object {
-        /** A whole v1 file, already in memory. */
-        fun read(file: BackupFileV1, now: Instant): DecodeResult = Reader(now).run {
+        /** A whole file already in memory (a v1 file, migrated). */
+        fun read(file: BackupContent, now: Instant): DecodeResult = Reader(now).run {
             header(file.currency, file.exportedAt, file.settings)
             file.accounts.forEach(::account); file.categories.forEach(::category); file.people.forEach(::person)
             file.entries.forEach(::entry); file.recurring.forEach(::recurring); file.ledger.forEach(::ledger)
