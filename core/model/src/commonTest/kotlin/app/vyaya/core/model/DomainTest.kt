@@ -2,6 +2,7 @@ package app.vyaya.core.model
 
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.YearMonth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -40,19 +41,20 @@ class DomainTest {
     private val rent = EntityId.parse("00000000-0000-4000-8000-000000000007")!!
 
     @Test
-    fun a_generated_entry_id_comes_from_its_rule_and_due_date() {
-        val key = Generation(rent, LocalDate(2026, 10, 5))
-        // Fixed value: Android and iOS must derive exactly this id, or two phones would double-count rent.
-        assertEquals("5946636a-bf94-852e-9383-122ddd79410c", key.entryId.value)
-        assertEquals("f710f919-6579-8c3d-9f27-c1f795e7630c", Generation(rent, LocalDate(2026, 11, 5)).entryId.value)
-        assertEquals(key.entryId, Generation(rent, LocalDate(2026, 10, 5)).entryId)
-        assertNotEquals(key.entryId, Generation(id(), LocalDate(2026, 10, 5)).entryId)
+    fun a_generated_entry_id_comes_from_its_rule_and_month() { // DATA-002: the key is the month, not the day
+        val key = Generation(rent, YearMonth(2026, 10))
+        // Fixed values, computed independently: Android and iOS must derive exactly these ids.
+        assertEquals("5405ba7b-1360-8c0c-81af-63d5e7c1ee7c", key.entryId.value)
+        assertEquals("a0162520-0310-829b-9c1f-9a150cf6e03c", Generation(rent, YearMonth(2026, 11)).entryId.value)
+        assertEquals(key.entryId, Generation(rent, YearMonth(2026, 10)).entryId)
+        assertNotEquals(key.entryId, Generation(id(), YearMonth(2026, 10)).entryId)
         assertEquals(key.entryId, EntityId.parse(key.entryId.value), "a derived id is an ordinary UUID")
+        assertTrue(key.entryId.isDerived)
     }
 
     @Test
     fun an_entry_made_by_a_rule_uses_the_derived_id_and_the_recurring_source() {
-        val key = Generation(rent, LocalDate(2026, 10, 5))
+        val key = Generation(rent, YearMonth(2026, 10))
         val generated = entry(id = key.entryId, source = EntrySource.RECURRING, generatedBy = key)
         assertEquals(key, generated.generatedBy)
         assertFailsWith<IllegalArgumentException>("any other id would let a second copy in") {
@@ -60,6 +62,14 @@ class DomainTest {
         }
         assertFailsWith<IllegalArgumentException> { entry(id = key.entryId, source = EntrySource.MANUAL, generatedBy = key) }
         assertNull(entry().generatedBy, "entries the user adds have no key")
+    }
+
+    @Test
+    fun an_entry_without_a_key_cannot_take_a_derived_id() { // PEN-003: it would block that month's catch-up
+        val november = Generation(rent, YearMonth(2026, 11)).entryId
+        assertFailsWith<IllegalArgumentException> { entry(id = november) }
+        assertFailsWith<IllegalArgumentException> { entry(id = november, source = EntrySource.RECURRING) }
+        repeat(1000) { assertFalse(EntityId.random().isDerived, "random ids are version 4") }
     }
 
     // --- system categories (design rule 5) ---------------------------------------------------
@@ -159,7 +169,7 @@ class DomainTest {
         assertFailsWith<IllegalArgumentException> { Account(id(), "HDFC", AccountKind.BANK, "12", now, false) }
         assertFailsWith<IllegalArgumentException> { Account(id(), "HDFC", AccountKind.BANK, "1234567", now, false) }
         assertFailsWith<IllegalArgumentException> {
-            RecurringRule(id(), EntryType.INCOME, Money(100), 1, null, null, "x".repeat(501), false, LocalDate(2026, 1, 1), null, now, false)
+            RecurringRule(id(), EntryType.INCOME, Money(100), 1, null, null, "x".repeat(501), false, LocalDate(2026, 1, 1), now, false)
         }
         assertFailsWith<IllegalArgumentException> {
             LedgerEntry(id(), id(), LedgerDirection.LENT, Money(100), LocalDate(2026, 1, 1), "x".repeat(501), false, now, false)
@@ -180,14 +190,14 @@ class DomainTest {
     @Test
     fun recurring_rules_need_a_valid_day_and_amount() {
         fun rule(day: Int, amount: Long) = RecurringRule(
-            id(), EntryType.EXPENSE, Money(amount), day, null, null, "Spotify", false, LocalDate(2026, 1, 5), null, now, false,
+            id(), EntryType.EXPENSE, Money(amount), day, null, null, "Spotify", false, LocalDate(2026, 1, 5), now, false,
         )
         rule(5, 11900)
         assertFailsWith<IllegalArgumentException> { rule(0, 11900) }
         assertFailsWith<IllegalArgumentException> { rule(32, 11900) }
         assertFailsWith<IllegalArgumentException> { rule(5, 0) }
         assertFailsWith<IllegalArgumentException> {
-            RecurringRule(id(), EntryType.TRANSFER, Money(100), 5, null, null, "", false, LocalDate(2026, 1, 5), null, now, false)
+            RecurringRule(id(), EntryType.TRANSFER, Money(100), 5, null, null, "", false, LocalDate(2026, 1, 5), now, false)
         }
     }
 

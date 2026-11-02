@@ -24,6 +24,7 @@ import app.vyaya.core.model.StartDayChange
 import app.vyaya.core.model.SystemCategories
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.YearMonth
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
@@ -160,13 +161,13 @@ object BackupCodec {
                     e.accountId?.value, e.toAccountId?.value, e.categoryId?.value, e.payee, e.note, e.tags, e.source.name,
                     e.upiRef, e.splits.map { SplitV1(it.categoryId.value, it.amount.paise) }, e.linkedEntryId?.value,
                     e.createdAt.toString(), e.updatedAt.toString(), e.deleted,
-                    e.generatedBy?.let { GenerationV3(it.ruleId.value, it.dueOn.toString()) },
+                    e.generatedBy?.let { GenerationV3(it.ruleId.value, it.month.toString()) },
                 )
             },
             recurring = s.recurring.map { r ->
-                RecurringV1(
+                RecurringV3(
                     r.id.value, r.type.name, r.amount.paise, r.dayOfMonth, r.categoryId?.value, r.accountId?.value, r.note,
-                    r.paused, r.startsOn.toString(), r.lastGeneratedOn?.toString(), r.updatedAt.toString(), r.deleted,
+                    r.paused, r.startsOn.toString(), r.updatedAt.toString(), r.deleted,
                 )
             },
             people = s.people.map { PersonV1(it.id.value, it.name, it.updatedAt.toString(), it.deleted) },
@@ -224,6 +225,7 @@ internal class Reader(private val now: Instant) {
     private val lastDay = LocalDate(2100, 12, 31)
 
     private var settings: Settings? = null
+    private var homeZone: TimeZone? = null
     private var exportedAt: Instant? = null
     private val accounts = mutableListOf<Account>()
     private val categories = mutableListOf<Category>()
@@ -251,6 +253,7 @@ internal class Reader(private val now: Instant) {
                 "(${now.toLocalDateTime(shownIn).date}). Check that this phone's date and time are correct, then try again."
         }
         this.exportedAt = at
+        homeZone = zone
         settings = settings(currency, zone, s)
     }
 
@@ -282,18 +285,17 @@ internal class Reader(private val now: Instant) {
                 ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee, e.note, e.tags,
                 enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
-                e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, date(it.dueOn, "generatedBy dueOn")!!) },
+                e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, month(it.month, "generatedBy month")!!) },
             )
-        }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt) }?.let(entries::add)
+        }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt); keyNotAfterExport(it) }?.let(entries::add)
     }
 
-    fun recurring(r: RecurringV1) {
+    fun recurring(r: RecurringV3) {
         val id = id(r.id, "recurring rule") ?: return
         record("recurring rule $id") {
             RecurringRule(
                 id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, "category"),
-                ref(r.accountId, "account"), r.note, r.paused, date(r.startsOn, "startsOn")!!,
-                r.lastGeneratedOn?.let { date(it, "lastGeneratedOn")!! }, instant(r.updatedAt, "updatedAt")!!, r.deleted,
+                ref(r.accountId, "account"), r.note, r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
             )
         }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
     }
@@ -362,6 +364,17 @@ internal class Reader(private val now: Instant) {
         return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt))
     }
 
+    /**
+     * SEC-001 (recurring key): catch-up only generates months that have started, so a key for a month after the
+     * one the backup was made in can't be genuine. Merged in, it would stop catch-up from creating that month.
+     */
+    private fun keyNotAfterExport(e: Entry) {
+        val key = e.generatedBy ?: return
+        val at = exportedAt ?: return
+        val made = at.toLocalDateTime(homeZone ?: TimeZone.UTC).date.let { YearMonth(it.year, it.month) }
+        if (key.month > made) problems += "entry ${e.id}: generated for ${key.month}, after the backup was made ($made)"
+    }
+
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
     private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
         val at = exportedAt ?: return
@@ -410,6 +423,13 @@ internal class Reader(private val now: Instant) {
             problems += "$what '${raw.take(40)}' is not a valid date or is out of range (2000–2100)"
             return null
         }
+        return value
+    }
+
+    private fun month(raw: String, what: String): YearMonth? {
+        val value = try { YearMonth.parse(raw) } catch (e: Exception) { null }
+        if (value == null) throw IllegalArgumentException("$what '${raw.take(40)}' is not a valid month")
+        if (value < YearMonth(2000, 1) || value > YearMonth(2100, 12)) throw IllegalArgumentException("$what '$raw' is out of range (2000–2100)")
         return value
     }
 

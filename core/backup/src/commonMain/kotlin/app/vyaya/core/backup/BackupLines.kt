@@ -109,7 +109,11 @@ internal object BackupLines {
             else emit("entry", s(EntryV3.serializer()), e, "Entry ${e.id}")
             failure?.let { return it }
         }
-        file.recurring.forEach { emit("recurring", s(RecurringV1.serializer()), it, "Recurring rule ${it.id}")?.let { f -> return f } }
+        file.recurring.forEach { r ->
+            val failure = if (version == 2) emit("recurring", s(RecurringV1.serializer()), r.toV1(), "Recurring rule ${r.id}")
+            else emit("recurring", s(RecurringV3.serializer()), r, "Recurring rule ${r.id}")
+            failure?.let { return it }
+        }
         file.people.forEach { emit("person", s(PersonV1.serializer()), it, "Person ${it.id}")?.let { f -> return f } }
         file.ledger.forEach { emit("ledger", s(LedgerV1.serializer()), it, "Ledger entry ${it.id}")?.let { f -> return f } }
         file.budgets.forEach { emit("budget", s(BudgetV1.serializer()), it, "Budget ${it.id}")?.let { f -> return f } }
@@ -195,7 +199,8 @@ internal object BackupLines {
                 "category" -> decode(CategoryV1.serializer(), obj)?.let { reader.category(it); 1 }
                 "entry" -> (if (version == 2) decode(EntryV1.serializer(), obj)?.toV3() else decode(EntryV3.serializer(), obj))
                     ?.let { reader.entry(it); 2 }
-                "recurring" -> decode(RecurringV1.serializer(), obj)?.let { reader.recurring(it); 3 }
+                "recurring" -> (if (version == 2) decode(RecurringV1.serializer(), obj)?.toV3() else decode(RecurringV3.serializer(), obj))
+                    ?.let { reader.recurring(it); 3 }
                 "person" -> decode(PersonV1.serializer(), obj)?.let { reader.person(it); 4 }
                 "ledger" -> decode(LedgerV1.serializer(), obj)?.let { reader.ledger(it); 5 }
                 "budget" -> decode(BudgetV1.serializer(), obj)?.let { reader.budget(it); 6 }

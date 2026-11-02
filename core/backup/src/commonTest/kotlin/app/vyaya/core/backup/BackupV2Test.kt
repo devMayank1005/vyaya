@@ -49,7 +49,9 @@ class BackupV2Test {
     @Test
     fun encodes_exactly_the_golden_lines_and_a_checksum_of_them() {
         // Runs on the JVM (Android) and the iOS simulator in CI: identical bytes on both.
-        assertEquals(signed(goldenBody), BackupCodec.encodeV2(GOLDEN_SNAPSHOT, META)) // v2 is frozen; the app now writes v3
+        // v2 is frozen; the app now writes v3. The v2 fixture writer has no "lastGeneratedOn" to write (rule 8.5).
+        val withoutLastGenerated = goldenBody.map { it.replace("\"lastGeneratedOn\":\"2026-10-05\"", "\"lastGeneratedOn\":null") }
+        assertEquals(signed(withoutLastGenerated), BackupCodec.encodeV2(GOLDEN_SNAPSHOT, META))
     }
 
     @Test

@@ -1,6 +1,7 @@
 package app.vyaya.core.model
 
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.YearMonth
 import kotlinx.datetime.TimeZone
 import kotlin.jvm.JvmInline
 import kotlin.time.Instant
@@ -17,6 +18,9 @@ import kotlin.uuid.Uuid
 @JvmInline
 value class EntityId private constructor(val value: String) {
     override fun toString(): String = value
+
+    /** True for an id derived from a generation key (version 8); never for a random one (version 4). */
+    val isDerived: Boolean get() = value.length == 36 && value[14] == '8'
 
     companion object {
         private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -123,7 +127,10 @@ data class Entry(
         require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
         if (generatedBy != null) {
             require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
-            require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and due date" }
+            require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and month" }
+        } else {
+            // PEN-003: such an id belongs to a rule's month; taking it would block that month's catch-up.
+            require(!id.isDerived) { "only an entry made by a recurring rule can have a derived id" }
         }
         if (splits.isNotEmpty()) {
             require(splits.fold(Money(0)) { sum, s -> sum + s.amount } == amount) { "splits must add up to the amount" }
@@ -147,14 +154,16 @@ data class Entry(
 }
 
 /**
- * The key of an entry a recurring rule made: rule + due date (CLAUDE.md rule 8.4).
+ * The key of an entry a recurring rule made: rule + calendar month (CLAUDE.md rule 8.4).
  *
  * The entry's id is derived from the key, so the same rent payment generated on two phones (or before and
- * after a restore) has the same id, and a merge by id keeps one copy.
+ * after a restore) has the same id, and a merge by id keeps one copy. The key is the month, not the due date,
+ * so moving a rule's day can't make a second entry for a month that already has one (DATA-002). It is the
+ * calendar month because a rule is "day N of every month"; the budget month moves when the start day changes.
  */
-data class Generation(val ruleId: EntityId, val dueOn: LocalDate) {
-    /** A version-8 UUID from SHA-256("vyaya.generated.v1|<ruleId>|<dueOn>"). FROZEN: changing it duplicates entries. */
-    val entryId: EntityId get() = EntityId.derived("vyaya.generated.v1|$ruleId|$dueOn")
+data class Generation(val ruleId: EntityId, val month: YearMonth) {
+    /** A version-8 UUID from SHA-256("vyaya.generated.v1|<ruleId>|<yyyy-MM>"). FROZEN: changing it duplicates entries. */
+    val entryId: EntityId get() = EntityId.derived("vyaya.generated.v1|$ruleId|$month")
 }
 
 /** Something that repeats every month, like pocket money on the 1st or Spotify on the 5th. */
@@ -169,7 +178,7 @@ data class RecurringRule(
     val note: String,
     val paused: Boolean,
     val startsOn: LocalDate,
-    val lastGeneratedOn: LocalDate?,
+    // No "last generated" date: it is worked out from the entries' generation keys (CLAUDE.md rule 8.5).
     val updatedAt: Instant,
     val deleted: Boolean,
 ) {

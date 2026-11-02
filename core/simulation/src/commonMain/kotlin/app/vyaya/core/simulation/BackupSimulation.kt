@@ -26,6 +26,8 @@ import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.model.Settings
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.YearMonth
+import kotlinx.datetime.toLocalDateTime
 import kotlin.random.Random
 import kotlin.time.Instant
 
@@ -60,7 +62,7 @@ fun personaSnapshot(persona: BackupPersona, random: Random, entryCap: Int = Int.
             emptyList(), null, stamp(), stamp(), random.nextInt(50) == 0,
         )
     }
-    val recurring = List(10) { RecurringRule(EntityId.random(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), null, stamp(), false) }
+    val recurring = List(10) { RecurringRule(EntityId.random(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), stamp(), false) }
     // What recurring catch-up made: one entry per rule per month, for every month of the persona's history.
     val generated = recurring.flatMap { rule -> (0 until persona.years * 12).map { generatedEntry(rule, dueOn(rule, it), stamp()) } }
     val ledger = List(50) { LedgerEntry(EntityId.random(), people.random(random).id, LedgerDirection.entries.random(random), Money(random.nextLong(100, 1_00_000)), LocalDate(2020, 1, 1), "", random.nextBoolean(), stamp(), false) }
@@ -69,12 +71,12 @@ fun personaSnapshot(persona: BackupPersona, random: Random, entryCap: Int = Int.
     return Snapshot(Settings.default(), accounts, categories, entries + generated, recurring, people, ledger, budgets, rules)
 }
 
-/** The rule's due date in the [month]-th month after January 2016 (rules here fall on days 1..10). */
+/** The rule's due date in the [month]-th month after January 2016 (rules here fall on days 1..28). */
 internal fun dueOn(rule: RecurringRule, month: Int) = LocalDate(2016 + month / 12, month % 12 + 1, rule.dayOfMonth)
 
-/** The entry recurring catch-up makes for [rule] on [due]: its id comes from the rule and the date. */
+/** The entry recurring catch-up makes for [rule] on [due]: its id comes from the rule and the month. */
 internal fun generatedEntry(rule: RecurringRule, due: LocalDate, at: Instant): Entry {
-    val key = Generation(rule.id, due)
+    val key = Generation(rule.id, YearMonth(due.year, due.month))
     return Entry(
         key.entryId, rule.type, rule.amount, CapturedAt(Instant.parse("${due}T04:30:00Z"), TimeZone.of("Asia/Kolkata")), rule.accountId, null,
         rule.categoryId, null, rule.note, emptyList(), EntrySource.RECURRING, null, emptyList(), null, at, at, false, key,
@@ -128,19 +130,27 @@ object BackupSimulation {
             val decoded = BackupCodec.decode(text, NOW)
             if (decoded is DecodeResult.Success && decoded.snapshot == snapshot.normalized() && BackupCodec.encode(decoded.snapshot, META) == text) identical++ else failed++
             // Invariant 4 under restore: a second phone with the same rules ran catch-up on its own for months
-            // that overlap (and go past) phone A's; its backup is merged into A.
+            // that overlap (and go past) phone A's; its backup is merged into A. Chaos: on phone B a third of
+            // the rules had moved to another day first (DATA-002), so B's due dates differ from A's.
             run {
                 val months = persona.years * 12
                 val from = random.nextInt(months); val to = from + random.nextInt(1, 24)
-                val onB = snapshot.recurring.flatMap { r -> (from until to).map { generatedEntry(r, dueOn(r, it), Instant.parse("2026-10-27T11:00:00Z")) } }
+                val rulesOnB = snapshot.recurring.map { if (random.nextInt(3) == 0) it.copy(dayOfMonth = random.nextInt(1, 29)) else it }
+                val onB = rulesOnB.flatMap { r -> (from until to).map { generatedEntry(r, dueOn(r, it), Instant.parse("2026-10-27T11:00:00Z")) } }
                 val backupB = BackupCodec.decode(BackupCodec.encode(snapshot.copy(entries = onB), META), NOW)
                 if (backupB is DecodeResult.Success) {
                     merges++
                     val merged = Restore.apply(snapshot, backupB.snapshot, RestoreMode.MERGE)
-                    val perKey = merged.entries.mapNotNull { it.generatedBy }.groupingBy { it }.eachCount()
-                    duplicates += perKey.count { it.value > 1 }
+                    // Counted by rule and the calendar month the payment falls in, not by key, so a key design that
+                    // let a moved day through would show up here.
+                    val perRuleMonth = merged.entries.filter { it.generatedBy != null && !it.deleted }.groupingBy { e ->
+                        val day = e.occurredAt.instant.toLocalDateTime(e.occurredAt.timeZone).date
+                        e.generatedBy!!.ruleId to YearMonth(day.year, day.month)
+                    }.eachCount()
+                    duplicates += perRuleMonth.count { it.value > 1 }
+                    val perKey = merged.entries.mapNotNull { it.generatedBy }.toSet()
                     val expected = (snapshot.entries + onB).mapNotNull { it.generatedBy }.toSet()
-                    lost += (expected - perKey.keys).size
+                    lost += (expected - perKey).size
                 } else failed++
             }
             repeat(fuzzPerUser) {

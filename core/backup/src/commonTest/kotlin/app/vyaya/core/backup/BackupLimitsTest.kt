@@ -54,7 +54,7 @@ class BackupLimitsTest {
             categories = categories,
             entries = listOf(entry, entry.copy(id = entry.linkedEntryId!!, linkedEntryId = entry.id)),
             recurring = listOf(RecurringRule(EntityId.random(), EntryType.INCOME, big, 31, categories[0].id, account.id, worst(500), true,
-                LocalDate(2026, 1, 31), LocalDate(2026, 10, 31), T, true)),
+                LocalDate(2026, 1, 31), T, true)),
             people = listOf(person),
             ledger = listOf(LedgerEntry(EntityId.random(), person.id, LedgerDirection.BORROWED, big, LocalDate(2026, 10, 1), worst(500), true, T, true)),
             budgets = emptyList(),
