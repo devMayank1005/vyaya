@@ -84,6 +84,15 @@ class DomainTest {
     }
 
     @Test
+    fun splits_are_limited() { // PEN-002: every valid entry must fit within the backup's line limit
+        val oneEach = List(Entry.MAX_SPLITS) { Split(id(), Money(100)) }
+        entry(amount = Money(100L * Entry.MAX_SPLITS), splits = oneEach)
+        assertFailsWith<IllegalArgumentException> {
+            entry(amount = Money(100L * (Entry.MAX_SPLITS + 1)), splits = oneEach + Split(id(), Money(100)))
+        }
+    }
+
+    @Test
     fun tags_are_limited() {
         assertFailsWith<IllegalArgumentException> { entry(tags = List(21) { "t$it" }) }
         assertFailsWith<IllegalArgumentException> { entry(tags = listOf("x".repeat(31))) }

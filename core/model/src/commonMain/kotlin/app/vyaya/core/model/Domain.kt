@@ -109,6 +109,7 @@ data class Entry(
         require(tags.size <= MAX_TAGS) { "at most $MAX_TAGS tags" }
         tags.forEach { require(it.isNotBlank() && it.length <= MAX_TAG) { "tags must be 1..$MAX_TAG characters" } }
         require(upiRef == null || upiRef.length <= 64) { "upiRef too long" }
+        require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
         if (splits.isNotEmpty()) {
             require(splits.fold(Money(0)) { sum, s -> sum + s.amount } == amount) { "splits must add up to the amount" }
         }
@@ -124,6 +125,9 @@ data class Entry(
     companion object {
         const val MAX_TAGS = 20
         const val MAX_TAG = 30
+
+        /** Keeps every valid entry within the backup's line limit (PEN-002). */
+        const val MAX_SPLITS = 20
     }
 }
 
