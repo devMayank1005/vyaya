@@ -88,3 +88,18 @@ v3, migration from v1 and v2, simulation).
 - **#1, #3:** refuse future `dueOn` and version-8 ids without a key? Both are small.
 - **#2:** key on rule + due date (as now) or rule + month? This changes rule 8.4.
 - **#7:** remove `lastGeneratedOn` now, while v3 isn't released (fold it into v3 rather than a v4)?
+
+## Resolution (2026-11-02)
+
+Your decisions: fix #1 and #3, key by month (#2), remove `lastGeneratedOn` (#7). Every fix started with a
+failing test. The follow-up break phase is in [`recurring-key-month-2026-11-02.md`](recurring-key-month-2026-11-02.md).
+
+| # | Status | Fix |
+|---|---|---|
+| 1 SEC-001 | ✅ Fixed `12b5952` | A key for a month after the backup was made (in the backup's time zone) is refused. The Codex review on PR #1 raised the same finding |
+| 2 DATA-002 | ✅ Fixed `12b5952` | The key is rule + **calendar month**; CLAUDE.md rule 8.4 updated |
+| 3 PEN-003 | ✅ Fixed `12b5952` | Only an entry made by a rule may have a derived (version-8) id |
+| 4 DATA-004 | ⏳ Open | A key for a month before the rule starts is still accepted |
+| 5 FLAW-005 | ⏳ Open | |
+| 6 FLAW-006 | ⏳ Open | |
+| 7 `lastGeneratedOn` | ✅ Removed `12b5952` | Worked out from the keys; v1 and v2 values are dropped when read. v3 was changed in place (not released or merged) |

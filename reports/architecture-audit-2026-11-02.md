@@ -33,6 +33,6 @@ checked against the rules in the code itself, not from memory.
 |---|---|---|
 | 7 | ✅ Fixed `aadeeed`, `8a6b0f5` | `Entry.generatedBy` (rule + due date); the entry id is derived from it; backup schema v3 carries it; v1 and v2 migrate with no key. Follow-up break phase: [`recurring-key-v3-2026-11-02.md`](recurring-key-v3-2026-11-02.md) |
 | 8 Saved | ✅ Decided: calculated, never stored | `CLAUDE.md` and `plan.md` updated. The engine will calculate it |
-| 8 `lastGeneratedOn` | ⏳ Open | Can now be worked out from the keys; removing it needs schema v4 or folding into v3 before release |
+| 8 `lastGeneratedOn` | ✅ Removed `12b5952` | Folded into v3 before release; worked out from the generation keys |
 | 9 | ⏳ Open | Your reading of "limit vs format" decides whether this needs recording as accepted risk |
 | 10 | ➡ PR opened so CI runs the iOS tests | |
