@@ -35,6 +35,33 @@ class DomainTest {
         }
     }
 
+    // --- generated entries are idempotent (CLAUDE.md rule 8.4) -------------------------------------
+
+    private val rent = EntityId.parse("00000000-0000-4000-8000-000000000007")!!
+
+    @Test
+    fun a_generated_entry_id_comes_from_its_rule_and_due_date() {
+        val key = Generation(rent, LocalDate(2026, 10, 5))
+        // Fixed value: Android and iOS must derive exactly this id, or two phones would double-count rent.
+        assertEquals("5946636a-bf94-852e-9383-122ddd79410c", key.entryId.value)
+        assertEquals("f710f919-6579-8c3d-9f27-c1f795e7630c", Generation(rent, LocalDate(2026, 11, 5)).entryId.value)
+        assertEquals(key.entryId, Generation(rent, LocalDate(2026, 10, 5)).entryId)
+        assertNotEquals(key.entryId, Generation(id(), LocalDate(2026, 10, 5)).entryId)
+        assertEquals(key.entryId, EntityId.parse(key.entryId.value), "a derived id is an ordinary UUID")
+    }
+
+    @Test
+    fun an_entry_made_by_a_rule_uses_the_derived_id_and_the_recurring_source() {
+        val key = Generation(rent, LocalDate(2026, 10, 5))
+        val generated = entry(id = key.entryId, source = EntrySource.RECURRING, generatedBy = key)
+        assertEquals(key, generated.generatedBy)
+        assertFailsWith<IllegalArgumentException>("any other id would let a second copy in") {
+            entry(id = id(), source = EntrySource.RECURRING, generatedBy = key)
+        }
+        assertFailsWith<IllegalArgumentException> { entry(id = key.entryId, source = EntrySource.MANUAL, generatedBy = key) }
+        assertNull(entry().generatedBy, "entries the user adds have no key")
+    }
+
     // --- system categories (design rule 5) ---------------------------------------------------
 
     @Test
@@ -52,10 +79,13 @@ class DomainTest {
         amount: Money = Money(12000),
         splits: List<Split> = emptyList(),
         tags: List<String> = emptyList(),
+        id: EntityId = id(),
+        source: EntrySource = EntrySource.MANUAL,
+        generatedBy: Generation? = null,
     ) = Entry(
-        id = id(), type = type, amount = amount, occurredAt = at, accountId = null, toAccountId = null, categoryId = null,
-        payee = "Swiggy", note = "", tags = tags, source = EntrySource.MANUAL, upiRef = null, splits = splits,
-        linkedEntryId = null, createdAt = now, updatedAt = now, deleted = false,
+        id = id, type = type, amount = amount, occurredAt = at, accountId = null, toAccountId = null, categoryId = null,
+        payee = "Swiggy", note = "", tags = tags, source = source, upiRef = null, splits = splits,
+        linkedEntryId = null, createdAt = now, updatedAt = now, deleted = false, generatedBy = generatedBy,
     )
 
     @Test

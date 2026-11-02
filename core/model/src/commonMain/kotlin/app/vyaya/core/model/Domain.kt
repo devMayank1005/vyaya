@@ -31,6 +31,15 @@ value class EntityId private constructor(val value: String) {
         }
 
         internal fun system(name: String): EntityId = EntityId("sys.$name")
+
+        /** A UUID (version 8, RFC 9562) from the first 16 bytes of SHA-256([name]); the same on every platform. */
+        internal fun derived(name: String): EntityId {
+            val h = Sha256().apply { update(name) }.hexDigest().take(32).toCharArray()
+            h[12] = '8' // version 8
+            h[16] = "89ab"[h[16].digitToInt(16) and 0x3] // variant 10xx
+            val hex = h.concatToString()
+            return EntityId("${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}")
+        }
     }
 }
 
@@ -101,6 +110,8 @@ data class Entry(
     val createdAt: Instant,
     val updatedAt: Instant,
     val deleted: Boolean,
+    /** Set when a recurring rule made this entry: the key that keeps it to one entry per due date. */
+    val generatedBy: Generation? = null,
 ) {
     init {
         requirePositive(amount, "Entry amount")
@@ -110,6 +121,10 @@ data class Entry(
         tags.forEach { require(it.isNotBlank() && it.length <= MAX_TAG) { "tags must be 1..$MAX_TAG characters" } }
         require(upiRef == null || upiRef.length <= 64) { "upiRef too long" }
         require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
+        if (generatedBy != null) {
+            require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
+            require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and due date" }
+        }
         if (splits.isNotEmpty()) {
             require(splits.fold(Money(0)) { sum, s -> sum + s.amount } == amount) { "splits must add up to the amount" }
         }
@@ -129,6 +144,17 @@ data class Entry(
         /** Keeps every valid entry within the backup's line limit (PEN-002). */
         const val MAX_SPLITS = 20
     }
+}
+
+/**
+ * The key of an entry a recurring rule made: rule + due date (CLAUDE.md rule 8.4).
+ *
+ * The entry's id is derived from the key, so the same rent payment generated on two phones (or before and
+ * after a restore) has the same id, and a merge by id keeps one copy.
+ */
+data class Generation(val ruleId: EntityId, val dueOn: LocalDate) {
+    /** A version-8 UUID from SHA-256("vyaya.generated.v1|<ruleId>|<dueOn>"). FROZEN: changing it duplicates entries. */
+    val entryId: EntityId get() = EntityId.derived("vyaya.generated.v1|$ruleId|$dueOn")
 }
 
 /** Something that repeats every month, like pocket money on the 1st or Spotify on the 5th. */
