@@ -1,5 +1,6 @@
 package app.vyaya.core.backup
 
+import app.vyaya.core.model.Sha256
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.long
 import io.kotest.property.checkAll

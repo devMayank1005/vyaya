@@ -1,5 +1,6 @@
 package app.vyaya.core.backup
 
+import app.vyaya.core.model.Sha256
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer

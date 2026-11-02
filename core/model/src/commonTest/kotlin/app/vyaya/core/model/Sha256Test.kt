@@ -1,4 +1,4 @@
-package app.vyaya.core.backup
+package app.vyaya.core.model
 
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.int

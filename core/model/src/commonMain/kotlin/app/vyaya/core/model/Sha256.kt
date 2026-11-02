@@ -1,11 +1,11 @@
-package app.vyaya.core.backup
+package app.vyaya.core.model
 
 /**
  * SHA-256 (FIPS 180-4) in plain Kotlin, so the backup checksum is identical on Android and iOS without a
  * dependency. Incremental: feed the file line by line, then call [hexDigest] once.
  *
- * Used only as an integrity check (detects damaged or edited backups). It is not a password hash or a
- * signature. Authenticity comes with encrypted backups.
+ * Used for the backup checksum (detects damaged or edited backups) and to derive the ids of generated
+ * entries. It is not a password hash or a signature. Authenticity comes with encrypted backups.
  */
 class Sha256 {
 

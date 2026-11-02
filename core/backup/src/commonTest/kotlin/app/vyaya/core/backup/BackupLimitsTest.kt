@@ -1,5 +1,6 @@
 package app.vyaya.core.backup
 
+import app.vyaya.core.model.Sha256
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.AccountKind
 import app.vyaya.core.model.CapturedAt
