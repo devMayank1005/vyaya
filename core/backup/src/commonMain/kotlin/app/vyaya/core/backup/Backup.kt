@@ -23,6 +23,7 @@ import app.vyaya.core.model.StartDayChange
 import app.vyaya.core.model.SystemCategories
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -188,14 +189,20 @@ object BackupCodec {
         } catch (e: Exception) {
             return fail("The backup file is damaged or was edited: ${e.message?.lineSequence()?.firstOrNull()?.take(200)}")
         }
-        return Reader(file, now).read()
+        return Reader.read(file, now)
     }
 
     internal fun fail(problem: String) = DecodeResult.Failure(listOf(problem))
 }
 
-/** Turns a decoded v1 file into validated domain records, collecting every problem instead of throwing. */
-internal class Reader(private val file: BackupFileV1, private val now: Instant) {
+/**
+ * Turns backup records into validated domain records one at a time, collecting problems instead of throwing.
+ *
+ * Each record is converted as soon as it is read and only the domain record is kept (PEN-003); a record that
+ * fails validation is dropped straight away, so oversized fields are never held (PEN-002). References between
+ * records are checked in [finish], so the order of records in the file doesn't matter.
+ */
+internal class Reader(private val now: Instant) {
 
     private val problems = mutableListOf<String>()
 
@@ -204,96 +211,123 @@ internal class Reader(private val file: BackupFileV1, private val now: Instant) 
     private val firstDay = LocalDate(2000, 1, 1)
     private val lastDay = LocalDate(2100, 12, 31)
 
-    fun read(): DecodeResult {
-        if (file.currency != "INR") problems += "Unsupported currency '${file.currency}' (only INR)"
-        val exportedAt = instant(file.exportedAt, "exportedAt")
-        if (exportedAt != null && exportedAt > now + 1.days) {
-            problems += "This backup says it was made in the future ($exportedAt). The phone's clock may have been wrong when it was exported."
-        }
-        val settings = settings()
+    private var settings: Settings? = null
+    private var exportedAt: Instant? = null
+    private val accounts = mutableListOf<Account>()
+    private val categories = mutableListOf<Category>()
+    private val entries = mutableListOf<Entry>()
+    private val recurring = mutableListOf<RecurringRule>()
+    private val people = mutableListOf<Person>()
+    private val ledger = mutableListOf<LedgerEntry>()
+    private val budgets = mutableListOf<Budget>()
+    private val merchantRules = mutableListOf<MerchantRule>()
 
-        val accounts = file.accounts.mapNotNull { a ->
-            val id = id(a.id, "account") ?: return@mapNotNull null
-            record("account $id") { Account(id, a.name, enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
-        }
-        val categories = file.categories.mapNotNull { c ->
-            val id = id(c.id, "category") ?: return@mapNotNull null
-            if (id.value.startsWith("sys.")) { problems += "category $id: system ids are built in and can't be stored"; return@mapNotNull null }
-            record("category $id") { Category(id, c.name, enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
-        }
-        val people = file.people.mapNotNull { p ->
-            val id = id(p.id, "person") ?: return@mapNotNull null
-            record("person $id") { Person(id, p.name, instant(p.updatedAt, "updatedAt")!!, p.deleted) }
-        }
+    /** More problems than the user will be shown: reading further only costs time and memory. */
+    val full: Boolean get() = problems.size > BackupCodec.MAX_PROBLEMS
 
-        val accountIds = accounts.map { it.id }.toSet()
-        val categoryIds = categories.map { it.id }.toSet() + SystemCategories.all.map { it.id }
-        val personIds = people.map { it.id }.toSet()
-        val entryIds = file.entries.mapNotNull { EntityId.parse(it.id) }.toSet()
+    /** The first [BackupCodec.MAX_PROBLEMS] problems and a line saying reading stopped at [line]. */
+    fun stoppedAt(line: Int): DecodeResult.Failure =
+        DecodeResult.Failure(problems.take(BackupCodec.MAX_PROBLEMS) + "… and more problems; stopped reading at line $line")
 
-        fun ref(raw: String?, known: Set<EntityId>, what: String, owner: String): EntityId? {
-            if (raw == null) return null
-            val id = EntityId.parse(raw)
-            if (id == null || id !in known) throw IllegalArgumentException("unknown $what $raw")
-            return id
+    fun header(currency: String, exportedAt: String, s: SettingsV1) {
+        if (currency != "INR") problems += "Unsupported currency '$currency' (only INR)"
+        val zone = try { TimeZone.of(s.timezone) } catch (e: Exception) { problems += "settings: unknown time zone '${s.timezone}'"; null }
+        val at = instant(exportedAt, "exportedAt")
+        if (at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
+            val shownIn = zone ?: TimeZone.UTC
+            problems += "This backup was made on ${at.toLocalDateTime(shownIn).date}, which is later than this phone's date " +
+                "(${now.toLocalDateTime(shownIn).date}). Check that this phone's date and time are correct, then try again."
         }
+        this.exportedAt = at
+        settings = settings(currency, zone, s)
+    }
 
-        val entries = file.entries.mapNotNull { e ->
-            val id = id(e.id, "entry") ?: return@mapNotNull null
-            record("entry $id") {
-                val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
-                Entry(
-                    id, enum<EntryType>(e.type, "type"), Money(e.amountPaise), CapturedAt(instant(e.occurredAt, "occurredAt")!!, zone),
-                    ref(e.accountId, accountIds, "account", "entry"), ref(e.toAccountId, accountIds, "account", "entry"),
-                    ref(e.categoryId, categoryIds, "category", "entry"), e.payee, e.note, e.tags, enum<EntrySource>(e.source, "source"),
-                    e.upiRef, e.splits.map { Split(ref(it.categoryId, categoryIds, "category", "split")!!, Money(it.amountPaise)) },
-                    ref(e.linkedEntryId, entryIds, "linked entry", "entry"), instant(e.createdAt, "createdAt")!!,
-                    instant(e.updatedAt, "updatedAt")!!, e.deleted,
-                )
-            }
-        }
-        val recurring = file.recurring.mapNotNull { r ->
-            val id = id(r.id, "recurring rule") ?: return@mapNotNull null
-            record("recurring rule $id") {
-                RecurringRule(
-                    id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, categoryIds, "category", "rule"),
-                    ref(r.accountId, accountIds, "account", "rule"), r.note, r.paused, date(r.startsOn, "startsOn")!!,
-                    r.lastGeneratedOn?.let { date(it, "lastGeneratedOn")!! }, instant(r.updatedAt, "updatedAt")!!, r.deleted,
-                )
-            }
-        }
-        val ledger = file.ledger.mapNotNull { l ->
-            val id = id(l.id, "ledger entry") ?: return@mapNotNull null
-            record("ledger entry $id") {
-                LedgerEntry(
-                    id, ref(l.personId, personIds, "person", "ledger")!!, enum<LedgerDirection>(l.direction, "direction"),
-                    Money(l.amountPaise), date(l.date, "date")!!, l.note, l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
-                )
-            }
-        }
-        val budgets = file.budgets.mapNotNull { b ->
-            val id = id(b.id, "budget") ?: return@mapNotNull null
-            record("budget $id") { Budget(id, ref(b.categoryId, categoryIds, "category", "budget")!!, Money(b.limitPaise), instant(b.updatedAt, "updatedAt")!!, b.deleted) }
-        }
-        val merchantRules = file.merchantRules.mapNotNull { m ->
-            val id = id(m.id, "merchant rule") ?: return@mapNotNull null
-            record("merchant rule $id") { MerchantRule(id, m.payee, ref(m.categoryId, categoryIds, "category", "rule")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
-        }
+    fun account(a: AccountV1) {
+        val id = id(a.id, "account") ?: return
+        record("account $id") { Account(id, a.name, enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
+            ?.also { notAfterExport("account", id, it.updatedAt) }?.let(accounts::add)
+    }
 
-        // SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge.
-        if (exportedAt != null) {
-            fun after(what: String, id: EntityId, vararg times: Instant) {
-                if (times.any { it > exportedAt }) problems += "$what $id: changed after the backup was made ($exportedAt)"
-            }
-            accounts.forEach { after("account", it.id, it.updatedAt) }
-            categories.forEach { after("category", it.id, it.updatedAt) }
-            people.forEach { after("person", it.id, it.updatedAt) }
-            entries.forEach { after("entry", it.id, it.createdAt, it.updatedAt) }
-            recurring.forEach { after("recurring rule", it.id, it.updatedAt) }
-            ledger.forEach { after("ledger entry", it.id, it.updatedAt) }
-            budgets.forEach { after("budget", it.id, it.updatedAt) }
-            merchantRules.forEach { after("merchant rule", it.id, it.updatedAt) }
+    fun category(c: CategoryV1) {
+        val id = id(c.id, "category") ?: return
+        if (id.value.startsWith("sys.")) { problems += "category $id: system ids are built in and can't be stored"; return }
+        record("category $id") { Category(id, c.name, enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
+            ?.also { notAfterExport("category", id, it.updatedAt) }?.let(categories::add)
+    }
+
+    fun person(p: PersonV1) {
+        val id = id(p.id, "person") ?: return
+        record("person $id") { Person(id, p.name, instant(p.updatedAt, "updatedAt")!!, p.deleted) }
+            ?.also { notAfterExport("person", id, it.updatedAt) }?.let(people::add)
+    }
+
+    fun entry(e: EntryV1) {
+        val id = id(e.id, "entry") ?: return
+        record("entry $id") {
+            val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
+            Entry(
+                id, enum<EntryType>(e.type, "type"), Money(e.amountPaise), CapturedAt(instant(e.occurredAt, "occurredAt")!!, zone),
+                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee, e.note, e.tags,
+                enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
+                ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
+            )
+        }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt) }?.let(entries::add)
+    }
+
+    fun recurring(r: RecurringV1) {
+        val id = id(r.id, "recurring rule") ?: return
+        record("recurring rule $id") {
+            RecurringRule(
+                id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, "category"),
+                ref(r.accountId, "account"), r.note, r.paused, date(r.startsOn, "startsOn")!!,
+                r.lastGeneratedOn?.let { date(it, "lastGeneratedOn")!! }, instant(r.updatedAt, "updatedAt")!!, r.deleted,
+            )
+        }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
+    }
+
+    fun ledger(l: LedgerV1) {
+        val id = id(l.id, "ledger entry") ?: return
+        record("ledger entry $id") {
+            LedgerEntry(
+                id, ref(l.personId, "person")!!, enum<LedgerDirection>(l.direction, "direction"), Money(l.amountPaise),
+                date(l.date, "date")!!, l.note, l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+            )
+        }?.also { notAfterExport("ledger entry", id, it.updatedAt) }?.let(ledger::add)
+    }
+
+    fun budget(b: BudgetV1) {
+        val id = id(b.id, "budget") ?: return
+        record("budget $id") { Budget(id, ref(b.categoryId, "category")!!, Money(b.limitPaise), instant(b.updatedAt, "updatedAt")!!, b.deleted) }
+            ?.also { notAfterExport("budget", id, it.updatedAt) }?.let(budgets::add)
+    }
+
+    fun merchantRule(m: MerchantRuleV1) {
+        val id = id(m.id, "merchant rule") ?: return
+        record("merchant rule $id") { MerchantRule(id, m.payee, ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
+            ?.also { notAfterExport("merchant rule", id, it.updatedAt) }?.let(merchantRules::add)
+    }
+
+    /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
+    fun finish(appVersion: String, createdOn: String): DecodeResult {
+        val accountIds = accounts.mapTo(HashSet()) { it.id }
+        val categoryIds = categories.mapTo(HashSet()) { it.id } + SystemCategories.all.map { it.id }
+        val personIds = people.mapTo(HashSet()) { it.id }
+        val entryIds = entries.mapTo(HashSet()) { it.id }
+        fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
+            if (id != null && id !in known) problems += "$owner: unknown $what $id"
         }
+        entries.forEach { e ->
+            val owner = "entry ${e.id}"
+            check(owner, e.accountId, accountIds, "account"); check(owner, e.toAccountId, accountIds, "account")
+            check(owner, e.categoryId, categoryIds, "category"); e.splits.forEach { check(owner, it.categoryId, categoryIds, "category") }
+            check(owner, e.linkedEntryId, entryIds, "linked entry")
+        }
+        recurring.forEach { r ->
+            check("recurring rule ${r.id}", r.categoryId, categoryIds, "category"); check("recurring rule ${r.id}", r.accountId, accountIds, "account")
+        }
+        ledger.forEach { check("ledger entry ${it.id}", it.personId, personIds, "person") }
+        budgets.forEach { check("budget ${it.id}", it.categoryId, categoryIds, "category") }
+        merchantRules.forEach { check("merchant rule ${it.id}", it.categoryId, categoryIds, "category") }
 
         listOf(
             "accounts" to accounts.map { it.id }, "categories" to categories.map { it.id }, "entries" to entries.map { it.id },
@@ -304,18 +338,23 @@ internal class Reader(private val file: BackupFileV1, private val now: Instant) 
         }
 
         // A missing settings or export time always comes with a problem, so "no problems" means both are present.
+        val settings = settings; val exportedAt = exportedAt
         if (problems.isNotEmpty() || settings == null || exportedAt == null) {
             val capped = if (problems.size <= BackupCodec.MAX_PROBLEMS) problems
             else problems.take(BackupCodec.MAX_PROBLEMS) + "… and ${problems.size - BackupCodec.MAX_PROBLEMS} more problems"
             return DecodeResult.Failure(capped)
         }
         val snapshot = Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, merchantRules).normalized()
-        return DecodeResult.Success(snapshot, ExportMeta(file.appVersion, file.createdOn, exportedAt))
+        return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt))
     }
 
-    private fun settings(): Settings? {
-        val s = file.settings
-        val zone = try { TimeZone.of(s.timezone) } catch (e: Exception) { problems += "settings: unknown time zone '${s.timezone}'"; null }
+    /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
+    private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
+        val at = exportedAt ?: return
+        if (times.any { it > at }) problems += "$what $id: changed after the backup was made ($at)"
+    }
+
+    private fun settings(currency: String, zone: TimeZone?, s: SettingsV1): Settings? {
         val changes = s.startDayChanges.map { c ->
             val from = date(c.effectiveFrom, "settings effectiveFrom") ?: return null.also { problems += "settings: invalid month start schedule" }
             val end = date(c.transitionEnd, "settings transitionEnd") ?: return null.also { problems += "settings: invalid month start schedule" }
@@ -324,11 +363,15 @@ internal class Reader(private val file: BackupFileV1, private val now: Instant) 
         val schedule = MonthSchedule.restore(s.monthStartDay, changes)
         if (schedule == null) problems += "settings: invalid month start schedule"
         if (zone == null || schedule == null) return null
-        return Settings(file.currency, zone, schedule, s.alertsEnabled)
+        return Settings(currency, zone, schedule, s.alertsEnabled)
     }
 
     private fun id(raw: String, what: String): EntityId? =
         EntityId.parse(raw) ?: null.also { problems += "$what: invalid id '${raw.take(60)}'" }
+
+    /** A reference's id; whether it points at an existing record is checked in [finish]. */
+    private fun ref(raw: String?, what: String): EntityId? =
+        raw?.let { EntityId.parse(it) ?: throw IllegalArgumentException("unknown $what ${it.take(60)}") }
 
     /** Builds one record; a validation failure becomes a problem naming the record. */
     private fun <T> record(what: String, build: () -> T): T? = try {
@@ -358,6 +401,17 @@ internal class Reader(private val file: BackupFileV1, private val now: Instant) 
 
     private inline fun <reified E : Enum<E>> enum(raw: String, what: String): E =
         enumValues<E>().firstOrNull { it.name == raw } ?: throw IllegalArgumentException("unknown $what '${raw.take(40)}'")
+
+    companion object {
+        /** A whole v1 file, already in memory. */
+        fun read(file: BackupFileV1, now: Instant): DecodeResult = Reader(now).run {
+            header(file.currency, file.exportedAt, file.settings)
+            file.accounts.forEach(::account); file.categories.forEach(::category); file.people.forEach(::person)
+            file.entries.forEach(::entry); file.recurring.forEach(::recurring); file.ledger.forEach(::ledger)
+            file.budgets.forEach(::budget); file.merchantRules.forEach(::merchantRule)
+            finish(file.appVersion, file.createdOn)
+        }
+    }
 }
 
 enum class RestoreMode {

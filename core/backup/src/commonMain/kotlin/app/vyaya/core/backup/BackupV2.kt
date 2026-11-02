@@ -29,8 +29,14 @@ import kotlin.time.Instant
 data class BackupLimits(
     /** v1 files are a single JSON document; refuse larger ones unread. */
     val maxV1Chars: Int = 64 * 1024 * 1024,
-    val maxLineChars: Int = 65_536,
+    /**
+     * The largest valid record is about 10,000 characters (every field at its limit, every character escaped),
+     * so a crafted line can't be much bigger than a real one (PEN-002).
+     */
+    val maxLineChars: Int = 16_384,
     val maxRecords: Int = 2_000_000,
+    /** The whole file, newlines included. 200,000 real entries are about 92 MB (PEN-002). */
+    val maxTotalChars: Long = 256L * 1024 * 1024,
 )
 
 sealed interface EncodeResult {
@@ -73,11 +79,15 @@ internal object BackupV2 {
         if (total > limits.maxRecords) return EncodeResult.Failure("Too many records to back up: $total (limit ${limits.maxRecords})")
 
         val sha = Sha256()
+        var written = 0L
+        fun tooLarge() = EncodeResult.Failure("The backup is too large (more than ${limits.maxTotalChars} characters)")
         fun emit(type: String, serializer: KSerializer<Any>, value: Any, what: String): EncodeResult.Failure? {
             val line = line(type, compact.encodeToJsonElement(serializer, value))
             if (line.length > limits.maxLineChars) {
                 return EncodeResult.Failure("$what is too long to back up (${line.length} characters, limit ${limits.maxLineChars})")
             }
+            written += line.length + 1
+            if (written > limits.maxTotalChars) return tooLarge()
             sha.update(line + "\n")
             sink(line)
             return null
@@ -100,9 +110,11 @@ internal object BackupV2 {
         file.budgets.forEach { emit("budget", s(BudgetV1.serializer()), it, "Budget ${it.id}")?.let { f -> return f } }
         file.merchantRules.forEach { emit("merchantRule", s(MerchantRuleV1.serializer()), it, "Merchant rule ${it.id}")?.let { f -> return f } }
 
-        sink(compact.encodeToString(JsonObject.serializer(), buildJsonObject {
+        val end = compact.encodeToString(JsonObject.serializer(), buildJsonObject {
             put("t", JsonPrimitive("end")); put("records", JsonPrimitive(total)); put("sha256", JsonPrimitive(sha.hexDigest()))
-        }))
+        })
+        if (written + end.length + 1 > limits.maxTotalChars) return tooLarge()
+        sink(end)
         return EncodeResult.Success
     }
 
@@ -116,10 +128,15 @@ internal object BackupV2 {
     // ----------------------------------------------------------------------------------------------- read
 
     fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits): DecodeResult {
-        val iterator = lines.iterator()
+        // Counts characters as they are read, newlines between lines included (PEN-002).
+        var total = -1L
+        val iterator = lines.map { total += it.length + 1; it }.iterator()
+        fun tooLarge() = total > limits.maxTotalChars
+        val tooLargeFailure = { BackupCodec.fail("The backup file is too large (more than ${limits.maxTotalChars} characters)") }
         var first: String? = null
         while (iterator.hasNext()) {
             val l = iterator.next().removePrefix("﻿").removeSuffix("\r") // FLAW-007: BOM, Windows line endings
+            if (tooLarge()) return tooLargeFailure()
             if (l.isNotBlank()) { first = l; break }
         }
         if (first == null) return BackupCodec.fail("This backup file is empty")
@@ -142,9 +159,9 @@ internal object BackupV2 {
         val h = decode(HeaderV2.serializer(), header) ?: return BackupCodec.fail("Line 1 is damaged or was edited")
 
         val sha = Sha256().apply { update(first + "\n") }
-        val accounts = mutableListOf<AccountV1>(); val categories = mutableListOf<CategoryV1>(); val entries = mutableListOf<EntryV1>()
-        val recurring = mutableListOf<RecurringV1>(); val people = mutableListOf<PersonV1>(); val ledger = mutableListOf<LedgerV1>()
-        val budgets = mutableListOf<BudgetV1>(); val merchantRules = mutableListOf<MerchantRuleV1>()
+        // Each record becomes a domain record as soon as it is read; nothing else is kept (PEN-003).
+        val reader = Reader(now).apply { header(h.currency, h.exportedAt, h.settings) }
+        val counts = IntArray(8) // per type, in the header's order
         var records = 0
         var trailer: TrailerV2? = null
         var number = 1
@@ -152,6 +169,7 @@ internal object BackupV2 {
         while (iterator.hasNext()) {
             number++
             val l = iterator.next().removeSuffix("\r")
+            if (tooLarge()) return tooLargeFailure()
             if (trailer != null) {
                 if (l.isNotBlank()) return BackupCodec.fail("There is data after the end of the backup (line $number)")
                 continue
@@ -167,18 +185,19 @@ internal object BackupV2 {
             }
             sha.update(l + "\n")
             if (++records > limits.maxRecords) return BackupCodec.fail("The backup has too many records (limit ${limits.maxRecords})")
-            val added = when (type) {
-                "account" -> decode(AccountV1.serializer(), obj)?.let(accounts::add)
-                "category" -> decode(CategoryV1.serializer(), obj)?.let(categories::add)
-                "entry" -> decode(EntryV1.serializer(), obj)?.let(entries::add)
-                "recurring" -> decode(RecurringV1.serializer(), obj)?.let(recurring::add)
-                "person" -> decode(PersonV1.serializer(), obj)?.let(people::add)
-                "ledger" -> decode(LedgerV1.serializer(), obj)?.let(ledger::add)
-                "budget" -> decode(BudgetV1.serializer(), obj)?.let(budgets::add)
-                "merchantRule" -> decode(MerchantRuleV1.serializer(), obj)?.let(merchantRules::add)
+            val read = when (type) {
+                "account" -> decode(AccountV1.serializer(), obj)?.let { reader.account(it); 0 }
+                "category" -> decode(CategoryV1.serializer(), obj)?.let { reader.category(it); 1 }
+                "entry" -> decode(EntryV1.serializer(), obj)?.let { reader.entry(it); 2 }
+                "recurring" -> decode(RecurringV1.serializer(), obj)?.let { reader.recurring(it); 3 }
+                "person" -> decode(PersonV1.serializer(), obj)?.let { reader.person(it); 4 }
+                "ledger" -> decode(LedgerV1.serializer(), obj)?.let { reader.ledger(it); 5 }
+                "budget" -> decode(BudgetV1.serializer(), obj)?.let { reader.budget(it); 6 }
+                "merchantRule" -> decode(MerchantRuleV1.serializer(), obj)?.let { reader.merchantRule(it); 7 }
                 else -> return BackupCodec.fail("Line $number has an unknown record type '${type?.take(30)}'")
-            }
-            if (added == null) return BackupCodec.fail("Line $number is damaged or was edited")
+            } ?: return BackupCodec.fail("Line $number is damaged or was edited")
+            counts[read]++
+            if (reader.full) return reader.stoppedAt(number) // PEN-002: fail fast on a file full of bad records
         }
 
         if (trailer == null) return BackupCodec.fail("The backup file is incomplete: it was cut off before the end")
@@ -186,18 +205,13 @@ internal object BackupV2 {
         if (trailer.records != records) return BackupCodec.fail("The backup file says it has ${trailer.records} records but has $records")
         val c = h.counts
         val mismatches = listOf(
-            Triple("accounts", c.accounts, accounts.size), Triple("categories", c.categories, categories.size),
-            Triple("entries", c.entries, entries.size), Triple("recurring", c.recurring, recurring.size),
-            Triple("people", c.people, people.size), Triple("ledger", c.ledger, ledger.size),
-            Triple("budgets", c.budgets, budgets.size), Triple("merchantRules", c.merchantRules, merchantRules.size),
+            Triple("accounts", c.accounts, counts[0]), Triple("categories", c.categories, counts[1]),
+            Triple("entries", c.entries, counts[2]), Triple("recurring", c.recurring, counts[3]),
+            Triple("people", c.people, counts[4]), Triple("ledger", c.ledger, counts[5]),
+            Triple("budgets", c.budgets, counts[6]), Triple("merchantRules", c.merchantRules, counts[7]),
         ).filter { it.second != it.third }.map { "${it.first}: the header says ${it.second} but the file has ${it.third} (count mismatch)" }
         if (mismatches.isNotEmpty()) return DecodeResult.Failure(mismatches)
-
-        val file = BackupFileV1(
-            h.format, h.schemaVersion, h.appVersion, h.createdOn, h.exportedAt, h.currency, h.settings,
-            accounts, categories, entries, recurring, people, ledger, budgets, merchantRules,
-        )
-        return Reader(file, now).read()
+        return reader.finish(h.appVersion, h.createdOn)
     }
 
     /** A v1 file: collect the rest of the document (within the v1 size limit) and decode it as before. */

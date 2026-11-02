@@ -1,8 +1,5 @@
 package app.vyaya.core.backup
 
-import app.vyaya.core.model.Money
-import app.vyaya.core.model.Split
-import app.vyaya.core.model.SystemCategories
 import io.kotest.property.Arb
 import io.kotest.property.arbitrary.long
 import io.kotest.property.checkAll
@@ -170,7 +167,7 @@ class BackupV2Test {
 
     @Test
     fun a_backup_from_the_future_is_refused() { // SEC-005: phone clock far ahead when exporting
-        assertTrue(problems(signed(goldenBody), now = kotlin.time.Instant.parse("2026-10-20T00:00:00Z")).any { "in the future" in it })
+        assertTrue(problems(signed(goldenBody), now = kotlin.time.Instant.parse("2026-10-20T00:00:00Z")).any { "later than this phone's date" in it })
         assertIs<DecodeResult.Success>(decode(signed(goldenBody), now = kotlin.time.Instant.parse("2026-10-27T00:00:00Z")), "a few hours of clock difference is fine")
     }
 
@@ -182,11 +179,9 @@ class BackupV2Test {
         assertTrue((BackupCodec.write(GOLDEN_SNAPSHOT, META, limits) {} as EncodeResult.Failure).reason.contains("records"))
         assertTrue(problems(signed(goldenBody), limits = limits).any { "records" in it })
 
-        val manySplits = GOLDEN_SNAPSHOT.entries.single().let { e ->
-            e.copy(amount = Money(5000), splits = List(5000) { Split(SystemCategories.SAVED.id, Money(1)) })
-        }
-        val big = GOLDEN_SNAPSHOT.copy(entries = listOf(manySplits))
-        assertTrue((BackupCodec.write(big, META) {} as EncodeResult.Failure).reason.contains("too long"))
+        val entryTooLong = BackupLimits(maxLineChars = goldenBody[4].length - 1) // only the entry line is over
+        assertTrue((BackupCodec.write(GOLDEN_SNAPSHOT, META, entryTooLong) {} as EncodeResult.Failure).reason.startsWith("Entry"))
+        assertTrue(problems(signed(goldenBody), limits = entryTooLong).single().contains("Line 5 is too long"))
         val longLine = goldenBody.toMutableList().apply { this[4] = this[4].replace("\"note\":\"lunch\"", "\"note\":\"" + "x".repeat(70_000) + "\"") }
         assertTrue(problems(signed(longLine)).any { "too long" in it })
     }
