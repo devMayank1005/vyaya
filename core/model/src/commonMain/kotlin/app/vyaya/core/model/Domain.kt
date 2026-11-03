@@ -128,6 +128,10 @@ data class Entry(
         if (generatedBy != null) {
             require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
             require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and month" }
+            // DATA-001: paid a little early or late is fine; further away, the key and the date tell different stories.
+            val paid = occurredAt.localDate.let { it.year * 12 + it.month.ordinal }
+            val due = generatedBy.month.let { it.year * 12 + it.month.ordinal }
+            require(paid - due in -1..1) { "a generated entry is dated in its month (${generatedBy.month}) or the month either side" }
         } else {
             // PEN-003: such an id belongs to a rule's month; taking it would block that month's catch-up.
             require(!id.isDerived) { "only an entry made by a recurring rule can have a derived id" }

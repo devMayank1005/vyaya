@@ -160,7 +160,14 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
    derived from that key (a version-8 UUID from SHA-256), so two phones generate the same id and a merge keeps
    one copy. The key is the month, not the due date, so moving a rule's day can't add a second entry.
    Only generated entries may have a derived id. Recurring rules don't store when they last generated: that
-   is worked out from the keys.
+   is worked out from the keys (the database indexes entries by rule and month for this).
+   - A generated entry keeps its rule's type, and may be dated in its month or the month either side (rent
+     paid late). Catch-up treats a month as done when its key exists, wherever the entry is dated.
+   - The engine forbids the edits a restore would refuse: changing a generated entry's type, or moving a
+     rule's start past months it already generated (the backup writer refuses them too, as a safety net).
+   - A new rule starts at its next due date: if this month's due day has passed, it starts next month. So
+     deleting a rule and adding it again in the same month doesn't make a second entry. "Edit rule" is the
+     main action; "Delete" says the rule's entries stay.
 7. Derived numbers are calculated, never stored. That includes Saved, each month's leftover.
 8. Capability flags drive the UI per platform.
 9. No platform code in the shared core; CI compiles the shared core for iOS from day 1.
@@ -170,8 +177,8 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 | Feature | Android | iOS |
 |---|---|---|
 | Notifications from UPI apps | ✅ | ❌ |
-| Live bank SMS | ✅ (Play policy permitting) | 🟡 Shortcuts automation |
-| 30-day import | ✅ | ❌ |
+| Live bank SMS | ❌ on Play (see Part G, risk 1); 🟡 via the notification the SMS app shows | 🟡 Shortcuts automation |
+| 30-day import | ❌ on Play (needs `READ_SMS`) | ❌ |
 | Screenshot + OCR | ✅ | ✅ |
 | Background jobs | WorkManager | Catch-up on open (primary) |
 | Widget / quick add | Glance, QS tile | WidgetKit, Control Center, Siri |
@@ -189,7 +196,7 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 - Written and read line by line, so there's no huge string in memory. Records are ordered by type, then by
   id, so the same data always gives the same bytes.
 - **Shared limits:** the writer refuses anything the reader would refuse (16 KB per line, 2 million
-  records, 256 MB in total), so the app can always restore its own backups. The largest valid record is
+  records, 128 MB in total), so the app can always restore its own backups. The largest valid record is
   about 10 KB.
 - Each line becomes a record as soon as it's read, and reading stops once there are more problems than the
   user would be shown, so a crafted file can't fill memory before it's refused.
@@ -199,11 +206,18 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
   - Records newer than the backup, or a backup from the future, are refused.
   - A leading BOM and Windows line endings are accepted.
 - Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
+- A backup that looks made in the future (this phone's clock is behind, or the exporting phone's was ahead) is
+  refused with a message to check the date and time, and the app offers **Restore anyway**. Then every change
+  time moves back by the clock difference, as if the backup were made now, so restored records can't win every
+  later merge and keep their order against this phone's own edits.
+- The writer runs the same checks as a restore (references, keys, export time, ranges), so the app never writes
+  a backup it can't restore. The backup screen warns at about 80 % of the 128 MB cap.
 - Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
 - Changes from v2:
   - An entry made by a recurring rule carries `"generatedBy":{"ruleId":…,"month":"2026-10"}` (otherwise
     `null`). Its id must be the one derived from that key, the rule must be in the backup, and the month can't
-    be after the month the backup was made in (in the backup's time zone).
+    be after the month the backup was made in (in the backup's time zone) or before the rule's first month.
+    The entry keeps its rule's type and is dated in its month or the month either side.
   - Recurring rules have no `lastGeneratedOn`; v1 and v2 values are dropped when read.
 - **v1** files (one pretty-printed JSON document) and **v2** files still restore; their entries have no key.
   The app only writes v3.
@@ -269,7 +283,17 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 | 5. Both | ongoing | Subscriptions, goals, tags, recaps, encrypted scheduled backups, languages | Ship both together |
 
 ## Part G: Known risks to verify early
-1. Google Play SMS permission policy may not allow live SMS reading.
+1. Google Play SMS permission policy may not allow live SMS reading. **Checked 2026-11-03 (by the user):
+   not allowed for Vyaya.** `READ_SMS` / `RECEIVE_SMS` are for the default SMS app, and the exceptions
+   (enterprise device management, companion devices, SMS backup and restore, government or network-operator
+   utilities) don't fit an expense tracker. Sources:
+   [Play policy](https://support.google.com/googleplay/android-developer/answer/10208820),
+   [SMS and call log permissions](https://support.google.com/googleplay/android-developer/answer/18100766).
+   **Proposed consequences, to confirm:**
+   - no live SMS reading and no 30-day import in the Play build;
+   - auto-detect relies on the notification listener: UPI app notifications, and the notification the SMS
+     app shows for a bank SMS (no SMS permission needed, but Play's notification-access disclosure applies);
+   - share-to-Vyaya and screenshot OCR as the fallback.
 2. iOS cannot read notifications or SMS directly; it relies on a Shortcuts setup by the user.
 3. iOS background execution is not guaranteed; everything must catch up safely.
 4. Bank SMS formats change without notice; the parser must be data-driven and quickly updatable.

@@ -17,10 +17,11 @@ Phase 0: foundation. The shared Kotlin core is being built test-first.
 | `core/model` | `Money`, `BudgetMonth`, `MonthSchedule` (+ validated `restore`), `CapturedAt`, and the domain records: accounts, categories (fixed `sys.*` ids), entries, recurring rules, people, lent/borrowed, budgets, merchant rules, settings |
 | `core/parser` | `MessageParser`: SMS / UPI notification text → transaction (amount, direction, payee, UPI ref, account mask). `TextNormalizer`, `AmountReader`, generic `Extractors`, data-driven `ParserRules` (versioned JSON), `SenderClassifier` |
 | `core/backup` | Backup file v3 (one JSON object per line with a SHA-256 end line, byte-identical on Android and iOS; v1 and v2 still restore; validated restore that never throws; merge or replace) and CSV export (formula-injection safe) |
+| `core/engine` | What's left per month, month-end Saved and overspent (calculated, never stored), recurring catch-up (one entry per rule per month), lent/borrowed balances |
 | `core/fixtures` | Test support: synthetic bank SMS, UPI notifications and noise (never shipped) |
-| `core/simulation` | Test support: simulates thousands of users. Parser: `-Psim.users=10000`; backup: `-Psim.backup.users=2000` (add `-Psim.backup.big=true` for 10k–200k-entry datasets). Reports go to `core/simulation/build/simulation/` |
+| `core/simulation` | Test support: simulates thousands of users. Parser: `-Psim.users=10000`; backup: `-Psim.backup.users=2000`; engine: `-Psim.engine.users=2000` (add `-Psim.backup.big=true` for 10k–200k-entry datasets). Reports go to `core/simulation/build/simulation/` |
 
-Next modules: `core/filters`, `core/dedup`, `core/engine`, `core/data`,
+Next modules: `core/data`, `core/filters`, `core/dedup`,
 then `androidApp` and `iosApp`.
 
 ## Getting started

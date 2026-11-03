@@ -37,8 +37,11 @@ data class BackupLimits(
      */
     val maxLineChars: Int = 16_384,
     val maxRecords: Int = 2_000_000,
-    /** The whole file, newlines included. 200,000 real entries are about 92 MB (PEN-002). */
-    val maxTotalChars: Long = 256L * 1024 * 1024,
+    /**
+     * The whole file, newlines included. 200,000 real entries are about 96 MB; a valid file at 256 MB needed about
+     * 371 MB to read, more than low-end phones give an app (PEN-002).
+     */
+    val maxTotalChars: Long = 128L * 1024 * 1024,
 )
 
 sealed interface EncodeResult {
@@ -85,7 +88,9 @@ internal object BackupLines {
         fun emit(type: String, serializer: KSerializer<Any>, value: Any, what: String): EncodeResult.Failure? {
             val line = line(type, compact.encodeToJsonElement(serializer, value))
             if (line.length > limits.maxLineChars) {
-                return EncodeResult.Failure("$what is too long to back up (${line.length} characters, limit ${limits.maxLineChars})")
+                val size = "(${line.length} characters, limit ${limits.maxLineChars})"
+                // FLAW-005: the header holds the settings, which are plural.
+                return EncodeResult.Failure(if (type == "header") "Settings are too large to back up $size" else "$what is too long to back up $size")
             }
             written += line.length + 1
             if (written > limits.maxTotalChars) return tooLarge()
@@ -101,7 +106,7 @@ internal object BackupLines {
         )
         @Suppress("UNCHECKED_CAST")
         fun <T> s(serializer: KSerializer<T>) = serializer as KSerializer<Any>
-        emit("header", s(HeaderV2.serializer()), header, "The settings")?.let { return it }
+        emit("header", s(HeaderV2.serializer()), header, "Settings")?.let { return it }
         file.accounts.forEach { emit("account", s(AccountV1.serializer()), it, "Account ${it.id}")?.let { f -> return f } }
         file.categories.forEach { emit("category", s(CategoryV1.serializer()), it, "Category ${it.id}")?.let { f -> return f } }
         file.entries.forEach { e ->
@@ -136,7 +141,7 @@ internal object BackupLines {
 
     // ----------------------------------------------------------------------------------------------- read
 
-    fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits): DecodeResult {
+    fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits, restoreAnyway: Boolean = false): DecodeResult {
         // Counts characters as they are read, newlines between lines included (PEN-002).
         var total = -1L
         val iterator = lines.map { total += it.length + 1; it }.iterator()
@@ -149,13 +154,13 @@ internal object BackupLines {
             if (l.isNotBlank()) { first = l; break }
         }
         if (first == null) return BackupCodec.fail("This backup file is empty")
-        if (first.trim() == "{") return readV1(first, iterator, now, limits) // v1: one pretty-printed JSON document
+        if (first.trim() == "{") return readV1(first, iterator, now, limits, restoreAnyway) // v1: one pretty-printed JSON document
         if (first.length > limits.maxLineChars) return BackupCodec.fail("Line 1 is too long (limit ${limits.maxLineChars} characters)")
         JsonKeys.firstDuplicate(first)?.let { return BackupCodec.fail("Line 1 has a duplicate key '$it' (the file was edited)") }
         val parsed = try { strict.parseToJsonElement(first) } catch (e: Exception) { null }
             ?: return BackupCodec.fail("This is not a Vyaya backup file (it is not valid JSON)")
         val header = parsed as? JsonObject ?: return BackupCodec.fail("This is not a Vyaya backup file (no header)")
-        if (header["t"] == null && header["format"] != null) return readV1(first, iterator, now, limits)
+        if (header["t"] == null && header["format"] != null) return readV1(first, iterator, now, limits, restoreAnyway)
         if ((header["t"] as? JsonPrimitive)?.content != "header" || (header["format"] as? JsonPrimitive)?.content != BackupCodec.FORMAT) {
             return BackupCodec.fail("This is not a Vyaya backup file (no header)")
         }
@@ -169,7 +174,7 @@ internal object BackupLines {
 
         val sha = Sha256().apply { update(first + "\n") }
         // Each record becomes a domain record as soon as it is read; nothing else is kept (PEN-003).
-        val reader = Reader(now).apply { header(h.currency, h.exportedAt, h.settings) }
+        val reader = Reader(now, restoreAnyway).apply { header(h.currency, h.exportedAt, h.settings) }
         val counts = IntArray(8) // per type, in the header's order
         var records = 0
         var trailer: TrailerV2? = null
@@ -226,13 +231,13 @@ internal object BackupLines {
     }
 
     /** A v1 file: collect the rest of the document (within the v1 size limit) and decode it as before. */
-    private fun readV1(first: String, rest: Iterator<String>, now: Instant, limits: BackupLimits): DecodeResult {
+    private fun readV1(first: String, rest: Iterator<String>, now: Instant, limits: BackupLimits, restoreAnyway: Boolean): DecodeResult {
         val text = StringBuilder(first)
         while (rest.hasNext()) {
             text.append('\n').append(rest.next())
             if (text.length > limits.maxV1Chars) return BackupCodec.fail("Backup file is too large (more than ${limits.maxV1Chars} characters)")
         }
-        return BackupCodec.decodeV1(text.toString(), now, limits.maxV1Chars)
+        return BackupCodec.decodeV1(text.toString(), now, limits.maxV1Chars, restoreAnyway)
     }
 
     /** Decodes a record line (without its "t" field); null if it doesn't match the record's shape. */

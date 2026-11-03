@@ -71,8 +71,14 @@ data class ExportMeta(val appVersion: String, val createdOn: String, val exporte
 sealed interface DecodeResult {
     data class Success(val snapshot: Snapshot, val meta: ExportMeta) : DecodeResult
 
-    /** Human-readable problems, at most [BackupCodec.MAX_PROBLEMS] plus a "… more" line. Nothing is restored. */
-    data class Failure(val problems: List<String>) : DecodeResult
+    /**
+     * Human-readable problems, at most [BackupCodec.MAX_PROBLEMS] plus a "… more" line. Nothing is restored.
+     *
+     * [clockBehind]: the only problem is that the backup looks made in the future (this phone's clock is behind,
+     * or the exporting phone's was ahead). The app may then offer "Restore anyway" and read again with
+     * `restoreAnyway = true` (FLAW-001).
+     */
+    data class Failure(val problems: List<String>, val clockBehind: Boolean = false) : DecodeResult
 }
 
 /**
@@ -108,12 +114,20 @@ object BackupCodec {
      * never writes a backup it can't restore (DATA-001). On failure, part of the file may already have been
      * written, so callers write to a temporary file and keep it only on [EncodeResult.Success].
      */
-    fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult =
-        BackupLines.write(toContent(snapshot, meta), SCHEMA_VERSION, limits, sink)
+    fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult {
+        // DATA-001: refuse here, with the reader's own words, anything a restore would refuse.
+        val problems = Consistency.problems(snapshot, meta.exportedAt)
+        if (problems.isNotEmpty()) {
+            val shown = problems.take(MAX_PROBLEMS).joinToString("; ")
+            val more = if (problems.size > MAX_PROBLEMS) "; … and ${problems.size - MAX_PROBLEMS} more problems" else ""
+            return EncodeResult.Failure("This data can't be backed up because it couldn't be restored: $shown$more")
+        }
+        return BackupLines.write(toContent(snapshot, meta), SCHEMA_VERSION, limits, sink)
+    }
 
     /** Reads a backup from its lines (v2, or a v1 file from an earlier version). Never throws. */
-    fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
-        BackupLines.read(lines, now, limits)
+    fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits = BackupLimits(), restoreAnyway: Boolean = false): DecodeResult =
+        BackupLines.read(lines, now, limits, restoreAnyway)
 
     /** The whole v2 file as one string (convenience for tests and small backups). */
     fun encode(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits()): String {
@@ -123,8 +137,8 @@ object BackupCodec {
         return out.toString()
     }
 
-    fun decode(text: String, now: Instant, limits: BackupLimits = BackupLimits()): DecodeResult =
-        read(text.lineSequence(), now, limits)
+    fun decode(text: String, now: Instant, limits: BackupLimits = BackupLimits(), restoreAnyway: Boolean = false): DecodeResult =
+        read(text.lineSequence(), now, limits, restoreAnyway)
 
     /** Writes the old v2 format. Kept only to produce migration test fixtures. */
     internal fun encodeV2(snapshot: Snapshot, meta: ExportMeta): String {
@@ -180,7 +194,7 @@ object BackupCodec {
         )
     }
 
-    internal fun decodeV1(text: String, now: Instant, maxChars: Int): DecodeResult {
+    internal fun decodeV1(text: String, now: Instant, maxChars: Int, restoreAnyway: Boolean = false): DecodeResult {
         if (text.length > maxChars) return fail("Backup file is too large (more than $maxChars characters)")
         JsonKeys.firstDuplicate(text)?.let { return fail("The backup file has a duplicate key '$it' (it was edited)") }
         val root = try {
@@ -202,7 +216,7 @@ object BackupCodec {
         } catch (e: Exception) {
             return fail("The backup file is damaged or was edited: ${e.message?.lineSequence()?.firstOrNull()?.take(200)}")
         }
-        return Reader.read(file.toContent(), now)
+        return Reader.read(file.toContent(), now, restoreAnyway)
     }
 
     internal fun fail(problem: String) = DecodeResult.Failure(listOf(problem))
@@ -215,7 +229,7 @@ object BackupCodec {
  * fails validation is dropped straight away, so oversized fields are never held (PEN-002). References between
  * records are checked in [finish], so the order of records in the file doesn't matter.
  */
-internal class Reader(private val now: Instant) {
+internal class Reader(private val now: Instant, private val restoreAnyway: Boolean = false) {
 
     private val problems = mutableListOf<String>()
 
@@ -225,6 +239,12 @@ internal class Reader(private val now: Instant) {
     private val lastDay = LocalDate(2100, 12, 31)
 
     private var settings: Settings? = null
+
+    /** The backup's export time is after this phone's time (FLAW-001); [clockProblem] is the message if refused. */
+    private var clockProblem: String? = null
+
+    /** Restoring anyway: every date after [now] is reset to [now] (FLAW-001). */
+    private var resetFutureDates = false
     private var homeZone: TimeZone? = null
     private var exportedAt: Instant? = null
     private val accounts = mutableListOf<Account>()
@@ -240,17 +260,26 @@ internal class Reader(private val now: Instant) {
     val full: Boolean get() = problems.size > BackupCodec.MAX_PROBLEMS
 
     /** The first [BackupCodec.MAX_PROBLEMS] problems and a line saying reading stopped at [line]. */
-    fun stoppedAt(line: Int): DecodeResult.Failure =
-        DecodeResult.Failure(problems.take(BackupCodec.MAX_PROBLEMS) + "… and more problems; stopped reading at line $line")
+    fun stoppedAt(line: Int): DecodeResult.Failure = DecodeResult.Failure(
+        // FLAW-004: reading stopped before the checksum was reached, so say plainly what this most likely means.
+        listOf("This file looks damaged or edited: it has too many problems to restore.") +
+            problems.take(BackupCodec.MAX_PROBLEMS) + "… and more problems; stopped reading at line $line",
+    )
 
     fun header(currency: String, exportedAt: String, s: SettingsV1) {
         if (currency != "INR") problems += "Unsupported currency '$currency' (only INR)"
         val zone = try { TimeZone.of(s.timezone) } catch (e: Exception) { problems += "settings: unknown time zone '${s.timezone}'"; null }
         val at = instant(exportedAt, "exportedAt")
         if (at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
-            val shownIn = zone ?: TimeZone.UTC
-            problems += "This backup was made on ${at.toLocalDateTime(shownIn).date}, which is later than this phone's date " +
-                "(${now.toLocalDateTime(shownIn).date}). Check that this phone's date and time are correct, then try again."
+            if (restoreAnyway) {
+                resetFutureDates = true // FLAW-001: the user confirmed
+            } else {
+                val shownIn = zone ?: TimeZone.UTC
+                val message = "This backup was made on ${at.toLocalDateTime(shownIn).date}, which is later than this phone's date " +
+                    "(${now.toLocalDateTime(shownIn).date}). Check that this phone's date and time are correct, then try again."
+                problems += message
+                clockProblem = message
+            }
         }
         this.exportedAt = at
         homeZone = zone
@@ -324,41 +353,34 @@ internal class Reader(private val now: Instant) {
 
     /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
     fun finish(appVersion: String, createdOn: String): DecodeResult {
-        val accountIds = accounts.mapTo(HashSet()) { it.id }
-        val categoryIds = categories.mapTo(HashSet()) { it.id } + SystemCategories.all.map { it.id }
-        val personIds = people.mapTo(HashSet()) { it.id }
-        val entryIds = entries.mapTo(HashSet()) { it.id }
-        val ruleIds = recurring.mapTo(HashSet()) { it.id }
-        fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
-            if (id != null && id !in known) problems += "$owner: unknown $what $id"
-        }
-        entries.forEach { e ->
-            val owner = "entry ${e.id}"
-            check(owner, e.accountId, accountIds, "account"); check(owner, e.toAccountId, accountIds, "account")
-            check(owner, e.categoryId, categoryIds, "category"); e.splits.forEach { check(owner, it.categoryId, categoryIds, "category") }
-            check(owner, e.linkedEntryId, entryIds, "linked entry"); check(owner, e.generatedBy?.ruleId, ruleIds, "recurring rule")
-        }
-        recurring.forEach { r ->
-            check("recurring rule ${r.id}", r.categoryId, categoryIds, "category"); check("recurring rule ${r.id}", r.accountId, accountIds, "account")
-        }
-        ledger.forEach { check("ledger entry ${it.id}", it.personId, personIds, "person") }
-        budgets.forEach { check("budget ${it.id}", it.categoryId, categoryIds, "category") }
-        merchantRules.forEach { check("merchant rule ${it.id}", it.categoryId, categoryIds, "category") }
-
-        listOf(
-            "accounts" to accounts.map { it.id }, "categories" to categories.map { it.id }, "entries" to entries.map { it.id },
-            "recurring" to recurring.map { it.id }, "people" to people.map { it.id }, "ledger" to ledger.map { it.id },
-            "budgets" to budgets.map { it.id }, "merchantRules" to merchantRules.map { it.id },
-        ).forEach { (name, ids) ->
-            ids.groupingBy { it }.eachCount().filterValues { it > 1 }.keys.forEach { problems += "$name: duplicate id $it" }
-        }
+        problems += Consistency.crossRecord(accounts, categories, entries, recurring, people, ledger, budgets, merchantRules)
 
         // A missing settings or export time always comes with a problem, so "no problems" means both are present.
         val settings = settings; val exportedAt = exportedAt
         if (problems.isNotEmpty() || settings == null || exportedAt == null) {
             val capped = if (problems.size <= BackupCodec.MAX_PROBLEMS) problems
             else problems.take(BackupCodec.MAX_PROBLEMS) + "… and ${problems.size - BackupCodec.MAX_PROBLEMS} more problems"
-            return DecodeResult.Failure(capped)
+            return DecodeResult.Failure(capped, clockBehind = clockProblem != null && problems == listOf(clockProblem))
+        }
+        if (resetFutureDates) {
+            // FLAW-001: dates after this phone's time would win every later merge (SEC-005). DATA-002: so every change
+            // time moves back by the clock difference, as if the backup were made now. That keeps its order against
+            // this phone's own edits (resetting to now made every restored record the newest). Never before 2000, so
+            // the result can be backed up again. Only change times move; when things happened stays as it was.
+            val difference = exportedAt - now
+            fun Instant.shiftedBack() = maxOf(this - difference, earliest)
+            val snapshot = Snapshot(
+                settings,
+                accounts.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                categories.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                entries.map { it.copy(createdAt = it.createdAt.shiftedBack(), updatedAt = it.updatedAt.shiftedBack()) },
+                recurring.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                people.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                ledger.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                budgets.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                merchantRules.map { MerchantRule(it.id, it.payee, it.categoryId, it.updatedAt.shiftedBack(), it.deleted) },
+            ).normalized()
+            return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now))
         }
         val snapshot = Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, merchantRules).normalized()
         return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt))
@@ -369,16 +391,15 @@ internal class Reader(private val now: Instant) {
      * one the backup was made in can't be genuine. Merged in, it would stop catch-up from creating that month.
      */
     private fun keyNotAfterExport(e: Entry) {
-        val key = e.generatedBy ?: return
-        val at = exportedAt ?: return
-        val made = at.toLocalDateTime(homeZone ?: TimeZone.UTC).date.let { YearMonth(it.year, it.month) }
-        if (key.month > made) problems += "entry ${e.id}: generated for ${key.month}, after the backup was made ($made)"
+        // Against the backup's own export time, also when restoring anyway: a key for the month the backup was made in
+        // is genuine even if this phone's clock hasn't reached that month (PR #2 review).
+        Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
     }
 
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
     private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
         val at = exportedAt ?: return
-        if (times.any { it > at }) problems += "$what $id: changed after the backup was made ($at)"
+        if (times.any { it > at }) problems += Consistency.changedAfterExport(what, id, at)
     }
 
     private fun settings(currency: String, zone: TimeZone?, s: SettingsV1): Settings? {
@@ -438,7 +459,7 @@ internal class Reader(private val now: Instant) {
 
     companion object {
         /** A whole file already in memory (a v1 file, migrated). */
-        fun read(file: BackupContent, now: Instant): DecodeResult = Reader(now).run {
+        fun read(file: BackupContent, now: Instant, restoreAnyway: Boolean = false): DecodeResult = Reader(now, restoreAnyway).run {
             header(file.currency, file.exportedAt, file.settings)
             file.accounts.forEach(::account); file.categories.forEach(::category); file.people.forEach(::person)
             file.entries.forEach(::entry); file.recurring.forEach(::recurring); file.ledger.forEach(::ledger)

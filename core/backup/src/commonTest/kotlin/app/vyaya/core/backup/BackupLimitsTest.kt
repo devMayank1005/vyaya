@@ -77,6 +77,13 @@ class BackupLimitsTest {
     // --- PEN-002: a total size cap, shared by writer and reader ---------------------------------------
 
     @Test
+    fun the_size_cap_fits_ten_years_of_a_heavy_user_but_no_more_than_128_mb() { // PEN-002 (v2 fixes report #2)
+        // A valid file at the old 256 MB cap needed about 371 MB to read; 200,000 real entries are about 96 MB.
+        assertTrue(BackupLimits().maxTotalChars <= 128L * 1024 * 1024, "cap ${BackupLimits().maxTotalChars}")
+        assertTrue(BackupLimits().maxTotalChars >= 112L * 1024 * 1024, "room above 96 MB for 200,000 entries")
+    }
+
+    @Test
     fun the_total_size_is_capped_for_writer_and_reader_alike() { // PEN-002
         val text = BackupCodec.encode(GOLDEN_SNAPSHOT, META)
         val exact = BackupLimits(maxTotalChars = text.length.toLong())
@@ -104,8 +111,10 @@ class BackupLimitsTest {
         }.map { pulled++; it }
 
         val result = assertIs<DecodeResult.Failure>(BackupCodec.read(lines, NOW))
-        assertTrue(result.problems.first().contains("note"), result.problems.first())
-        assertEquals(BackupCodec.MAX_PROBLEMS + 1, result.problems.size)
+        // FLAW-004: the reader stopped before the checksum, so the first line says what the user needs to know.
+        assertTrue(result.problems.first().startsWith("This file looks damaged or edited"), result.problems.first())
+        assertTrue(result.problems[1].contains("note"), result.problems[1])
+        assertEquals(BackupCodec.MAX_PROBLEMS + 2, result.problems.size)
         assertTrue(result.problems.last().contains("stopped reading"), result.problems.last())
         assertTrue(pulled <= BackupCodec.MAX_PROBLEMS + 2, "read $pulled lines of ${bad + 2}")
     }

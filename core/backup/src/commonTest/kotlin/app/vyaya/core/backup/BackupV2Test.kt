@@ -218,7 +218,7 @@ class BackupV2Test {
     fun encode_refuses_instead_of_writing_an_unrestorable_file() {
         assertFailsWith<IllegalArgumentException> { BackupCodec.encode(GOLDEN_SNAPSHOT, META, BackupLimits(maxLineChars = 50)) }
         val tooLongHeader = BackupCodec.write(GOLDEN_SNAPSHOT, META, BackupLimits(maxLineChars = 300)) {}
-        assertTrue((tooLongHeader as EncodeResult.Failure).reason.startsWith("The settings"))
+        assertTrue((tooLongHeader as EncodeResult.Failure).reason.startsWith("Settings are too large to back up"), tooLongHeader.reason) // FLAW-005
     }
 
     @Test

@@ -45,29 +45,41 @@ internal val NOW = Instant.parse("2026-10-28T00:00:00Z")
 private val PAYEES = listOf("Swiggy", "Zomato", "Rahul Sharma", "BigBasket", "Uber India", "Café Coffee Day", "Sharma & Sons", "\"Quotes\" Ltd", "line\nbreak")
 private val ZONES = listOf("Asia/Kolkata", "Asia/Kolkata", "Asia/Kolkata", "America/New_York", "Asia/Dubai")
 
+/**
+ * A version-4 UUID from [this] seeded generator, so the same seed always gives the same ids and so the same
+ * report (SIM-007). The app itself uses [EntityId.random].
+ */
+internal fun Random.nextId(): EntityId {
+    val b = nextBytes(16)
+    b[6] = ((b[6].toInt() and 0x0f) or 0x40).toByte()
+    b[8] = ((b[8].toInt() and 0x3f) or 0x80).toByte()
+    val h = b.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
+    return EntityId.parse("${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}")!!
+}
+
 fun personaSnapshot(persona: BackupPersona, random: Random, entryCap: Int = Int.MAX_VALUE): Snapshot {
     val start = Instant.parse("2016-01-01T00:00:00Z").epochSeconds
     val span = persona.years * 365L * 86_400
     val stamp = { Instant.fromEpochSeconds(start + random.nextLong(span)) }
-    val accounts = List(3) { Account(EntityId.random(), listOf("HDFC Salary", "SBI", "Cash")[it], AccountKind.entries[it % 3], "${1000 + it}", stamp(), false) }
-    val categories = List(15) { Category(EntityId.random(), "Category $it", if (it < 12) CategoryKind.EXPENSE else CategoryKind.INCOME, stamp(), it == 14) }
-    val people = List(10) { Person(EntityId.random(), "Friend $it", stamp(), false) }
+    val accounts = List(3) { Account(random.nextId(), listOf("HDFC Salary", "SBI", "Cash")[it], AccountKind.entries[it % 3], "${1000 + it}", stamp(), false) }
+    val categories = List(15) { Category(random.nextId(), "Category $it", if (it < 12) CategoryKind.EXPENSE else CategoryKind.INCOME, stamp(), it == 14) }
+    val people = List(10) { Person(random.nextId(), "Friend $it", stamp(), false) }
     val count = minOf(entryCap, (persona.years * 365 * persona.entriesPerDay).toInt())
     val entries = List(count) {
         Entry(
-            EntityId.random(), if (random.nextInt(10) == 0) EntryType.INCOME else EntryType.EXPENSE, Money(random.nextLong(100, 50_000_00)),
+            random.nextId(), if (random.nextInt(10) == 0) EntryType.INCOME else EntryType.EXPENSE, Money(random.nextLong(100, 50_000_00)),
             CapturedAt(stamp(), TimeZone.of(ZONES[random.nextInt(ZONES.size)])), accounts.random(random).id, null, categories.random(random).id,
             PAYEES.random(random), if (random.nextInt(5) == 0) "note $it" else "", if (random.nextInt(8) == 0) listOf("trip") else emptyList(),
             EntrySource.entries.random(random), if (random.nextBoolean()) "${random.nextLong(100_000_000_000, 999_999_999_999)}" else null,
             emptyList(), null, stamp(), stamp(), random.nextInt(50) == 0,
         )
     }
-    val recurring = List(10) { RecurringRule(EntityId.random(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), stamp(), false) }
+    val recurring = List(10) { RecurringRule(random.nextId(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), stamp(), false) }
     // What recurring catch-up made: one entry per rule per month, for every month of the persona's history.
     val generated = recurring.flatMap { rule -> (0 until persona.years * 12).map { generatedEntry(rule, dueOn(rule, it), stamp()) } }
-    val ledger = List(50) { LedgerEntry(EntityId.random(), people.random(random).id, LedgerDirection.entries.random(random), Money(random.nextLong(100, 1_00_000)), LocalDate(2020, 1, 1), "", random.nextBoolean(), stamp(), false) }
-    val budgets = List(10) { Budget(EntityId.random(), categories[it].id, Money(5_000_00), stamp(), false) }
-    val rules = List(50) { MerchantRule(EntityId.random(), "payee $it", categories.random(random).id, stamp(), false) }
+    val ledger = List(50) { LedgerEntry(random.nextId(), people.random(random).id, LedgerDirection.entries.random(random), Money(random.nextLong(100, 1_00_000)), LocalDate(2020, 1, 1), "", random.nextBoolean(), stamp(), false) }
+    val budgets = List(10) { Budget(random.nextId(), categories[it].id, Money(5_000_00), stamp(), false) }
+    val rules = List(50) { MerchantRule(random.nextId(), "payee $it", categories.random(random).id, stamp(), false) }
     return Snapshot(Settings.default(), accounts, categories, entries + generated, recurring, people, ledger, budgets, rules)
 }
 

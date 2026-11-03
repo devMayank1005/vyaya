@@ -19,6 +19,7 @@ dependencyResolutionManagement {
 include(":core:model")
 include(":core:parser")
 include(":core:backup")
+include(":core:engine")
 
 // Test support (synthetic messages) and the user simulation; never shipped.
 include(":core:fixtures")

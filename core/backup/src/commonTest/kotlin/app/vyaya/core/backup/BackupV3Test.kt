@@ -115,7 +115,33 @@ class BackupV3Test {
         return signed(golden.toMutableList().apply {
             this[0] = this[0].replace("2026-10-27T12:00:00Z", exportedAt)
             this[5] = this[5].replace(SPOTIFY_OCT.entryId.value, key.entryId.value).replace(""""month":"2026-10"""", """"month":"$month"""")
+                .replace("2026-10-05T04:30:00Z", "$month-05T04:30:00Z") // paid in the key's month (DATA-001)
         })
+    }
+
+    @Test
+    fun a_key_for_a_month_before_its_rule_starts_is_refused() { // DATA-004: catch-up can't have made it
+        val p = problems(keyedFor(YearMonth(2025, 12))) // Spotify starts on 5 Jan 2026
+        assertTrue(p.any { "2025-12" in it && "before its rule starts" in it }, p.toString())
+        assertIs<DecodeResult.Success>(BackupCodec.decode(keyedFor(YearMonth(2026, 1)), NOW), "the rule's first month")
+    }
+
+    @Test
+    fun a_generated_entry_keeps_its_rules_type() { // FLAW-006: amount may change, type may not
+        val income = edited(5) { it.replace(""""type":"EXPENSE"""", """"type":"INCOME"""") }
+        assertTrue(problems(signed(income)).any { SPOTIFY_OCT.entryId.value in it && "type INCOME" in it && "EXPENSE" in it },
+            problems(signed(income)).toString())
+        val cheaper = edited(5) { it.replace(""""amountPaise":11900""", """"amountPaise":5900""") }
+        assertIs<DecodeResult.Success>(BackupCodec.decode(signed(cheaper), NOW), "this month's bill was smaller")
+    }
+
+    @Test
+    fun a_generated_entry_dated_far_from_its_month_is_refused() { // DATA-001
+        val december = edited(5) { it.replace("2026-10-05T04:30:00Z", "2026-12-05T04:30:00Z") }
+        assertTrue(problems(signed(december)).any { SPOTIFY_OCT.entryId.value in it && "month either side" in it },
+            problems(signed(december)).toString())
+        val lateInNovember = edited(5) { it.replace("2026-10-05T04:30:00Z", "2026-11-03T04:30:00Z") }
+        assertIs<DecodeResult.Success>(BackupCodec.decode(signed(lateInNovember), kotlin.time.Instant.parse("2026-11-04T00:00:00Z")))
     }
 
     @Test
