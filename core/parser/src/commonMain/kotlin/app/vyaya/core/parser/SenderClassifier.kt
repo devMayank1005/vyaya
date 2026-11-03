@@ -22,8 +22,9 @@ sealed interface SenderKind {
     /**
      * A TRAI-registered SMS header such as `VM-HDFCBK-S`: [entity] is the 6-character part (`HDFCBK`), and
      * [category] the suffix (`-S`), or null when there is none. Kept so promotional headers can be dropped (SEC-006).
+     * [prefixed] is false for a bare entity (`HDFCBK`) with no Indian operator prefix (SEC-003, filters-dedup report).
      */
-    data class Header(val entity: String, val category: HeaderCategory?) : SenderKind
+    data class Header(val entity: String, val category: HeaderCategory?, val prefixed: Boolean = true) : SenderKind
     data class App(val app: UpiApp) : SenderKind
     data object PhoneNumber : SenderKind
     data object Unknown : SenderKind
@@ -40,7 +41,8 @@ object SenderClassifier {
     fun classify(sender: String): SenderKind {
         val trimmed = sender.trim()
         APPS[trimmed]?.let { return SenderKind.App(it) }
-        (PREFIXED_HEADER.matchEntire(trimmed) ?: BARE_HEADER.matchEntire(trimmed))?.let {
+        val prefixed = PREFIXED_HEADER.matchEntire(trimmed)
+        (prefixed ?: BARE_HEADER.matchEntire(trimmed))?.let {
             val category = when (if (it.groups.size > 2) it.groups[2]?.value?.uppercase() else null) {
                 "S" -> HeaderCategory.SERVICE
                 "T" -> HeaderCategory.TRANSACTIONAL
@@ -48,7 +50,7 @@ object SenderClassifier {
                 "G" -> HeaderCategory.GOVERNMENT
                 else -> null
             }
-            return SenderKind.Header(it.groupValues[1].uppercase(), category)
+            return SenderKind.Header(it.groupValues[1].uppercase(), category, prefixed = prefixed != null)
         }
         if (PHONE.matches(trimmed.filterNot { it == ' ' || it == '-' })) return SenderKind.PhoneNumber
         return SenderKind.Unknown

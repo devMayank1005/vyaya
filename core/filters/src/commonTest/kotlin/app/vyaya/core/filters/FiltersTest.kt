@@ -66,6 +66,24 @@ class FiltersTest {
         assertEquals(Verdict.Ignore(IgnoreReason.UNKNOWN_SENDER), sms("Bank Alert", "Rs.500.00 debited from A/c XX1234"))
     }
 
+    private val hdfcText = "Sent Rs.500.00 From HDFC Bank A/C *1234 To Rahul On 26/10/26 Ref 429112345678 Not You? Call 18002586161"
+
+    @Test
+    fun a_bare_header_without_the_operator_prefix_waits_for_review() { // SEC-003 (filters-dedup report)
+        assertEquals(ReviewReason.BARE_HEADER, assertIs<Verdict.Review>(sms("HDFCBK", hdfcText)).reason)
+        assertIs<Verdict.Accept>(sms("VM-HDFCBK-S", hdfcText))
+    }
+
+    @Test
+    fun the_sms_apps_notification_is_trusted_only_when_the_sender_is_not_a_saved_contact() { // SEC-002, Play build
+        fun smsApp(title: String, contact: Boolean) =
+            judge(RawMessage(Source.SMS_APP_NOTIFICATION, title, hdfcText, at, senderIsContact = contact))
+        assertIs<Verdict.Accept>(smsApp("VM-HDFCBK-S", contact = false))
+        assertEquals(ReviewReason.SAVED_CONTACT, assertIs<Verdict.Review>(smsApp("VM-HDFCBK-S", contact = true)).reason)
+        assertEquals(Verdict.Ignore(IgnoreReason.PERSONAL_NUMBER), smsApp("+919812345678", contact = false))
+        assertEquals(Verdict.Ignore(IgnoreReason.UNKNOWN_SENDER), smsApp("Rahul", contact = true))
+    }
+
     @Test
     fun a_lookalike_or_unknown_bank_header_waits_for_review() { // SEC-007: never automatic
         val v = sms("VM-HDFCBNK-S", "Sent Rs.500.00 From HDFC Bank A/C *1234 To Rahul On 26/10/26 Ref 429112345678 Not You? Call 18002586161")

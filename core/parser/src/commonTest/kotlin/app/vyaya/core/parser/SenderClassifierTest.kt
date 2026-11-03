@@ -23,7 +23,8 @@ class SenderClassifierTest {
     @Test
     fun bare_headers_without_operator_prefix_are_recognised() {
         // Some phones show the header without the 2-letter operator/circle prefix.
-        assertEquals(SenderKind.Header("KOTAKB", null), SenderClassifier.classify("KOTAKB"))
+        // Recognised, but marked bare: filters send it to review (SEC-003, filters-dedup report).
+        assertEquals(SenderKind.Header("KOTAKB", null, prefixed = false), SenderClassifier.classify("KOTAKB"))
     }
 
     @Test

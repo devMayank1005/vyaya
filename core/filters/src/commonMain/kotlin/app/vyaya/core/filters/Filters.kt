@@ -41,6 +41,12 @@ enum class IgnoreReason {
 enum class ReviewReason {
     /** A well-formed SMS header that isn't on the known-bank list: a new bank, or a lookalike (SEC-007). */
     UNKNOWN_HEADER,
+
+    /** A known bank's header without the operator prefix (`HDFCBK`): international routes can send any such ID (SEC-003). */
+    BARE_HEADER,
+
+    /** The SMS app's notification is titled with a saved contact's name, which anyone can make look like a bank (SEC-002). */
+    SAVED_CONTACT,
 }
 
 sealed interface Verdict {
@@ -76,7 +82,13 @@ object Filters {
                 is SenderKind.PhoneNumber -> return Verdict.Ignore(IgnoreReason.PERSONAL_NUMBER)
                 is SenderKind.Header -> {
                     if (sender.category == HeaderCategory.PROMOTIONAL) return Verdict.Ignore(IgnoreReason.PROMOTIONAL)
-                    if (sender.entity !in senders.headers) review = ReviewReason.UNKNOWN_HEADER
+                    review = when {
+                        sender.entity !in senders.headers -> ReviewReason.UNKNOWN_HEADER
+                        !sender.prefixed -> ReviewReason.BARE_HEADER
+                        // SEC-002: in the SMS app's notification, a saved contact's name can look like any bank.
+                        raw.source == Source.SMS_APP_NOTIFICATION && raw.senderIsContact -> ReviewReason.SAVED_CONTACT
+                        else -> null
+                    }
                 }
                 else -> return Verdict.Ignore(IgnoreReason.UNKNOWN_SENDER)
             }
