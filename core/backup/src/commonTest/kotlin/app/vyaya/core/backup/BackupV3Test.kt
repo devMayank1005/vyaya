@@ -115,7 +115,17 @@ class BackupV3Test {
         return signed(golden.toMutableList().apply {
             this[0] = this[0].replace("2026-10-27T12:00:00Z", exportedAt)
             this[5] = this[5].replace(SPOTIFY_OCT.entryId.value, key.entryId.value).replace(""""month":"2026-10"""", """"month":"$month"""")
+                .replace("2026-10-05T04:30:00Z", "$month-05T04:30:00Z") // paid in the key's month (DATA-001)
         })
+    }
+
+    @Test
+    fun a_generated_entry_dated_far_from_its_month_is_refused() { // DATA-001
+        val december = edited(5) { it.replace("2026-10-05T04:30:00Z", "2026-12-05T04:30:00Z") }
+        assertTrue(problems(signed(december)).any { SPOTIFY_OCT.entryId.value in it && "month either side" in it },
+            problems(signed(december)).toString())
+        val lateInNovember = edited(5) { it.replace("2026-10-05T04:30:00Z", "2026-11-03T04:30:00Z") }
+        assertIs<DecodeResult.Success>(BackupCodec.decode(signed(lateInNovember), kotlin.time.Instant.parse("2026-11-04T00:00:00Z")))
     }
 
     @Test

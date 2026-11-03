@@ -65,6 +65,20 @@ class DomainTest {
     }
 
     @Test
+    fun a_generated_entry_is_dated_in_its_month_or_the_month_either_side() { // DATA-001: rent paid late is fine
+        val october = Generation(rent, YearMonth(2026, 10))
+        fun on(day: String) = CapturedAt(Instant.parse(day), TimeZone.of("Asia/Kolkata"))
+        fun generated(day: String) = entry(id = october.entryId, source = EntrySource.RECURRING, generatedBy = october, occurredAt = on(day))
+        generated("2026-10-05T04:30:00Z")
+        generated("2026-11-03T04:30:00Z") // paid late
+        generated("2026-09-30T04:30:00Z") // paid early
+        generated("2026-11-30T18:00:00Z") // 30 Nov 23:30 in Kolkata: still November
+        assertFailsWith<IllegalArgumentException> { generated("2026-12-05T04:30:00Z") }
+        assertFailsWith<IllegalArgumentException> { generated("2026-11-30T19:00:00Z") } // already 1 Dec in Kolkata
+        assertFailsWith<IllegalArgumentException> { generated("2026-08-31T04:30:00Z") }
+    }
+
+    @Test
     fun an_entry_without_a_key_cannot_take_a_derived_id() { // PEN-003: it would block that month's catch-up
         val november = Generation(rent, YearMonth(2026, 11)).entryId
         assertFailsWith<IllegalArgumentException> { entry(id = november) }
@@ -92,8 +106,9 @@ class DomainTest {
         id: EntityId = id(),
         source: EntrySource = EntrySource.MANUAL,
         generatedBy: Generation? = null,
+        occurredAt: CapturedAt = at,
     ) = Entry(
-        id = id, type = type, amount = amount, occurredAt = at, accountId = null, toAccountId = null, categoryId = null,
+        id = id, type = type, amount = amount, occurredAt = occurredAt, accountId = null, toAccountId = null, categoryId = null,
         payee = "Swiggy", note = "", tags = tags, source = source, upiRef = null, splits = splits,
         linkedEntryId = null, createdAt = now, updatedAt = now, deleted = false, generatedBy = generatedBy,
     )

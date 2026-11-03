@@ -25,6 +25,8 @@ import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.YearMonth
+import kotlinx.datetime.atTime
+import kotlinx.datetime.toInstant
 import kotlinx.datetime.plus
 import kotlin.random.Random
 import kotlin.time.Instant
@@ -267,7 +269,9 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8, generated: Boolean = fal
     val generatedEntries = if (!generated) emptyList() else recurring.flatMap { r ->
         List(random.nextInt(0, 4)) { r.startsOn.plus(it, DateTimeUnit.MONTH) }.map { due ->
             val key = Generation(r.id, YearMonth(due.year, due.month))
-            Entry(key.entryId, r.type, r.amount, CapturedAt(instant(), TimeZone.of(ZONES.random(random))), r.accountId, null, r.categoryId,
+            val zone = TimeZone.of(ZONES.random(random))
+            // Paid in the key's month (DATA-001): noon on the due day, local time.
+            Entry(key.entryId, r.type, r.amount, CapturedAt(due.atTime(12, 0).toInstant(zone), zone), r.accountId, null, r.categoryId,
                 null, r.note.take(500), emptyList(), EntrySource.RECURRING, null, emptyList(), null, instant(), instant(), random.nextBoolean(), key)
         }
     }
