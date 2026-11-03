@@ -81,3 +81,16 @@
 - **#2:** for SMS-app notifications: auto-accept only from non-contacts (recommended), or always review?
 - **#3:** send bare headers to Review (recommended)?
 - **#5:** require the same payee for "possible duplicate" of a manual entry?
+
+## Resolution (2026-11-03)
+
+Your decision: fix 1, 2, 3 and 5.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 SIM-001 | ✅ Fixed | Loose payee key (part before `@`, letters and digits, any case). Simulation: doubled 7,899 → **0** |
+| 2 SEC-002 | ✅ Fixed | `Source.SMS_APP_NOTIFICATION` + `senderIsContact`: a saved contact's name goes to Review |
+| 3 SEC-003 | ✅ Fixed | A bare header (`HDFCBK`) goes to Review |
+| 4 FLAW-004 | ⏳ Open | Grow the trusted list from your real samples (your manual task) |
+| 5 FLAW-005 | ✅ Fixed | Typed-in match needs the same payee within 24 h, or within 2 h when it has no payee |
+| 6 SIM-006 | ⏳ Open | 24 of 140,938 same-amount payments minutes apart merge |
