@@ -98,3 +98,16 @@ entry instead of replacing it by id, as the database will. That was fixed in the
 - **#3:** paused rule on resume: (a) start at the next due date, or (b) ask about the missed months?
 - **#4:** cap amounts in the model, or only stop the crash?
 - **#5:** keep or remove the SAVED type?
+
+## Resolution (2026-11-03)
+
+Your decision: go with the recommendations. Every fix started with a failing test.
+
+| # | Status | Fix or reason |
+|---|---|---|
+| 1 SIM-001 | ✅ Fixed `bc8a102` | `ClockRepair`, run when the app opens: change times after now become now. Simulation: backups refused 60 → 0 |
+| 2 SIM-002 | ✅ Fixed `bc8a102` | The same repair removes generated entries for months not yet reached; catch-up recreates them (same id) when due. Simulation: 245 → 0 |
+| 3 FLAW-003 | ✅ Fixed `358819e` (option b) | `missedWhilePaused` lists the months for the app to ask about; `skip` marks them done if the user says no |
+| 4 DATA-004 | ✅ Fixed `4cf128e` | Every amount is at most ₹100 crore (`Money.MAX`), so sums can't overflow |
+| 5 FLAW-005 | Kept as is | `EntryType.SAVED` stays for money set aside on purpose; it's excluded from every total |
+| 6 assumptions | Confirmed | Saved is never negative; generated entries are dated at noon local time; entries count on their own local date |
