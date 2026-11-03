@@ -107,3 +107,18 @@ limit, 256 MB total size cap, stop reading once the problem list is full, clock 
 - **#2, #3:** stream restore into the database in batches when `core/data` is built (planned next anyway),
   or lower the size cap now?
 - **#6:** is 20 splits per entry right?
+
+## Resolution (2026-11-03)
+
+Your decision: go with the recommendations. Every fix started with a failing test. The follow-up break phase is in
+[`recommendations-fixes-2026-11-03.md`](recommendations-fixes-2026-11-03.md).
+
+| # | Status | Fix or reason |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed `a81a2ed` (option b) | `Failure.clockBehind` lets the app offer "Restore anyway"; then every change time after this phone's time is reset to it. See the new DATA-002 |
+| 2 PEN-002 | ✅ Fixed `d8a563f` | Size cap 256 MB → 128 MB (about 280,000 real entries). Restoring in batches comes with `core/data` |
+| 3 PEN-003 | ➡ Carried to `core/data` | Restore into the database in batches; measure on a real low-end phone |
+| 4 FLAW-004 | ✅ Fixed `b8aebb5` | When reading stops early, the first line says "This file looks damaged or edited" |
+| 5 FLAW-005 | ✅ Wording fixed `b8aebb5`; limit is accepted risk | Reaching the limit takes about 210 month-start changes (one a month for about 17 years) |
+| 6 FLAW-006 | Kept as is | 20 splits per entry: real bills split 3–5 ways, and a higher cap needs the line-limit sums redone |
+| 7 SIM-007 | ✅ Fixed `ba1a718` | Simulation ids come from the seeded random; the 2,000-user report now repeats exactly |

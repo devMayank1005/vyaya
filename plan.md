@@ -160,7 +160,12 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
    derived from that key (a version-8 UUID from SHA-256), so two phones generate the same id and a merge keeps
    one copy. The key is the month, not the due date, so moving a rule's day can't add a second entry.
    Only generated entries may have a derived id. Recurring rules don't store when they last generated: that
-   is worked out from the keys.
+   is worked out from the keys (the database indexes entries by rule and month for this).
+   - A generated entry keeps its rule's type, and may be dated in its month or the month either side (rent
+     paid late). Catch-up treats a month as done when its key exists, wherever the entry is dated.
+   - A new rule starts at its next due date: if this month's due day has passed, it starts next month. So
+     deleting a rule and adding it again in the same month doesn't make a second entry. "Edit rule" is the
+     main action; "Delete" says the rule's entries stay.
 7. Derived numbers are calculated, never stored. That includes Saved, each month's leftover.
 8. Capability flags drive the UI per platform.
 9. No platform code in the shared core; CI compiles the shared core for iOS from day 1.
@@ -199,11 +204,15 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
   - Records newer than the backup, or a backup from the future, are refused.
   - A leading BOM and Windows line endings are accepted.
 - Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
+- A backup that looks made in the future (this phone's clock is behind, or the exporting phone's was ahead) is
+  refused with a message to check the date and time, and the app offers **Restore anyway**. Then every change
+  time after this phone's time is reset to it, so the restored records can't win every later merge.
 - Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
 - Changes from v2:
   - An entry made by a recurring rule carries `"generatedBy":{"ruleId":…,"month":"2026-10"}` (otherwise
     `null`). Its id must be the one derived from that key, the rule must be in the backup, and the month can't
-    be after the month the backup was made in (in the backup's time zone).
+    be after the month the backup was made in (in the backup's time zone) or before the rule's first month.
+    The entry keeps its rule's type and is dated in its month or the month either side.
   - Recurring rules have no `lastGeneratedOn`; v1 and v2 values are dropped when read.
 - **v1** files (one pretty-printed JSON document) and **v2** files still restore; their entries have no key.
   The app only writes v3.

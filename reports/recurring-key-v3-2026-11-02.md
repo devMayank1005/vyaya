@@ -99,7 +99,7 @@ failing test. The follow-up break phase is in [`recurring-key-month-2026-11-02.m
 | 1 SEC-001 | ✅ Fixed `12b5952` | A key for a month after the backup was made (in the backup's time zone) is refused. The Codex review on PR #1 raised the same finding |
 | 2 DATA-002 | ✅ Fixed `12b5952` | The key is rule + **calendar month**; CLAUDE.md rule 8.4 updated |
 | 3 PEN-003 | ✅ Fixed `12b5952` | Only an entry made by a rule may have a derived (version-8) id |
-| 4 DATA-004 | ⏳ Open | A key for a month before the rule starts is still accepted |
-| 5 FLAW-005 | ⏳ Open | |
-| 6 FLAW-006 | ⏳ Open | |
+| 4 DATA-004 | ✅ Fixed `25b4211` (2026-11-03) | A key for a month before its rule's first month is refused |
+| 5 FLAW-005 | Accepted risk (2026-11-03) | Only backups made before v3 have recurring entries with no key, and none exist: the app isn't released |
+| 6 FLAW-006 | ✅ Fixed `25b4211` (2026-11-03) | A generated entry keeps its rule's type; the amount may differ |
 | 7 `lastGeneratedOn` | ✅ Removed `12b5952` | Worked out from the keys; v1 and v2 values are dropped when read. v3 was changed in place (not released or merged) |

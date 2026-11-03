@@ -84,5 +84,7 @@ slow paths, or confusing results. Numbered points only. Do not fix.
    derived from that key, so a merge can never double it, even after the rule's day changes.
 5. Derived values are computed, never stored. Saved (a month's leftover) is calculated, not stored as an entry.
 6. No Android or iOS APIs in shared core; it must compile for the iOS target.
-7. Backup format changes require a `schemaVersion` bump, a migration and a round-trip test.
+7. Backup format changes require a `schemaVersion` bump, a migration and a round-trip test. After the first
+   release this includes any change to what a restore accepts (a stricter limit or check), so backups made by
+   earlier versions still restore.
 8. Nothing leaves the device: no network calls, analytics or crash reporters without explicit approval.

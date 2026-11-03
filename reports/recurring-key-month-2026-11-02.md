@@ -68,3 +68,14 @@
 - **#1:** may a generated entry be moved to another month?
 - **#2:** how should re-creating a rule in the same month behave?
 - **#3:** accept as risk?
+
+## Resolution (2026-11-03)
+
+Your decision: go with the recommendations.
+
+| # | Status | Fix or reason |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed `fee7bb5` | A generated entry is dated in its month or the month either side (rent paid late); catch-up uses the key, wherever the entry is dated (plan.md design rule 6) |
+| 2 FLAW-002 | ➡ Engine rule (plan.md) | A new rule starts at its next due date; "Edit rule" is the main action and "Delete" says entries stay |
+| 3 PEN-003 | Accepted risk | Needs a tampered file and gains at most one month, only at a month's end; encryption before release closes tampering. Judging by the restoring phone's zone would refuse honest travellers' backups |
+| 4 FLAW-004 | ➡ Carried to `core/data` | Index entries by (rule, month) |
