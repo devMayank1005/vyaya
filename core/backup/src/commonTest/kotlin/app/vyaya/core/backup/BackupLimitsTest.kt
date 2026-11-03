@@ -111,8 +111,10 @@ class BackupLimitsTest {
         }.map { pulled++; it }
 
         val result = assertIs<DecodeResult.Failure>(BackupCodec.read(lines, NOW))
-        assertTrue(result.problems.first().contains("note"), result.problems.first())
-        assertEquals(BackupCodec.MAX_PROBLEMS + 1, result.problems.size)
+        // FLAW-004: the reader stopped before the checksum, so the first line says what the user needs to know.
+        assertTrue(result.problems.first().startsWith("This file looks damaged or edited"), result.problems.first())
+        assertTrue(result.problems[1].contains("note"), result.problems[1])
+        assertEquals(BackupCodec.MAX_PROBLEMS + 2, result.problems.size)
         assertTrue(result.problems.last().contains("stopped reading"), result.problems.last())
         assertTrue(pulled <= BackupCodec.MAX_PROBLEMS + 2, "read $pulled lines of ${bad + 2}")
     }

@@ -88,7 +88,9 @@ internal object BackupLines {
         fun emit(type: String, serializer: KSerializer<Any>, value: Any, what: String): EncodeResult.Failure? {
             val line = line(type, compact.encodeToJsonElement(serializer, value))
             if (line.length > limits.maxLineChars) {
-                return EncodeResult.Failure("$what is too long to back up (${line.length} characters, limit ${limits.maxLineChars})")
+                val size = "(${line.length} characters, limit ${limits.maxLineChars})"
+                // FLAW-005: the header holds the settings, which are plural.
+                return EncodeResult.Failure(if (type == "header") "Settings are too large to back up $size" else "$what is too long to back up $size")
             }
             written += line.length + 1
             if (written > limits.maxTotalChars) return tooLarge()
@@ -104,7 +106,7 @@ internal object BackupLines {
         )
         @Suppress("UNCHECKED_CAST")
         fun <T> s(serializer: KSerializer<T>) = serializer as KSerializer<Any>
-        emit("header", s(HeaderV2.serializer()), header, "The settings")?.let { return it }
+        emit("header", s(HeaderV2.serializer()), header, "Settings")?.let { return it }
         file.accounts.forEach { emit("account", s(AccountV1.serializer()), it, "Account ${it.id}")?.let { f -> return f } }
         file.categories.forEach { emit("category", s(CategoryV1.serializer()), it, "Category ${it.id}")?.let { f -> return f } }
         file.entries.forEach { e ->

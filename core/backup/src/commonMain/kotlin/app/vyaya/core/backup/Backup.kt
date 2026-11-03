@@ -252,8 +252,11 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
     val full: Boolean get() = problems.size > BackupCodec.MAX_PROBLEMS
 
     /** The first [BackupCodec.MAX_PROBLEMS] problems and a line saying reading stopped at [line]. */
-    fun stoppedAt(line: Int): DecodeResult.Failure =
-        DecodeResult.Failure(problems.take(BackupCodec.MAX_PROBLEMS) + "… and more problems; stopped reading at line $line")
+    fun stoppedAt(line: Int): DecodeResult.Failure = DecodeResult.Failure(
+        // FLAW-004: reading stopped before the checksum was reached, so say plainly what this most likely means.
+        listOf("This file looks damaged or edited: it has too many problems to restore.") +
+            problems.take(BackupCodec.MAX_PROBLEMS) + "… and more problems; stopped reading at line $line",
+    )
 
     fun header(currency: String, exportedAt: String, s: SettingsV1) {
         if (currency != "INR") problems += "Unsupported currency '$currency' (only INR)"
