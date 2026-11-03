@@ -114,8 +114,16 @@ object BackupCodec {
      * never writes a backup it can't restore (DATA-001). On failure, part of the file may already have been
      * written, so callers write to a temporary file and keep it only on [EncodeResult.Success].
      */
-    fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult =
-        BackupLines.write(toContent(snapshot, meta), SCHEMA_VERSION, limits, sink)
+    fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult {
+        // DATA-001: refuse here, with the reader's own words, anything a restore would refuse.
+        val problems = Consistency.problems(snapshot, meta.exportedAt)
+        if (problems.isNotEmpty()) {
+            val shown = problems.take(MAX_PROBLEMS).joinToString("; ")
+            val more = if (problems.size > MAX_PROBLEMS) "; … and ${problems.size - MAX_PROBLEMS} more problems" else ""
+            return EncodeResult.Failure("This data can't be backed up because it couldn't be restored: $shown$more")
+        }
+        return BackupLines.write(toContent(snapshot, meta), SCHEMA_VERSION, limits, sink)
+    }
 
     /** Reads a backup from its lines (v2, or a v1 file from an earlier version). Never throws. */
     fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits = BackupLimits(), restoreAnyway: Boolean = false): DecodeResult =
@@ -345,44 +353,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
     fun finish(appVersion: String, createdOn: String): DecodeResult {
-        val accountIds = accounts.mapTo(HashSet()) { it.id }
-        val categoryIds = categories.mapTo(HashSet()) { it.id } + SystemCategories.all.map { it.id }
-        val personIds = people.mapTo(HashSet()) { it.id }
-        val entryIds = entries.mapTo(HashSet()) { it.id }
-        val ruleIds = recurring.mapTo(HashSet()) { it.id }
-        val rulesById = recurring.associateBy { it.id }
-        entries.forEach { e ->
-            val key = e.generatedBy ?: return@forEach
-            val rule = rulesById[key.ruleId] ?: return@forEach // an unknown rule is reported below
-            // DATA-004: catch-up starts at the rule's first month, so an earlier key can't be genuine.
-            val first = YearMonth(rule.startsOn.year, rule.startsOn.month)
-            if (key.month < first) problems += "entry ${e.id}: generated for ${key.month}, before its rule starts ($first)"
-            // FLAW-006: the user may change this month's amount, not what kind of money it is.
-            if (e.type != rule.type) problems += "entry ${e.id}: type ${e.type} differs from its rule's (${rule.type})"
-        }
-        fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
-            if (id != null && id !in known) problems += "$owner: unknown $what $id"
-        }
-        entries.forEach { e ->
-            val owner = "entry ${e.id}"
-            check(owner, e.accountId, accountIds, "account"); check(owner, e.toAccountId, accountIds, "account")
-            check(owner, e.categoryId, categoryIds, "category"); e.splits.forEach { check(owner, it.categoryId, categoryIds, "category") }
-            check(owner, e.linkedEntryId, entryIds, "linked entry"); check(owner, e.generatedBy?.ruleId, ruleIds, "recurring rule")
-        }
-        recurring.forEach { r ->
-            check("recurring rule ${r.id}", r.categoryId, categoryIds, "category"); check("recurring rule ${r.id}", r.accountId, accountIds, "account")
-        }
-        ledger.forEach { check("ledger entry ${it.id}", it.personId, personIds, "person") }
-        budgets.forEach { check("budget ${it.id}", it.categoryId, categoryIds, "category") }
-        merchantRules.forEach { check("merchant rule ${it.id}", it.categoryId, categoryIds, "category") }
-
-        listOf(
-            "accounts" to accounts.map { it.id }, "categories" to categories.map { it.id }, "entries" to entries.map { it.id },
-            "recurring" to recurring.map { it.id }, "people" to people.map { it.id }, "ledger" to ledger.map { it.id },
-            "budgets" to budgets.map { it.id }, "merchantRules" to merchantRules.map { it.id },
-        ).forEach { (name, ids) ->
-            ids.groupingBy { it }.eachCount().filterValues { it > 1 }.keys.forEach { problems += "$name: duplicate id $it" }
-        }
+        problems += Consistency.crossRecord(accounts, categories, entries, recurring, people, ledger, budgets, merchantRules)
 
         // A missing settings or export time always comes with a problem, so "no problems" means both are present.
         val settings = settings; val exportedAt = exportedAt
@@ -417,17 +388,15 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
      * one the backup was made in can't be genuine. Merged in, it would stop catch-up from creating that month.
      */
     private fun keyNotAfterExport(e: Entry) {
-        val key = e.generatedBy ?: return
         // When restoring anyway, the export time is after this phone's time; neither may be passed.
         val at = (exportedAt ?: return).let { if (resetFutureDates && it > now) now else it }
-        val made = at.toLocalDateTime(homeZone ?: TimeZone.UTC).date.let { YearMonth(it.year, it.month) }
-        if (key.month > made) problems += "entry ${e.id}: generated for ${key.month}, after the backup was made ($made)"
+        Consistency.keyAfterExport(e, at, homeZone ?: TimeZone.UTC)?.let { problems += it }
     }
 
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
     private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
         val at = exportedAt ?: return
-        if (times.any { it > at }) problems += "$what $id: changed after the backup was made ($at)"
+        if (times.any { it > at }) problems += Consistency.changedAfterExport(what, id, at)
     }
 
     private fun settings(currency: String, zone: TimeZone?, s: SettingsV1): Settings? {
