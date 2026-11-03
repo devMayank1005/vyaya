@@ -51,6 +51,29 @@ class RestoreAnywayTest {
     }
 
     @Test
+    fun restore_anyway_accepts_a_key_for_the_month_the_backup_was_made_in() { // PR #2 review
+        // The exporting phone said 1 March and had generated March's Spotify; this phone still says 27 February.
+        val early = Instant.parse("2026-02-01T00:00:00Z")
+        val march = app.vyaya.core.model.Generation(R1, kotlinx.datetime.YearMonth(2026, 3))
+        val spotify = GOLDEN_V3_SNAPSHOT.entries.single { it.generatedBy != null }.copy(
+            id = march.entryId, generatedBy = march, createdAt = early, updatedAt = early,
+            occurredAt = app.vyaya.core.model.CapturedAt(Instant.parse("2026-03-01T04:30:00Z"), IST),
+        )
+        val s = GOLDEN_SNAPSHOT.copy(
+            accounts = GOLDEN_SNAPSHOT.accounts.map { it.copy(updatedAt = early) },
+            categories = GOLDEN_SNAPSHOT.categories.map { it.copy(updatedAt = early) },
+            entries = listOf(spotify),
+            recurring = GOLDEN_SNAPSHOT.recurring.map { it.copy(updatedAt = early) },
+            people = emptyList(), ledger = emptyList(), budgets = emptyList(), merchantRules = emptyList(),
+        )
+        val text = BackupCodec.encode(s, META.copy(exportedAt = Instant.parse("2026-03-01T06:00:00Z")))
+        val phone = Instant.parse("2026-02-27T09:00:00Z")
+        assertTrue(assertIs<DecodeResult.Failure>(BackupCodec.decode(text, phone)).clockBehind)
+        val restored = assertIs<DecodeResult.Success>(BackupCodec.decode(text, phone, restoreAnyway = true))
+        assertEquals(march, restored.snapshot.entries.single().generatedBy)
+    }
+
+    @Test
     fun what_is_restored_anyway_can_be_backed_up_again() { // even from a clock decades ahead
         val decadesAhead = BackupCodec.encode(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_SNAPSHOT.entries), META.copy(exportedAt = Instant.parse("2099-01-01T00:00:00Z")))
         val restored = assertIs<DecodeResult.Success>(BackupCodec.decode(decadesAhead, NOW, restoreAnyway = true))

@@ -391,9 +391,9 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
      * one the backup was made in can't be genuine. Merged in, it would stop catch-up from creating that month.
      */
     private fun keyNotAfterExport(e: Entry) {
-        // When restoring anyway, the export time is after this phone's time; neither may be passed.
-        val at = (exportedAt ?: return).let { if (resetFutureDates && it > now) now else it }
-        Consistency.keyAfterExport(e, at, homeZone ?: TimeZone.UTC)?.let { problems += it }
+        // Against the backup's own export time, also when restoring anyway: a key for the month the backup was made in
+        // is genuine even if this phone's clock hasn't reached that month (PR #2 review).
+        Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
     }
 
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
