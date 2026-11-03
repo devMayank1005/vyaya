@@ -59,7 +59,11 @@ internal const val MAX_NOTE = 500
 internal fun requireName(name: String, what: String) =
     require(name.isNotBlank() && name.length <= MAX_NAME) { "$what must be 1..$MAX_NAME characters" }
 
-internal fun requirePositive(amount: Money, what: String) = require(amount.paise > 0) { "$what must be positive" }
+internal fun requirePositive(amount: Money, what: String) {
+    require(amount.paise > 0) { "$what must be positive" }
+    // DATA-004: at most ₹100 crore, so any total of real records stays far from overflowing a Long.
+    require(amount.paise <= Money.MAX.paise) { "$what must be at most ${Money.MAX}" }
+}
 
 data class Category(val id: EntityId, val name: String, val kind: CategoryKind, val updatedAt: Instant, val deleted: Boolean) {
     init { requireName(name, "Category name") }

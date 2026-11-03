@@ -39,11 +39,11 @@ class BackupLimitsTest {
     /** Every text field at its maximum length, made of a character JSON must escape as six characters. */
     private fun largestValidSnapshot(): Snapshot {
         fun worst(n: Int) = "\u0001".repeat(n)
-        val big = Money(Long.MAX_VALUE / 2)
+        val big = Money.MAX // the largest amount allowed (DATA-004)
         val categories = List(Entry.MAX_SPLITS) { Category(EntityId.random(), worst(100), CategoryKind.EXPENSE, T, false) }
         val account = Account(EntityId.random(), worst(100), AccountKind.CARD, "123456", T, false)
         val person = Person(EntityId.random(), worst(100), T, false)
-        val splitAmount = Money(Long.MAX_VALUE / 2 / Entry.MAX_SPLITS)
+        val splitAmount = Money(Money.MAX.paise / Entry.MAX_SPLITS)
         val entry = Entry(
             EntityId.random(), EntryType.TRANSFER, Money(splitAmount.paise * Entry.MAX_SPLITS), CapturedAt(T, IST),
             account.id, account.id, categories[0].id, worst(100), worst(500), List(Entry.MAX_TAGS) { worst(Entry.MAX_TAG) },
