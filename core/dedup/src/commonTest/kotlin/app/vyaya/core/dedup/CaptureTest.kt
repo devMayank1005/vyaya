@@ -18,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /** A payment becomes exactly one entry, however many ways it arrives (plan.md invariant 1). */
@@ -86,6 +87,27 @@ class CaptureTest {
         // The same amount, one paid and one received.
         val received = RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹250 from Swiggy", at(t0 + 1.minutes))
         assertEquals(2, captureAll(listOf(phonepe("250"), received)).first.size)
+    }
+
+    @Test
+    fun two_apps_naming_the_payee_differently_are_still_one_payment() { // SIM-001 (filters-dedup report)
+        val bhim = RawMessage(Source.NOTIFICATION, "in.org.npci.upiapp", "Payment of ₹250 to rahulsharma@okaxis is successful", at(t0))
+        val (entries, _) = captureAll(listOf(bhim, phonepe("250", to = "Rahul Sharma", time = t0 + 20.seconds)))
+        assertEquals(1, entries.size, entries.toString())
+        // Different people with the same amount are still two payments.
+        assertEquals(2, captureAll(listOf(bhim, phonepe("250", to = "Priya", time = t0 + 20.seconds))).first.size)
+    }
+
+    private fun manual(payee: String?, time: Instant) = Entry(EntityId.random(), EntryType.EXPENSE, Money(2_000), at(time), null, null, null,
+        payee, "", emptyList(), EntrySource.MANUAL, null, emptyList(), null, time, time, false)
+
+    @Test
+    fun a_typed_in_entry_is_a_possible_duplicate_only_for_the_same_payee_or_when_close_in_time() { // FLAW-005
+        val swiggy = phonepe("20") // ₹20 to Swiggy at t0
+        assertIs<Outcome.Added>(Capture.process(swiggy, listOf(manual("Chai", t0 - 3.hours)), now), "a different payee")
+        assertIs<Outcome.Review>(Capture.process(swiggy, listOf(manual("swiggy", t0 - 3.hours)), now), "the same payee")
+        assertIs<Outcome.Added>(Capture.process(swiggy, listOf(manual(null, t0 - 5.hours)), now), "no payee, hours apart")
+        assertIs<Outcome.Review>(Capture.process(swiggy, listOf(manual(null, t0 - 30.minutes)), now), "no payee, close in time")
     }
 
     @Test

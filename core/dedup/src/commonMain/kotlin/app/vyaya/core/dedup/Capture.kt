@@ -49,8 +49,11 @@ object Capture {
      */
     private val SAME_PAYMENT_TWO_APPS = 2.minutes
 
-    /** How far a typed-in entry's time may be from the bank's message and still be the same payment. */
+    /** How far a typed-in entry with the same payee may be from the bank's message and still be the same payment. */
     private val MANUAL_NEARBY = 24.hours
+
+    /** A typed-in entry with no payee is only a possible duplicate this close in time (FLAW-005). */
+    private val MANUAL_NO_PAYEE_NEARBY = 2.hours
 
     /** Recurring entries are dated on the due day; the real payment may be a few days off. */
     private val RECURRING_NEARBY = 5.days
@@ -78,7 +81,9 @@ object Capture {
             EntityId.random(), if (txn.direction == Direction.DEBIT) EntryType.EXPENSE else EntryType.INCOME, txn.amount, txn.occurredAt,
             null, null, null, txn.counterparty?.take(100), "", emptyList(),
             when (source) {
-                Source.SMS -> EntrySource.SMS
+                // The SMS app's notification is the bank's SMS, read without SMS permission (Play build). The Play build
+                // has no SMS import and the full build doesn't listen to it, so the two never meet for one payment.
+                Source.SMS, Source.SMS_APP_NOTIFICATION -> EntrySource.SMS
                 Source.NOTIFICATION -> EntrySource.NOTIFICATION
                 Source.SCREENSHOT_OCR -> EntrySource.SCREENSHOT
                 Source.SHORTCUT -> EntrySource.SHORTCUT
@@ -105,13 +110,23 @@ object Capture {
     /** A typed-in or recurring entry that may be this payment: the user decides (never dropped silently). */
     private fun possibleDuplicateOf(c: Entry, existing: List<Entry>): EntityId? = existing.firstOrNull { e ->
         !e.deleted && e.type == c.type && e.amount == c.amount && when (e.source) {
-            EntrySource.MANUAL -> within(e, c, MANUAL_NEARBY)
+            // FLAW-005: a ₹20 tea typed in this morning isn't the ₹20 Swiggy payment this evening.
+            EntrySource.MANUAL -> if (e.payee == null) within(e, c, MANUAL_NO_PAYEE_NEARBY) else within(e, c, MANUAL_NEARBY) && samePayee(e, c)
             EntrySource.RECURRING -> within(e, c, RECURRING_NEARBY)
             else -> false
         }
     }?.id
 
-    private fun samePayee(a: Entry, b: Entry) = a.payee != null && a.payee.equals(b.payee, ignoreCase = true)
+    /**
+     * Apps name one payee differently: BHIM shows `rahulsharma@okaxis`, PhonePe `Rahul Sharma` (SIM-001,
+     * filters-dedup report). Compared loosely: a UPI ID's part before `@`, letters and digits only, any case.
+     */
+    private fun samePayee(a: Entry, b: Entry): Boolean {
+        val x = payeeKey(a.payee ?: return false)
+        return x.isNotEmpty() && x == payeeKey(b.payee ?: return false)
+    }
+
+    internal fun payeeKey(payee: String): String = payee.substringBefore('@').lowercase().filter { it.isLetterOrDigit() }
 
     private fun within(a: Entry, b: Entry, window: Duration) = (a.occurredAt.instant - b.occurredAt.instant).absoluteValue <= window
 }
