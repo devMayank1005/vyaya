@@ -49,22 +49,38 @@ object Recurring {
      */
     fun catchUp(rules: List<RecurringRule>, entries: List<Entry>, today: LocalDate, zone: TimeZone, now: Instant): List<Entry> {
         val done = entries.mapNotNullTo(HashSet()) { it.generatedBy }
-        val added = mutableListOf<Entry>()
-        for (rule in rules) {
-            if (rule.deleted || rule.paused) continue
-            var month = rule.startsOn.yearMonth
-            while (month <= today.yearMonth) {
-                val due = dueOn(rule, month)
-                val key = Generation(rule.id, month)
-                if (due >= rule.startsOn && due <= today && key !in done) {
-                    added += Entry(
-                        key.entryId, rule.type, rule.amount, CapturedAt(due.atTime(NOON).toInstant(zone), zone), rule.accountId, null,
-                        rule.categoryId, null, rule.note, emptyList(), EntrySource.RECURRING, null, emptyList(), null, now, now, false, key,
-                    )
-                }
-                month = month.plusMonth()
-            }
+        return rules.filter { !it.deleted && !it.paused }.flatMap { rule ->
+            missingMonths(rule, done, today).map { entryFor(rule, it, zone, now, deleted = false) }
         }
-        return added
+    }
+
+    /**
+     * The months [rule] missed while paused: due by [today] and with no entry. On resume the app asks whether to
+     * add them ("yes": resume and catch-up adds them) or not ("no": [skip] them, then resume). FLAW-003.
+     */
+    fun missedWhilePaused(rule: RecurringRule, entries: List<Entry>, today: LocalDate): List<YearMonth> =
+        missingMonths(rule, entries.mapNotNullTo(HashSet()) { it.generatedBy }, today)
+
+    /** Marks [months] of [rule] as done without an entry: deleted entries with their keys, which catch-up skips. */
+    fun skip(rule: RecurringRule, months: List<YearMonth>, zone: TimeZone, now: Instant): List<Entry> =
+        months.map { entryFor(rule, it, zone, now, deleted = true) }
+
+    private fun missingMonths(rule: RecurringRule, done: Set<Generation>, today: LocalDate): List<YearMonth> {
+        val months = mutableListOf<YearMonth>()
+        var month = rule.startsOn.yearMonth
+        while (month <= today.yearMonth) {
+            val due = dueOn(rule, month)
+            if (due >= rule.startsOn && due <= today && Generation(rule.id, month) !in done) months += month
+            month = month.plusMonth()
+        }
+        return months
+    }
+
+    private fun entryFor(rule: RecurringRule, month: YearMonth, zone: TimeZone, now: Instant, deleted: Boolean): Entry {
+        val key = Generation(rule.id, month)
+        return Entry(
+            key.entryId, rule.type, rule.amount, CapturedAt(dueOn(rule, month).atTime(NOON).toInstant(zone), zone), rule.accountId, null,
+            rule.categoryId, null, rule.note, emptyList(), EntrySource.RECURRING, null, emptyList(), null, now, now, deleted, key,
+        )
     }
 }

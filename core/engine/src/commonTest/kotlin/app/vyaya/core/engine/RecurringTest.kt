@@ -124,6 +124,27 @@ class RecurringTest {
     }
 
     @Test
+    fun resuming_a_paused_rule_asks_about_the_months_it_missed() { // FLAW-003 (core-engine report), option b
+        val gym = rule()
+        val january = catchUp(listOf(gym), emptyList(), today = LocalDate(2026, 1, 10))
+        val paused = gym.copy(paused = true)
+        assertEquals(emptyList(), catchUp(listOf(paused), january, today = LocalDate(2026, 7, 6)), "nothing while paused")
+
+        val missed = Recurring.missedWhilePaused(paused, january, today = LocalDate(2026, 7, 6))
+        assertEquals((2..7).map { YearMonth(2026, it) }, missed, "February to July came due while paused")
+
+        // "No, don't add them": the missed months are marked done, so catch-up skips them.
+        val skipped = Recurring.skip(paused, missed, IST, now)
+        assertTrue(skipped.all { it.deleted && it.generatedBy!!.ruleId == gym.id })
+        val resumed = gym.copy(paused = false)
+        assertEquals(emptyList(), catchUp(listOf(resumed), january + skipped, today = LocalDate(2026, 7, 20)))
+        assertEquals(listOf(YearMonth(2026, 8)), catchUp(listOf(resumed), january + skipped, today = LocalDate(2026, 8, 5)).map { it.generatedBy!!.month })
+
+        // "Yes, add them": catch-up fills them in as before.
+        assertEquals(missed, catchUp(listOf(resumed), january, today = LocalDate(2026, 7, 6)).map { it.generatedBy!!.month })
+    }
+
+    @Test
     fun paused_and_deleted_rules_add_nothing() {
         assertEquals(emptyList(), catchUp(listOf(rule(paused = true), rule(deleted = true)), emptyList(), today = LocalDate(2026, 10, 20)))
     }
