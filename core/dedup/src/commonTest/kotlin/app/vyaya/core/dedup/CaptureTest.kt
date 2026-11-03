@@ -90,6 +90,26 @@ class CaptureTest {
     }
 
     @Test
+    fun money_moved_between_your_own_accounts_is_one_transfer_not_spending_and_income() { // the user's samples, masked
+        val sent = RawMessage(Source.SMS, "AX-HDFCBK-S",
+            "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul Sharma\nOn 30/10/26\nRef 219300000004\nNot You?\nCall 18002586161", at(t0))
+        val received = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Airtel Payments Bank a/c is credited with Rs.14999.00. Txn ID: 219300000004. Call 180023400 for help", at(t0 + 1.minutes))
+        for ((first, second) in listOf(sent to received, received to sent)) {
+            val earlier = assertIs<Outcome.Added>(Capture.process(first, emptyList(), now)).entry
+            val transfer = assertIs<Outcome.Transfer>(Capture.process(second, listOf(earlier), now)).entry
+            assertEquals(earlier.id, transfer.id, "the earlier entry becomes the transfer; nothing is added")
+            assertEquals(EntryType.TRANSFER, transfer.type)
+            assertEquals(now, transfer.updatedAt)
+        }
+        // The same reference with a different amount is not the same money.
+        val other = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Airtel Payments Bank a/c is credited with Rs.400.00. Txn ID: 219300000004. Call 180023400 for help", at(t0))
+        val sentEntry = assertIs<Outcome.Added>(Capture.process(sent, emptyList(), now)).entry
+        assertIs<Outcome.Added>(Capture.process(other, listOf(sentEntry), now))
+    }
+
+    @Test
     fun a_card_summary_sms_gives_one_entry_per_payment_once() { // the user's Airtel sample, masked
         val summary = RawMessage(Source.SMS, "AX-AIRBNK-S",
             "Airtel Payments Bank Txns card 1234 \n26-10-27 DELHI METR Rs 77.6\n 26-10-27 DELHI METR Rs 57.6\n Call 180023400", at(t0))

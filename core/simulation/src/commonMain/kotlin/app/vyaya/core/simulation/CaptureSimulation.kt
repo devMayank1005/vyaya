@@ -38,10 +38,12 @@ class CaptureSimulationResult(
     val noiseAccepted: Int,
     val review: Int,
     val p95Micros: Long,
+    /** Payments taken as transfers between own accounts; none of these users has any (must be 0). */
+    val falseTransfers: Int = 0,
 ) {
     fun render() = buildString {
         appendLine("users=$users payments=$payments messages=$messages noise=$noise")
-        appendLine("DOUBLED=$doubled MISSED=$missed NOISE-ACCEPTED=$noiseAccepted review=$review")
+        appendLine("DOUBLED=$doubled MISSED=$missed NOISE-ACCEPTED=$noiseAccepted review=$review FALSE-TRANSFERS=$falseTransfers")
         appendLine("capture p95=${p95Micros}µs per message (existing entries grow to the user's total)")
     }
 }
@@ -58,7 +60,7 @@ object CaptureSimulation {
     fun run(users: Int, seed: Long = 23): CaptureSimulationResult {
         val random = Random(seed)
         var payments = 0; var messagesTotal = 0; var noiseTotal = 0
-        var doubled = 0; var missed = 0; var noiseAccepted = 0; var review = 0
+        var doubled = 0; var missed = 0; var noiseAccepted = 0; var review = 0; var falseTransfers = 0
         val micros = mutableListOf<Long>()
         repeat(users) {
             val count = random.nextInt(20, 120)
@@ -93,6 +95,7 @@ object CaptureSimulation {
                     is Outcome.Added -> { entries = entries + outcome.entry; entryPayment.getOrPut(outcome.entry.id.value) { mutableSetOf() } += m.payment }
                     is Outcome.Duplicate -> entryPayment.getOrPut(outcome.of.value) { mutableSetOf() } += m.payment
                     is Outcome.Review -> review++
+                    is Outcome.Transfer -> { falseTransfers++; entries = entries.map { if (it.id == outcome.entry.id) outcome.entry else it } }
                     is Outcome.Ignored -> {}
                 }
             }
@@ -107,6 +110,6 @@ object CaptureSimulation {
             payments += count; messagesTotal += delivered.size; noiseTotal += msgs.count { it.payment == null }
         }
         micros.sort()
-        return CaptureSimulationResult(users, payments, messagesTotal, noiseTotal, doubled, missed, noiseAccepted, review, micros.getOrElse(micros.size * 95 / 100) { 0 })
+        return CaptureSimulationResult(users, payments, messagesTotal, noiseTotal, doubled, missed, noiseAccepted, review, micros.getOrElse(micros.size * 95 / 100) { 0 }, falseTransfers)
     }
 }

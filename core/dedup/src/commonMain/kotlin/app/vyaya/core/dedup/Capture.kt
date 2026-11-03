@@ -32,6 +32,12 @@ sealed interface Outcome {
     data class Review(val draft: Entry, val reason: ReviewReason?, val possibleDuplicateOf: EntityId?) : Outcome
 
     data class Ignored(val reason: IgnoreReason) : Outcome
+
+    /**
+     * Money moved between the user's own accounts: [entry] is the earlier entry for one side, now a transfer, to be
+     * saved over it. Nothing is added: a transfer is neither spending nor income.
+     */
+    data class Transfer(val entry: Entry) : Outcome
 }
 
 /**
@@ -78,7 +84,10 @@ object Capture {
             is Verdict.Review -> verdict.txn
         }
         val entry = toEntry(txn, raw.source, now) ?: return Outcome.Ignored(IgnoreReason.NOT_A_TRANSACTION)
-        if (verdict is Verdict.Accept) duplicateOf(entry, existing)?.let { return Outcome.Duplicate(it) }
+        if (verdict is Verdict.Accept) {
+            otherSideOf(entry, existing)?.let { return Outcome.Transfer(it.copy(type = EntryType.TRANSFER, updatedAt = now)) }
+            duplicateOf(entry, existing)?.let { return Outcome.Duplicate(it) }
+        }
         val possible = possibleDuplicateOf(entry, existing)
         return when {
             verdict is Verdict.Review -> Outcome.Review(entry, verdict.reason, possible)
@@ -118,6 +127,16 @@ object Capture {
             else -> within(e, c, SAME_PAYMENT) // the app's notification and the bank's SMS
         }
     }?.id
+
+    /**
+     * The other side of a transfer between the user's own accounts: a captured entry with the same bank reference and
+     * amount but the opposite direction. Both sides' messages reach this phone only when both accounts are the user's
+     * (the user's sample: HDFC "Sent Rs.14999 Ref 2193…" and Airtel "credited with Rs.14999 Txn ID 2193…").
+     */
+    private fun otherSideOf(c: Entry, existing: List<Entry>): Entry? = existing.firstOrNull { e ->
+        !e.deleted && e.source in CAPTURED && c.upiRef != null && e.upiRef == c.upiRef && e.amount == c.amount &&
+            setOf(e.type, c.type) == setOf(EntryType.EXPENSE, EntryType.INCOME)
+    }
 
     /** A typed-in or recurring entry that may be this payment: the user decides (never dropped silently). */
     private fun possibleDuplicateOf(c: Entry, existing: List<Entry>): EntityId? = existing.firstOrNull { e ->
