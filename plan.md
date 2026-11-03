@@ -289,7 +289,12 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
    utilities) don't fit an expense tracker. Sources:
    [Play policy](https://support.google.com/googleplay/android-developer/answer/10208820),
    [SMS and call log permissions](https://support.google.com/googleplay/android-developer/answer/18100766).
-   **Proposed consequences, to confirm:**
+   **Your decision (2026-11-03): live SMS reading, the SMS import and UPI app notifications all stay in scope.**
+   To verify in the Play Console's Permissions Declaration form: whether an exception covers SMS-based money
+   management. If none does, ship the SMS features in a build outside Play (direct download), and the
+   notification-based capture in the Play build. The shared capture pipeline (core/filters, core/dedup) is the
+   same for every source.
+   Earlier proposal, kept for the Play build:
    - no live SMS reading and no 30-day import in the Play build;
    - auto-detect relies on the notification listener: UPI app notifications, and the notification the SMS
      app shows for a bank SMS (no SMS permission needed, but Play's notification-access disclosure applies);

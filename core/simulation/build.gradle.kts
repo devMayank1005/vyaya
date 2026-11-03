@@ -17,6 +17,7 @@ kotlin {
             implementation(project(":core:fixtures"))
             implementation(project(":core:backup"))
             implementation(project(":core:engine"))
+            implementation(project(":core:dedup"))
         }
         jvmTest.dependencies {
             implementation(kotlin("test"))
@@ -27,6 +28,8 @@ kotlin {
 tasks.named<Test>("jvmTest") {
     systemProperty("sim.users", providers.gradleProperty("sim.users").getOrElse("200"))
     systemProperty("sim.backup.users", providers.gradleProperty("sim.backup.users").getOrElse("100"))
+    systemProperty("sim.capture.users", providers.gradleProperty("sim.capture.users").getOrElse("100"))
+    systemProperty("sim.capture.report", layout.buildDirectory.file("simulation/capture-report.txt").get().asFile.absolutePath)
     systemProperty("sim.engine.users", providers.gradleProperty("sim.engine.users").getOrElse("100"))
     systemProperty("sim.engine.report", layout.buildDirectory.file("simulation/engine-report.txt").get().asFile.absolutePath)
     systemProperty("sim.backup.big", providers.gradleProperty("sim.backup.big").getOrElse("false"))
