@@ -177,8 +177,8 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 | Feature | Android | iOS |
 |---|---|---|
 | Notifications from UPI apps | ✅ | ❌ |
-| Live bank SMS | ✅ (Play policy permitting) | 🟡 Shortcuts automation |
-| 30-day import | ✅ | ❌ |
+| Live bank SMS | ❌ on Play (see Part G, risk 1); 🟡 via the notification the SMS app shows | 🟡 Shortcuts automation |
+| 30-day import | ❌ on Play (needs `READ_SMS`) | ❌ |
 | Screenshot + OCR | ✅ | ✅ |
 | Background jobs | WorkManager | Catch-up on open (primary) |
 | Widget / quick add | Glance, QS tile | WidgetKit, Control Center, Siri |
@@ -283,7 +283,17 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 | 5. Both | ongoing | Subscriptions, goals, tags, recaps, encrypted scheduled backups, languages | Ship both together |
 
 ## Part G: Known risks to verify early
-1. Google Play SMS permission policy may not allow live SMS reading.
+1. Google Play SMS permission policy may not allow live SMS reading. **Checked 2026-11-03 (by the user):
+   not allowed for Vyaya.** `READ_SMS` / `RECEIVE_SMS` are for the default SMS app, and the exceptions
+   (enterprise device management, companion devices, SMS backup and restore, government or network-operator
+   utilities) don't fit an expense tracker. Sources:
+   [Play policy](https://support.google.com/googleplay/android-developer/answer/10208820),
+   [SMS and call log permissions](https://support.google.com/googleplay/android-developer/answer/18100766).
+   **Proposed consequences, to confirm:**
+   - no live SMS reading and no 30-day import in the Play build;
+   - auto-detect relies on the notification listener: UPI app notifications, and the notification the SMS
+     app shows for a bank SMS (no SMS permission needed, but Play's notification-access disclosure applies);
+   - share-to-Vyaya and screenshot OCR as the fallback.
 2. iOS cannot read notifications or SMS directly; it relies on a Shortcuts setup by the user.
 3. iOS background execution is not guaranteed; everything must catch up safely.
 4. Bank SMS formats change without notice; the parser must be data-driven and quickly updatable.
