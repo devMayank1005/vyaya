@@ -92,7 +92,8 @@ crash**, as numbered points.
   credits, personal numbers, lottery, KYC).
 - Works while the app is closed: messages are queued, with a "New payment detected" notification.
 - Screenshot sharing (PhonePe first, then all apps).
-- Recurring entries with catch-up; month-end Saved that self-adjusts; overspend and category-limit alerts.
+- Recurring entries with catch-up; month-end Saved, calculated from the month's entries (never stored, so it
+  is always right after an edit); overspend and category-limit alerts.
 - Lent and Borrowed, with per-person balances and settle-up.
 - JSON backup and restore, CSV export, and an automatic OS safety copy.
 - Privacy: no account, no server, no sync.
@@ -155,8 +156,12 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 3. Every record has `updatedAt` and a soft-delete flag.
 4. Times are stored in UTC plus the user's timezone; one shared month function, with a custom month start.
 5. System categories have fixed IDs (`sys.saved`, `sys.transfer`, `sys.lent`).
-6. Generated entries are idempotent (`ruleId+date`, `sys.saved+month`).
-7. Derived numbers are calculated, never stored.
+6. Generated entries are idempotent: one per rule and calendar month (`ruleId+month`). The entry's id is
+   derived from that key (a version-8 UUID from SHA-256), so two phones generate the same id and a merge keeps
+   one copy. The key is the month, not the due date, so moving a rule's day can't add a second entry.
+   Only generated entries may have a derived id. Recurring rules don't store when they last generated: that
+   is worked out from the keys.
+7. Derived numbers are calculated, never stored. That includes Saved, each month's leftover.
 8. Capability flags drive the UI per platform.
 9. No platform code in the shared core; CI compiles the shared core for iOS from day 1.
 10. Parser rules are versioned data files.
@@ -175,16 +180,19 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 
 ## Part D: Backup format (identical on both platforms)
 
-**Schema v2 (current).** One compact JSON object per line:
+**Schema v3 (current).** One compact JSON object per line:
 ```
-{"t":"header","format":"vyaya-backup","schemaVersion":2,"appVersion":"1.0.0","createdOn":"android","exportedAt":"…","currency":"INR","settings":{…},"counts":{…}}
+{"t":"header","format":"vyaya-backup","schemaVersion":3,"appVersion":"1.0.0","createdOn":"android","exportedAt":"…","currency":"INR","settings":{…},"counts":{…}}
 {"t":"account",…}  {"t":"category",…}  {"t":"entry",…}  {"t":"recurring",…}  {"t":"person",…}  {"t":"ledger",…}  {"t":"budget",…}  {"t":"merchantRule",…}
 {"t":"end","records":N,"sha256":"<SHA-256 of every line above, each followed by \n>"}
 ```
 - Written and read line by line, so there's no huge string in memory. Records are ordered by type, then by
   id, so the same data always gives the same bytes.
-- **Shared limits:** the writer refuses anything the reader would refuse (64 KB per line, 2 million
-  records), so the app can always restore its own backups.
+- **Shared limits:** the writer refuses anything the reader would refuse (16 KB per line, 2 million
+  records, 256 MB in total), so the app can always restore its own backups. The largest valid record is
+  about 10 KB.
+- Each line becomes a record as soon as it's read, and reading stops once there are more problems than the
+  user would be shown, so a crafted file can't fill memory before it's refused.
 - **Integrity:**
   - The checksum detects damage, edits and cut-off files.
   - Duplicate keys are refused.
@@ -192,7 +200,13 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
   - A leading BOM and Windows line endings are accepted.
 - Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
 - Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
-- **v1** files (one pretty-printed JSON document) still restore. The app only writes v2.
+- Changes from v2:
+  - An entry made by a recurring rule carries `"generatedBy":{"ruleId":…,"month":"2026-10"}` (otherwise
+    `null`). Its id must be the one derived from that key, the rule must be in the backup, and the month can't
+    be after the month the backup was made in (in the backup's time zone).
+  - Recurring rules have no `lastGeneratedOn`; v1 and v2 values are dropped when read.
+- **v1** files (one pretty-printed JSON document) and **v2** files still restore; their entries have no key.
+  The app only writes v3.
 - **Planned before release:**
   - optional password encryption (`.vyaya`, AES-GCM, platform crypto), which adds authenticity;
   - a `.zip` variant with receipts.
@@ -226,8 +240,9 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 **Invariants checked for every simulated user:**
 1. No payment logged twice; no real payment missed (vs. ground truth).
 2. "What's left" = income − expenses (excluding transfers, Saved, lent/borrowed) for every month.
-3. Saved for every past month equals that month's leftover after any edit.
-4. Recurring catch-up produces exactly one entry per due date.
+3. Saved for every past month equals that month's leftover after any edit (it is calculated, never stored).
+4. Recurring catch-up produces exactly one entry per rule per month, also after restoring or merging a backup
+   from another phone, and after a rule's day changes.
 5. Export → import → export is identical; Android ↔ iOS identical.
 6. Per-person lent/borrowed balances equal the sum of unsettled entries.
 7. No scam message ever becomes an entry; false-positive rate on real messages is under the target.

@@ -10,6 +10,7 @@ import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Generation
 import app.vyaya.core.model.LedgerDirection
 import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.MerchantRule
@@ -23,6 +24,7 @@ import app.vyaya.core.model.SystemCategories
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.YearMonth
 import kotlinx.datetime.plus
 import kotlin.random.Random
 import kotlin.time.Instant
@@ -48,6 +50,17 @@ val R1 = id("00000000-0000-4000-8000-000000000007")
 val B1 = id("00000000-0000-4000-8000-000000000008")
 val M1 = id("00000000-0000-4000-8000-000000000009")
 
+/** Spotify (rule R1) for October 2026: its id is derived from the rule and the month (CLAUDE.md rule 8.4). */
+val SPOTIFY_OCT = Generation(R1, YearMonth(2026, 10))
+
+/** GOLDEN_SNAPSHOT plus one generated entry: what schema v3 adds. */
+val GOLDEN_V3_SNAPSHOT: Snapshot get() = GOLDEN_SNAPSHOT.copy(
+    entries = GOLDEN_SNAPSHOT.entries + Entry(
+        SPOTIFY_OCT.entryId, EntryType.EXPENSE, Money(11900), CapturedAt(Instant.parse("2026-10-05T04:30:00Z"), IST), ACC, null, FOOD,
+        "Spotify", "", emptyList(), EntrySource.RECURRING, null, emptyList(), null, T, T, false, SPOTIFY_OCT,
+    ),
+)
+
 /** A small snapshot with one of everything; its exact JSON is in GOLDEN_JSON. */
 val GOLDEN_SNAPSHOT = Snapshot(
     settings = Settings("INR", IST, MonthSchedule.of(1).withStartDay(25, LocalDate(2026, 3, 10)), alertsEnabled = true),
@@ -60,7 +73,7 @@ val GOLDEN_SNAPSHOT = Snapshot(
             listOf(Split(FOOD, Money(10050)), Split(SystemCategories.SAVED.id, Money(2000))), null, T, T, false,
         ),
     ),
-    recurring = listOf(RecurringRule(R1, EntryType.EXPENSE, Money(11900), 5, FOOD, ACC, "Spotify", false, LocalDate(2026, 1, 5), LocalDate(2026, 10, 5), T, false)),
+    recurring = listOf(RecurringRule(R1, EntryType.EXPENSE, Money(11900), 5, FOOD, ACC, "Spotify", false, LocalDate(2026, 1, 5), T, false)),
     people = listOf(Person(RAHUL, "Rahul", T, false)),
     ledger = listOf(LedgerEntry(L1, RAHUL, LedgerDirection.LENT, Money(30000), LocalDate(2026, 10, 20), "Dinner", false, T, false)),
     budgets = listOf(Budget(B1, FOOD, Money(500000), T, false)),
@@ -208,7 +221,7 @@ private val ZONES = listOf("Asia/Kolkata", "America/New_York", "Europe/London", 
 private val NAMES = listOf("Food", "Rent", "Travel", "Rahul", "Priya", "HDFC", "Cash", "Swiggy", "Café ☕", "Sharma & Sons", "\"Quoted\"", "line\nbreak")
 
 /** A random, internally consistent snapshot (references always point at existing records). */
-fun randomSnapshot(random: Random, maxPerList: Int = 8): Snapshot {
+fun randomSnapshot(random: Random, maxPerList: Int = 8, generated: Boolean = false): Snapshot {
     fun instant() = Instant.fromEpochMilliseconds(random.nextLong(978_307_200_000, 4_102_444_799_000)) // 2001..2099
     fun date() = LocalDate(2001, 1, 1).plus(random.nextInt(0, 36_000), DateTimeUnit.DAY)
     fun money() = Money(random.nextLong(1, 10_00_00_000))
@@ -237,7 +250,7 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8): Snapshot {
     }
     val recurring = List(n()) {
         RecurringRule(EntityId.random(), if (random.nextBoolean()) EntryType.EXPENSE else EntryType.INCOME, money(), random.nextInt(1, 32),
-            pickOrNull(categoryIds), pickOrNull(accounts)?.id, name(), random.nextBoolean(), date(), if (random.nextBoolean()) date() else null,
+            pickOrNull(categoryIds), pickOrNull(accounts)?.id, name(), random.nextBoolean(), date(),
             instant(), random.nextBoolean())
     }
     val ledger = if (people.isEmpty()) emptyList() else List(n()) {
@@ -250,5 +263,13 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8): Snapshot {
     var day = LocalDate(2010, 1, 1)
     repeat(random.nextInt(0, 4)) { day = day.plus(random.nextInt(1, 500), DateTimeUnit.DAY); schedule = schedule.withStartDay(random.nextInt(1, 32), day) }
     val settings = Settings("INR", TimeZone.of(ZONES.random(random)), schedule, random.nextBoolean())
-    return Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, rules)
+    // Entries made by recurring rules: at most one per rule and due date, each with its derived id.
+    val generatedEntries = if (!generated) emptyList() else recurring.flatMap { r ->
+        List(random.nextInt(0, 4)) { r.startsOn.plus(it, DateTimeUnit.MONTH) }.map { due ->
+            val key = Generation(r.id, YearMonth(due.year, due.month))
+            Entry(key.entryId, r.type, r.amount, CapturedAt(instant(), TimeZone.of(ZONES.random(random))), r.accountId, null, r.categoryId,
+                null, r.note.take(500), emptyList(), EntrySource.RECURRING, null, emptyList(), null, instant(), instant(), random.nextBoolean(), key)
+        }
+    }
+    return Snapshot(settings, accounts, categories, entries + generatedEntries, recurring, people, ledger, budgets, rules)
 }

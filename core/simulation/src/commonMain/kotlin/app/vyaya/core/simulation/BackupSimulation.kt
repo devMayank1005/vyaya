@@ -3,6 +3,8 @@ package app.vyaya.core.simulation
 import app.vyaya.core.backup.BackupCodec
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.ExportMeta
+import app.vyaya.core.backup.Restore
+import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.AccountKind
@@ -14,6 +16,7 @@ import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Generation
 import app.vyaya.core.model.LedgerDirection
 import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.MerchantRule
@@ -23,6 +26,8 @@ import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.model.Settings
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.YearMonth
+import kotlinx.datetime.toLocalDateTime
 import kotlin.random.Random
 import kotlin.time.Instant
 
@@ -57,11 +62,25 @@ fun personaSnapshot(persona: BackupPersona, random: Random, entryCap: Int = Int.
             emptyList(), null, stamp(), stamp(), random.nextInt(50) == 0,
         )
     }
-    val recurring = List(10) { RecurringRule(EntityId.random(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), null, stamp(), false) }
+    val recurring = List(10) { RecurringRule(EntityId.random(), EntryType.EXPENSE, Money(19900), it + 1, categories[it].id, accounts[0].id, "Sub $it", false, LocalDate(2016, 1, 1), stamp(), false) }
+    // What recurring catch-up made: one entry per rule per month, for every month of the persona's history.
+    val generated = recurring.flatMap { rule -> (0 until persona.years * 12).map { generatedEntry(rule, dueOn(rule, it), stamp()) } }
     val ledger = List(50) { LedgerEntry(EntityId.random(), people.random(random).id, LedgerDirection.entries.random(random), Money(random.nextLong(100, 1_00_000)), LocalDate(2020, 1, 1), "", random.nextBoolean(), stamp(), false) }
     val budgets = List(10) { Budget(EntityId.random(), categories[it].id, Money(5_000_00), stamp(), false) }
     val rules = List(50) { MerchantRule(EntityId.random(), "payee $it", categories.random(random).id, stamp(), false) }
-    return Snapshot(Settings.default(), accounts, categories, entries, recurring, people, ledger, budgets, rules)
+    return Snapshot(Settings.default(), accounts, categories, entries + generated, recurring, people, ledger, budgets, rules)
+}
+
+/** The rule's due date in the [month]-th month after January 2016 (rules here fall on days 1..28). */
+internal fun dueOn(rule: RecurringRule, month: Int) = LocalDate(2016 + month / 12, month % 12 + 1, rule.dayOfMonth)
+
+/** The entry recurring catch-up makes for [rule] on [due]: its id comes from the rule and the month. */
+internal fun generatedEntry(rule: RecurringRule, due: LocalDate, at: Instant): Entry {
+    val key = Generation(rule.id, YearMonth(due.year, due.month))
+    return Entry(
+        key.entryId, rule.type, rule.amount, CapturedAt(Instant.parse("${due}T04:30:00Z"), TimeZone.of("Asia/Kolkata")), rule.accountId, null,
+        rule.categoryId, null, rule.note, emptyList(), EntrySource.RECURRING, null, emptyList(), null, at, at, false, key,
+    )
 }
 
 class BackupSimulationResult(
@@ -76,10 +95,17 @@ class BackupSimulationResult(
     val crashExamples: List<String>,
     val silentChangeExamples: List<String>,
     val big: List<String>,
+    /** Merges of two phones that generated the same months on their own. */
+    val twoPhoneMerges: Int = 0,
+    /** Rule + due date pairs with more than one entry after such a merge (must be 0). */
+    val generatedDuplicates: Int = 0,
+    /** Rule + due date pairs lost in such a merge (must be 0). */
+    val generatedLost: Int = 0,
 ) {
     fun render() = buildString {
         appendLine("users=$users round-trip identical=$roundTripIdentical failed=$roundTripFailed")
         appendLine("fuzz runs=$fuzzRuns rejected=$fuzzRejected accepted-unchanged=$fuzzAcceptedUnchanged accepted-CHANGED=$fuzzAcceptedChanged crashed=$fuzzCrashed")
+        appendLine("two-phone merges=$twoPhoneMerges generated-DUPLICATES=$generatedDuplicates generated-LOST=$generatedLost")
         crashExamples.forEach { appendLine("[crash] $it") }
         silentChangeExamples.forEach { appendLine("[silent change] $it") }
         big.forEach { appendLine("[big] $it") }
@@ -95,6 +121,7 @@ object BackupSimulation {
         var identical = 0; var failed = 0
         var fuzz = 0; var rejected = 0; var unchanged = 0; var changed = 0; var crashed = 0
         val crashes = mutableListOf<String>(); val silent = mutableListOf<String>()
+        var merges = 0; var duplicates = 0; var lost = 0
         repeat(users) {
             // Small and medium users for breadth; the big sizes are measured separately below.
             val persona = if (random.nextBoolean()) BackupPersona.STUDENT else BackupPersona.SALARIED
@@ -102,6 +129,30 @@ object BackupSimulation {
             val text = BackupCodec.encode(snapshot, META)
             val decoded = BackupCodec.decode(text, NOW)
             if (decoded is DecodeResult.Success && decoded.snapshot == snapshot.normalized() && BackupCodec.encode(decoded.snapshot, META) == text) identical++ else failed++
+            // Invariant 4 under restore: a second phone with the same rules ran catch-up on its own for months
+            // that overlap (and go past) phone A's; its backup is merged into A. Chaos: on phone B a third of
+            // the rules had moved to another day first (DATA-002), so B's due dates differ from A's.
+            run {
+                val months = persona.years * 12
+                val from = random.nextInt(months); val to = from + random.nextInt(1, 24)
+                val rulesOnB = snapshot.recurring.map { if (random.nextInt(3) == 0) it.copy(dayOfMonth = random.nextInt(1, 29)) else it }
+                val onB = rulesOnB.flatMap { r -> (from until to).map { generatedEntry(r, dueOn(r, it), Instant.parse("2026-10-27T11:00:00Z")) } }
+                val backupB = BackupCodec.decode(BackupCodec.encode(snapshot.copy(entries = onB), META), NOW)
+                if (backupB is DecodeResult.Success) {
+                    merges++
+                    val merged = Restore.apply(snapshot, backupB.snapshot, RestoreMode.MERGE)
+                    // Counted by rule and the calendar month the payment falls in, not by key, so a key design that
+                    // let a moved day through would show up here.
+                    val perRuleMonth = merged.entries.filter { it.generatedBy != null && !it.deleted }.groupingBy { e ->
+                        val day = e.occurredAt.instant.toLocalDateTime(e.occurredAt.timeZone).date
+                        e.generatedBy!!.ruleId to YearMonth(day.year, day.month)
+                    }.eachCount()
+                    duplicates += perRuleMonth.count { it.value > 1 }
+                    val perKey = merged.entries.mapNotNull { it.generatedBy }.toSet()
+                    val expected = (snapshot.entries + onB).mapNotNull { it.generatedBy }.toSet()
+                    lost += (expected - perKey).size
+                } else failed++
+            }
             repeat(fuzzPerUser) {
                 fuzz++
                 val mutated = mutate(text, random)
@@ -120,7 +171,7 @@ object BackupSimulation {
             }
         }
         val bigLines = emptyList<String>()
-        return BackupSimulationResult(users, identical, failed, fuzz, rejected, unchanged, changed, crashed, crashes, silent, bigLines)
+        return BackupSimulationResult(users, identical, failed, fuzz, rejected, unchanged, changed, crashed, crashes, silent, bigLines, merges, duplicates, lost)
     }
 
     private fun mutate(text: String, random: Random): String {

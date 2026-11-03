@@ -95,3 +95,19 @@ The "400k" run measured the same data as 200k: the shopkeeper persona caps at ab
 - **#2, #3:** stricter per-line limits and validation as each line is read (both small), and measure on a
   low-end phone once the app exists?
 - **#4:** what should happen when the restoring phone's clock is wrong?
+
+## Resolution (2026-11-02)
+
+Your decisions: fix #2, #3 and #4; accept #5 and #7; carry #6 to the adapters; keep "encryption before
+release" for #1. Every fix started with a failing test. The follow-up break phase is in
+[`core-backup-v2-fixes-2026-11-02.md`](core-backup-v2-fixes-2026-11-02.md).
+
+| # | Status | Fix or reason |
+|---|---|---|
+| 1 SEC-001 | 📅 Agreed: before release | Encrypted `.vyaya` backups (AES-GCM) give authenticity. Until then the UI must not call a backup "verified" |
+| 2 PEN-002 | ✅ Fixed `0f72212`, `1724378` | At most 20 splits per entry; line limit 64 KB → 16 KB (the largest valid record is 9,926 characters); 256 MB total size cap shared by writer and reader; reading stops once the problem list is full. The crafted 172 MB file now peaks at about 2 MB instead of about 240 MB |
+| 3 PEN-003 | 🟡 Partly fixed `1724378` | Each line becomes a domain record straight away. Peak heap reading 200k entries: about 312 → 251 MB. The 129 MB still held is the restored data itself, so the rest needs streaming into the database (`core/data`). Measure on a low-end phone once the app exists |
+| 4 FLAW-004 | ✅ Fixed `1724378` (option a) | The message names both dates and asks the user to check this phone's date and time; restore stays blocked. See the new FLAW-001 |
+| 5 FLAW-005 | Accepted risk | A blank line can only come from editing the file, and an edited file is refused by the checksum anyway |
+| 6 FLAW-006 | ➡ Carried to the adapters | The Android and iOS code must write to a temporary file and rename it only on `EncodeResult.Success` |
+| 7 FLAW-007 | Accepted risk | Only v1 files are affected, and the app hasn't been released, so no v1 backups exist in the wild |

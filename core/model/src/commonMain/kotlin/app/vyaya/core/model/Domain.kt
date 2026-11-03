@@ -1,6 +1,7 @@
 package app.vyaya.core.model
 
 import kotlinx.datetime.LocalDate
+import kotlinx.datetime.YearMonth
 import kotlinx.datetime.TimeZone
 import kotlin.jvm.JvmInline
 import kotlin.time.Instant
@@ -18,6 +19,9 @@ import kotlin.uuid.Uuid
 value class EntityId private constructor(val value: String) {
     override fun toString(): String = value
 
+    /** True for an id derived from a generation key (version 8); never for a random one (version 4). */
+    val isDerived: Boolean get() = value.length == 36 && value[14] == '8'
+
     companion object {
         private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
         private val SYSTEM = Regex("^sys\\.[a-z]+$")
@@ -31,6 +35,15 @@ value class EntityId private constructor(val value: String) {
         }
 
         internal fun system(name: String): EntityId = EntityId("sys.$name")
+
+        /** A UUID (version 8, RFC 9562) from the first 16 bytes of SHA-256([name]); the same on every platform. */
+        internal fun derived(name: String): EntityId {
+            val h = Sha256().apply { update(name) }.hexDigest().take(32).toCharArray()
+            h[12] = '8' // version 8
+            h[16] = "89ab"[h[16].digitToInt(16) and 0x3] // variant 10xx
+            val hex = h.concatToString()
+            return EntityId("${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}")
+        }
     }
 }
 
@@ -101,6 +114,8 @@ data class Entry(
     val createdAt: Instant,
     val updatedAt: Instant,
     val deleted: Boolean,
+    /** Set when a recurring rule made this entry: the key that keeps it to one entry per due date. */
+    val generatedBy: Generation? = null,
 ) {
     init {
         requirePositive(amount, "Entry amount")
@@ -109,6 +124,14 @@ data class Entry(
         require(tags.size <= MAX_TAGS) { "at most $MAX_TAGS tags" }
         tags.forEach { require(it.isNotBlank() && it.length <= MAX_TAG) { "tags must be 1..$MAX_TAG characters" } }
         require(upiRef == null || upiRef.length <= 64) { "upiRef too long" }
+        require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
+        if (generatedBy != null) {
+            require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
+            require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and month" }
+        } else {
+            // PEN-003: such an id belongs to a rule's month; taking it would block that month's catch-up.
+            require(!id.isDerived) { "only an entry made by a recurring rule can have a derived id" }
+        }
         if (splits.isNotEmpty()) {
             require(splits.fold(Money(0)) { sum, s -> sum + s.amount } == amount) { "splits must add up to the amount" }
         }
@@ -124,7 +147,23 @@ data class Entry(
     companion object {
         const val MAX_TAGS = 20
         const val MAX_TAG = 30
+
+        /** Keeps every valid entry within the backup's line limit (PEN-002). */
+        const val MAX_SPLITS = 20
     }
+}
+
+/**
+ * The key of an entry a recurring rule made: rule + calendar month (CLAUDE.md rule 8.4).
+ *
+ * The entry's id is derived from the key, so the same rent payment generated on two phones (or before and
+ * after a restore) has the same id, and a merge by id keeps one copy. The key is the month, not the due date,
+ * so moving a rule's day can't make a second entry for a month that already has one (DATA-002). It is the
+ * calendar month because a rule is "day N of every month"; the budget month moves when the start day changes.
+ */
+data class Generation(val ruleId: EntityId, val month: YearMonth) {
+    /** A version-8 UUID from SHA-256("vyaya.generated.v1|<ruleId>|<yyyy-MM>"). FROZEN: changing it duplicates entries. */
+    val entryId: EntityId get() = EntityId.derived("vyaya.generated.v1|$ruleId|$month")
 }
 
 /** Something that repeats every month, like pocket money on the 1st or Spotify on the 5th. */
@@ -139,7 +178,7 @@ data class RecurringRule(
     val note: String,
     val paused: Boolean,
     val startsOn: LocalDate,
-    val lastGeneratedOn: LocalDate?,
+    // No "last generated" date: it is worked out from the entries' generation keys (CLAUDE.md rule 8.5).
     val updatedAt: Instant,
     val deleted: Boolean,
 ) {

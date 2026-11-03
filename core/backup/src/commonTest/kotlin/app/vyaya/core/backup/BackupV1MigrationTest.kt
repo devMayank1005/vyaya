@@ -26,8 +26,9 @@ class BackupV1MigrationTest {
 
     @Test
     fun the_v1_golden_file_is_what_v1_wrote() {
-        // Fixture check: the internal v1 writer (kept only to produce migration fixtures) still matches the golden file.
-        assertEquals(GOLDEN_JSON, BackupCodec.encodeV1(GOLDEN_SNAPSHOT, META))
+        // Fixture check: the internal v1 writer (kept only to produce migration fixtures) still matches the golden file,
+        // except "lastGeneratedOn", which the app no longer keeps (rule 8.5) and so writes as null.
+        assertEquals(GOLDEN_JSON.replace("\"lastGeneratedOn\": \"2026-10-05\"", "\"lastGeneratedOn\": null"), BackupCodec.encodeV1(GOLDEN_SNAPSHOT, META))
     }
 
     @Test
@@ -76,7 +77,7 @@ class BackupV1MigrationTest {
 
     @Test
     fun a_newer_schema_version_is_refused_with_a_clear_message() {
-        assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 2") }).single().contains("newer version of Vyaya"))
+        assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 4") }).single().contains("newer version of Vyaya"))
         assertTrue(failure(golden { it.replace("\"schemaVersion\": 1", "\"schemaVersion\": 0") }).single().contains("schema version 0"))
     }
 

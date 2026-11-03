@@ -80,8 +80,9 @@ slow paths, or confusing results. Numbered points only. Do not fix.
 1. Money is `Long` paise; never Float or Double.
 2. UUID IDs, `updatedAt`, soft delete.
 3. Times are UTC plus the user's timezone; use the single shared month function.
-4. Generated entries are idempotent (`ruleId+date`, `sys.saved+month`).
-5. Derived values are computed, never stored.
+4. Generated entries are idempotent: one entry per rule and calendar month (`ruleId+month`), and its id is
+   derived from that key, so a merge can never double it, even after the rule's day changes.
+5. Derived values are computed, never stored. Saved (a month's leftover) is calculated, not stored as an entry.
 6. No Android or iOS APIs in shared core; it must compile for the iOS target.
 7. Backup format changes require a `schemaVersion` bump, a migration and a round-trip test.
 8. Nothing leaves the device: no network calls, analytics or crash reporters without explicit approval.
