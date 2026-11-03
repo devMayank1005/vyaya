@@ -15,9 +15,15 @@ enum class UpiApp(val packageName: String) {
 }
 
 /** Who a message came from. The parser only labels the sender; deciding whom to trust is core/filters' job. */
+/** The TRAI suffix of an SMS header: what kind of message the sender registered it for. */
+enum class HeaderCategory { SERVICE, TRANSACTIONAL, PROMOTIONAL, GOVERNMENT }
+
 sealed interface SenderKind {
-    /** A TRAI-registered SMS header such as `VM-HDFCBK-S`; [entity] is the 6-character part (`HDFCBK`). */
-    data class Header(val entity: String) : SenderKind
+    /**
+     * A TRAI-registered SMS header such as `VM-HDFCBK-S`: [entity] is the 6-character part (`HDFCBK`), and
+     * [category] the suffix (`-S`), or null when there is none. Kept so promotional headers can be dropped (SEC-006).
+     */
+    data class Header(val entity: String, val category: HeaderCategory?) : SenderKind
     data class App(val app: UpiApp) : SenderKind
     data object PhoneNumber : SenderKind
     data object Unknown : SenderKind
@@ -26,7 +32,7 @@ sealed interface SenderKind {
 object SenderClassifier {
 
     // Operator/circle prefix, entity, optional TRAI category suffix (Service, Transactional, Promotional, Govt).
-    private val PREFIXED_HEADER = Regex("""^[A-Z]{2}-([A-Z0-9]{3,9})(?:-[STPG])?$""", RegexOption.IGNORE_CASE)
+    private val PREFIXED_HEADER = Regex("""^[A-Z]{2}-([A-Z0-9]{3,9})(?:-([STPG]))?$""", RegexOption.IGNORE_CASE)
     private val BARE_HEADER = Regex("""^([A-Z]{6})$""", RegexOption.IGNORE_CASE)
     private val PHONE = Regex("""^\+?\d{10,13}$""")
     private val APPS = UpiApp.entries.associateBy { it.packageName }
@@ -35,7 +41,14 @@ object SenderClassifier {
         val trimmed = sender.trim()
         APPS[trimmed]?.let { return SenderKind.App(it) }
         (PREFIXED_HEADER.matchEntire(trimmed) ?: BARE_HEADER.matchEntire(trimmed))?.let {
-            return SenderKind.Header(it.groupValues[1].uppercase())
+            val category = when (if (it.groups.size > 2) it.groups[2]?.value?.uppercase() else null) {
+                "S" -> HeaderCategory.SERVICE
+                "T" -> HeaderCategory.TRANSACTIONAL
+                "P" -> HeaderCategory.PROMOTIONAL
+                "G" -> HeaderCategory.GOVERNMENT
+                else -> null
+            }
+            return SenderKind.Header(it.groupValues[1].uppercase(), category)
         }
         if (PHONE.matches(trimmed.filterNot { it == ' ' || it == '-' })) return SenderKind.PhoneNumber
         return SenderKind.Unknown

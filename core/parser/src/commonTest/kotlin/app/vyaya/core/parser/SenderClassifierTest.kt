@@ -6,17 +6,24 @@ import kotlin.test.assertEquals
 class SenderClassifierTest {
 
     @Test
+    fun the_trai_category_suffix_is_kept() { // SEC-006 (parser report): promotional headers can then be dropped
+        assertEquals(SenderKind.Header("PHONPE", HeaderCategory.PROMOTIONAL), SenderClassifier.classify("VK-PHONPE-P"))
+        assertEquals(SenderKind.Header("PHONPE", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("VK-PHONPE-T"))
+        assertEquals(SenderKind.Header("GOVTIN", HeaderCategory.GOVERNMENT), SenderClassifier.classify("VM-GOVTIN-G"))
+    }
+
+    @Test
     fun trai_headers_are_recognised_with_and_without_category_suffix() {
-        assertEquals(SenderKind.Header("HDFCBK"), SenderClassifier.classify("VM-HDFCBK"))
-        assertEquals(SenderKind.Header("HDFCBK"), SenderClassifier.classify("VM-HDFCBK-S"))
-        assertEquals(SenderKind.Header("SBIUPI"), SenderClassifier.classify("jd-sbiupi-t"))
-        assertEquals(SenderKind.Header("ICICIT"), SenderClassifier.classify("AX-ICICIT-T"))
+        assertEquals(SenderKind.Header("HDFCBK", null), SenderClassifier.classify("VM-HDFCBK"))
+        assertEquals(SenderKind.Header("HDFCBK", HeaderCategory.SERVICE), SenderClassifier.classify("VM-HDFCBK-S"))
+        assertEquals(SenderKind.Header("SBIUPI", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("jd-sbiupi-t"))
+        assertEquals(SenderKind.Header("ICICIT", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("AX-ICICIT-T"))
     }
 
     @Test
     fun bare_headers_without_operator_prefix_are_recognised() {
         // Some phones show the header without the 2-letter operator/circle prefix.
-        assertEquals(SenderKind.Header("KOTAKB"), SenderClassifier.classify("KOTAKB"))
+        assertEquals(SenderKind.Header("KOTAKB", null), SenderClassifier.classify("KOTAKB"))
     }
 
     @Test
