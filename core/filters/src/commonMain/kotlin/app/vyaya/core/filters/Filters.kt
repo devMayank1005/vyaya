@@ -116,6 +116,7 @@ class TrustedSenders(val headers: Set<String>) {
             setOf(
                 "HDFCBK", "SBIUPI", "SBIINB", "SBIPSG", "ICICIT", "ICICIB", "AXISBK", "KOTAKB", "PNBSMS", "BOBTXN",
                 "CANBNK", "UNIONB", "IDFCFB", "INDUSB", "YESBNK", "PAYTMB", "AUBANK", "FEDBNK", "RBLBNK", "IDBIBK",
+                "AIRBNK", // Airtel Payments Bank, from the user's real SMS (AX-AIRBNK-S)
             ),
         )
     }

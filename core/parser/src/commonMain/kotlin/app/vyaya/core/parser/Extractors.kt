@@ -47,7 +47,8 @@ object Extractors {
     }
 
     private val UPI_REF = Regex(
-        """(?:\bUPI\s*Ref(?:\s*No)?|\bRef\s*No|\bRefno|\bRRN|\bUPI|\bRef)\s*[:.#-]?\s*(\d{12})(?!\d)""", I,
+        // "Txn ID" is Airtel Payments Bank's name for the UPI reference (the user's real samples).
+        """(?:\bUPI\s*Ref(?:\s*No)?|\bRef\s*No|\bRefno|\bRRN|\bTxn\s*ID|\bUPI|\bRef)\s*[:.#-]?\s*(\d{12})(?!\d)""", I,
     )
 
     /** The 12-digit UPI reference / RRN. */

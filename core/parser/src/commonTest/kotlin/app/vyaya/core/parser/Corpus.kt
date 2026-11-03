@@ -98,4 +98,21 @@ val GOLDEN: List<GoldenCase> = listOf(
     GoldenCase("collect request", NOTIF, "com.google.android.apps.nbu.paisa.user", "Rahul S has requested ₹500 from you", Expect.NoTxn),
     GoldenCase("zero amount", SMS, "VM-HDFCBK-S", "Rs.0.00 debited from A/c XX1234 for mandate registration", Expect.NoTxn),
     GoldenCase("no amount", SMS, "VM-HDFCBK-S", "Your A/c XX1234 has been debited. Call us for details.", Expect.NoTxn),
+
+    // --- real samples from the user (2026-11-03), masked: IDs, balances, account digits and names changed -------------
+    GoldenCase("airtel payments bank debit", SMS, "AX-AIRBNK-S",
+        "Rs. 1000.00 debited from Airtel Payments Bank a/c Txn ID 617300000001 Bal:8491.05 Call 180023400 for help",
+        Expect.Txn(rs(1000), Direction.DEBIT, null, "617300000001", null)),
+    GoldenCase("airtel payments bank debit with paise", SMS, "AX-AIRBNK-S",
+        "Rs. 338.99 debited from Airtel Payments Bank a/c Txn ID 667200000002 Bal:9458.44 Call 180023400 for help",
+        Expect.Txn(rs(338, 99), Direction.DEBIT, null, "667200000002", null)),
+    GoldenCase("airtel payments bank credit", SMS, "AX-AIRBNK-S",
+        "Airtel Payments Bank a/c is credited with Rs.400.00. Txn ID: 078600000003. Call 180023400 for help",
+        Expect.Txn(rs(400), Direction.CREDIT, null, "078600000003", null)),
+    GoldenCase("airtel upi linking request", SMS, "AX-AIRBNK-S",
+        "We have received request for linking bank account XXXXXXXXXX1234 with Airtel Payments Bank UPI. If not initiated by you, dial 1800-23400",
+        Expect.NoTxn),
+    GoldenCase("hdfc sent, one field per line", SMS, "AX-HDFCBK-S",
+        "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul Sharma\nOn 30/10/26\nRef 219300000004\nNot You?\nCall 18002586161/SMS BLOCK UPI to 7308080808",
+        Expect.Txn(rs(14999), Direction.DEBIT, "Rahul Sharma", "219300000004", "1234")),
 )
