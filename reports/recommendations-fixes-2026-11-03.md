@@ -64,3 +64,35 @@ cap), `25b4211` (key before rule start, rule type), `b8aebb5` (messages), `ba1a7
 - **#1:** check before writing, plus model and engine rules? Recommended; it's small for the writer.
 - **#2:** shift change times back by the clock difference (recommended), or allow only Replace?
 - **#3:** add the 80 % warning when the app's backup screen is built?
+
+## Resolution (2026-11-03)
+
+Your decision: go with the plan.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed `9149c90` | `Consistency` holds the checks across records and against the export time; reader and writer share it, so the writer refuses, in the reader's words, whatever a restore would refuse. A property test over 200 random snapshots checks: written exactly when restorable. The engine forbids the two edits (plan.md) |
+| 2 DATA-002 | ✅ Fixed `347e225` | Restore anyway moves change times back by the clock difference (never before 2000) instead of resetting them to now |
+| 3 FLAW-003 | ➡ Backup screen (plan.md) | Warn at about 80 % of the 128 MB cap |
+
+## Follow-up break phase (2026-11-03): items 1 and 2
+
+1. **[DATA-004] [Low] Restore anyway keeps the order only approximately**
+   - Where: `Reader.finish`; the shift assumes the backup was made at the moment of restore.
+   - How to reproduce (by analysis): the shifted times are later than the real ones by the gap between the
+     real export and the restore. An edit on this phone made in that gap, but before the backup's own change,
+     still loses a merge.
+   - Why it matters: rare. It needs a wrong clock, a restore long after the export, and edits to the same
+     record in between.
+   - Direction: accept as risk. Replace mode avoids it entirely.
+
+2. **[FLAW-005] [Low] The writer's refusal is a long technical message**
+   - What happens: up to 20 problems joined with ";", with record ids.
+   - Direction: the backup screen shows a summary ("Some records can't be backed up") with details on request.
+
+3. **[Info] Things that held up**
+   - Writer and reader agree for 200 random snapshots and all 10 hand-made refused cases.
+   - The writer's checks cost nothing measurable: 200k entries write in 2.6 s, as before.
+   - A backup restored anyway from a clock decades ahead can be backed up again.
+   - 206 JVM tests and the coverage gate pass, and the iOS target compiles. The 2,000-user simulation gave
+     the same counts as the previous run, with 0 changed and 0 crashes.

@@ -163,6 +163,8 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
    is worked out from the keys (the database indexes entries by rule and month for this).
    - A generated entry keeps its rule's type, and may be dated in its month or the month either side (rent
      paid late). Catch-up treats a month as done when its key exists, wherever the entry is dated.
+   - The engine forbids the edits a restore would refuse: changing a generated entry's type, or moving a
+     rule's start past months it already generated (the backup writer refuses them too, as a safety net).
    - A new rule starts at its next due date: if this month's due day has passed, it starts next month. So
      deleting a rule and adding it again in the same month doesn't make a second entry. "Edit rule" is the
      main action; "Delete" says the rule's entries stay.
