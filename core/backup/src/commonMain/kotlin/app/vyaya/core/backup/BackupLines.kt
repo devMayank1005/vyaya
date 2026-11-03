@@ -37,8 +37,11 @@ data class BackupLimits(
      */
     val maxLineChars: Int = 16_384,
     val maxRecords: Int = 2_000_000,
-    /** The whole file, newlines included. 200,000 real entries are about 92 MB (PEN-002). */
-    val maxTotalChars: Long = 256L * 1024 * 1024,
+    /**
+     * The whole file, newlines included. 200,000 real entries are about 96 MB; a valid file at 256 MB needed about
+     * 371 MB to read, more than low-end phones give an app (PEN-002).
+     */
+    val maxTotalChars: Long = 128L * 1024 * 1024,
 )
 
 sealed interface EncodeResult {

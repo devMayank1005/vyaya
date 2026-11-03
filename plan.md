@@ -189,7 +189,7 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 - Written and read line by line, so there's no huge string in memory. Records are ordered by type, then by
   id, so the same data always gives the same bytes.
 - **Shared limits:** the writer refuses anything the reader would refuse (16 KB per line, 2 million
-  records, 256 MB in total), so the app can always restore its own backups. The largest valid record is
+  records, 128 MB in total), so the app can always restore its own backups. The largest valid record is
   about 10 KB.
 - Each line becomes a record as soon as it's read, and reading stops once there are more problems than the
   user would be shown, so a crafted file can't fill memory before it's refused.
