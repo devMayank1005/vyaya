@@ -20,6 +20,7 @@ include(":core:model")
 include(":core:parser")
 include(":core:backup")
 include(":core:engine")
+include(":core:filters")
 
 // Test support (synthetic messages) and the user simulation; never shipped.
 include(":core:fixtures")

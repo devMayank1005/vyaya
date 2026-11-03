@@ -10,6 +10,7 @@ dependencies {
     kover(project(":core:parser"))
     kover(project(":core:backup"))
     kover(project(":core:engine"))
+    kover(project(":core:filters"))
 }
 
 // Coverage gate from CLAUDE.md: shared core >= 90 % lines and branches. `./gradlew koverVerify` fails below it.
