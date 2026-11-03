@@ -206,7 +206,10 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
 - Restore offers Merge (by UUID, newer `updatedAt` wins) or Replace.
 - A backup that looks made in the future (this phone's clock is behind, or the exporting phone's was ahead) is
   refused with a message to check the date and time, and the app offers **Restore anyway**. Then every change
-  time after this phone's time is reset to it, so the restored records can't win every later merge.
+  time moves back by the clock difference, as if the backup were made now, so restored records can't win every
+  later merge and keep their order against this phone's own edits.
+- The writer runs the same checks as a restore (references, keys, export time, ranges), so the app never writes
+  a backup it can't restore. The backup screen warns at about 80 % of the 128 MB cap.
 - Every problem is reported. Restore never crashes, and nothing is restored from a bad file.
 - Changes from v2:
   - An entry made by a recurring rule carries `"generatedBy":{"ruleId":…,"month":"2026-10"}` (otherwise

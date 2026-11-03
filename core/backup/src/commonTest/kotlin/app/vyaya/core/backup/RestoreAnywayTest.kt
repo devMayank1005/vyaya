@@ -34,7 +34,27 @@ class RestoreAnywayTest {
         val original = GOLDEN_V3_SNAPSHOT.normalized()
         assertEquals(original.entries.map { Triple(it.id, it.amount, it.occurredAt) }, s.entries.map { Triple(it.id, it.amount, it.occurredAt) })
         assertEquals(original.settings, s.settings)
-        assertEquals(original.ledger.map { it.copy(updatedAt = phoneBehind) }, s.ledger)
+        // DATA-002: change times move back by the clock difference (27 Oct 12:00 - 24 Oct 09:00), keeping their order.
+        val difference = META.exportedAt - phoneBehind
+        assertEquals(original.ledger.map { it.copy(updatedAt = it.updatedAt - difference) }, s.ledger)
+    }
+
+    @Test
+    fun restore_anyway_with_merge_keeps_an_edit_made_after_the_real_export() { // DATA-002
+        // Phone A's clock was 3 days ahead: it changed Rahul at "27 Oct 10:00" and exported at "27 Oct 12:00",
+        // really 24 Oct 10:00 and 12:00. Phone B, whose clock is right, renamed Rahul at 13:00 and restores at 14:00.
+        val restoreTime = Instant.parse("2026-10-24T14:00:00Z")
+        val restored = assertIs<DecodeResult.Success>(BackupCodec.decode(made, restoreTime, restoreAnyway = true)).snapshot
+        val mine = GOLDEN_V3_SNAPSHOT.people.single().copy(name = "Rahul (renamed on B)", updatedAt = Instant.parse("2026-10-24T13:00:00Z"))
+        val merged = Restore.apply(GOLDEN_V3_SNAPSHOT.copy(people = listOf(mine)), restored, RestoreMode.MERGE)
+        assertEquals("Rahul (renamed on B)", merged.people.single().name)
+    }
+
+    @Test
+    fun what_is_restored_anyway_can_be_backed_up_again() { // even from a clock decades ahead
+        val decadesAhead = BackupCodec.encode(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_SNAPSHOT.entries), META.copy(exportedAt = Instant.parse("2099-01-01T00:00:00Z")))
+        val restored = assertIs<DecodeResult.Success>(BackupCodec.decode(decadesAhead, NOW, restoreAnyway = true))
+        assertIs<EncodeResult.Success>(BackupCodec.write(restored.snapshot, META.copy(exportedAt = NOW)) {})
     }
 
     @Test

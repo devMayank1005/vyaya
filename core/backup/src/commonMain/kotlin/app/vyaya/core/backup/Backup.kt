@@ -363,19 +363,22 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
             return DecodeResult.Failure(capped, clockBehind = clockProblem != null && problems == listOf(clockProblem))
         }
         if (resetFutureDates) {
-            // FLAW-001: dates after this phone's time would win every later merge (SEC-005), so they become now.
-            // Only change times move; when things happened (occurredAt, dates) stays as it was.
-            fun Instant.notAfterNow() = if (this > now) now else this
+            // FLAW-001: dates after this phone's time would win every later merge (SEC-005). DATA-002: so every change
+            // time moves back by the clock difference, as if the backup were made now. That keeps its order against
+            // this phone's own edits (resetting to now made every restored record the newest). Never before 2000, so
+            // the result can be backed up again. Only change times move; when things happened stays as it was.
+            val difference = exportedAt - now
+            fun Instant.shiftedBack() = maxOf(this - difference, earliest)
             val snapshot = Snapshot(
                 settings,
-                accounts.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                categories.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                entries.map { it.copy(createdAt = it.createdAt.notAfterNow(), updatedAt = it.updatedAt.notAfterNow()) },
-                recurring.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                people.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                ledger.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                budgets.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-                merchantRules.map { MerchantRule(it.id, it.payee, it.categoryId, it.updatedAt.notAfterNow(), it.deleted) },
+                accounts.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                categories.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                entries.map { it.copy(createdAt = it.createdAt.shiftedBack(), updatedAt = it.updatedAt.shiftedBack()) },
+                recurring.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                people.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                ledger.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                budgets.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
+                merchantRules.map { MerchantRule(it.id, it.payee, it.categoryId, it.updatedAt.shiftedBack(), it.deleted) },
             ).normalized()
             return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now))
         }
