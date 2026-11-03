@@ -10,6 +10,7 @@ import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.Direction
 import app.vyaya.core.parser.MessageParser
+import app.vyaya.core.parser.MessageSplitter
 import app.vyaya.core.parser.ParsedTxn
 import app.vyaya.core.parser.RawMessage
 import app.vyaya.core.parser.Source
@@ -57,6 +58,17 @@ object Capture {
 
     /** Recurring entries are dated on the due day; the real payment may be a few days off. */
     private val RECURRING_NEARBY = 5.days
+
+    /**
+     * Captures every payment in [raw]: one, or several when the message lists several (a card summary SMS, see
+     * [MessageSplitter]). Each later part is checked against the entries the earlier parts added.
+     */
+    fun processAll(raw: RawMessage, existing: List<Entry>, now: Instant): List<Outcome> {
+        var entries = existing
+        return MessageSplitter.split(raw).map { part ->
+            process(part, entries, now).also { if (it is Outcome.Added) entries = entries + it.entry }
+        }
+    }
 
     fun process(raw: RawMessage, existing: List<Entry>, now: Instant): Outcome {
         val verdict = Filters.judge(raw, MessageParser.parse(raw))

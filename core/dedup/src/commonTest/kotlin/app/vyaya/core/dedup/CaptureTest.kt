@@ -90,6 +90,17 @@ class CaptureTest {
     }
 
     @Test
+    fun a_card_summary_sms_gives_one_entry_per_payment_once() { // the user's Airtel sample, masked
+        val summary = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Airtel Payments Bank Txns card 1234 \n26-10-27 DELHI METR Rs 77.6\n 26-10-27 DELHI METR Rs 57.6\n Call 180023400", at(t0))
+        val first = Capture.processAll(summary, emptyList(), now)
+        val added = first.map { assertIs<Outcome.Added>(it).entry }
+        assertEquals(listOf(Money(7_760), Money(5_760)), added.map { it.amount })
+        // The SMS import reads it again: nothing new.
+        assertEquals(2, Capture.processAll(summary, added, now).count { it is Outcome.Duplicate })
+    }
+
+    @Test
     fun two_apps_naming_the_payee_differently_are_still_one_payment() { // SIM-001 (filters-dedup report)
         val bhim = RawMessage(Source.NOTIFICATION, "in.org.npci.upiapp", "Payment of ₹250 to rahulsharma@okaxis is successful", at(t0))
         val (entries, _) = captureAll(listOf(bhim, phonepe("250", to = "Rahul Sharma", time = t0 + 20.seconds)))
