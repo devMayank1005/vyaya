@@ -26,6 +26,7 @@ import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.YearMonth
 import kotlinx.datetime.toLocalDateTime
+import kotlinx.datetime.yearMonth
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -368,12 +369,16 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
             // this phone's own edits (resetting to now made every restored record the newest). Never before 2000, so
             // the result can be backed up again. Only change times move; when things happened stays as it was.
             val difference = exportedAt - now
+            val thisMonth = now.toLocalDateTime(homeZone ?: TimeZone.UTC).date.yearMonth
             fun Instant.shiftedBack() = maxOf(this - difference, earliest)
             val snapshot = Snapshot(
                 settings,
                 accounts.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 categories.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
-                entries.map { it.copy(createdAt = it.createdAt.shiftedBack(), updatedAt = it.updatedAt.shiftedBack()) },
+                // #19b: entries generated for months this phone hasn't reached are left out; catch-up makes them again,
+                // with the same id, when the month comes. Kept, they would block this phone's backups until then.
+                entries.filter { e -> e.generatedBy.let { it == null || it.month <= thisMonth } }
+                    .map { it.copy(createdAt = it.createdAt.shiftedBack(), updatedAt = it.updatedAt.shiftedBack()) },
                 recurring.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 people.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 ledger.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },

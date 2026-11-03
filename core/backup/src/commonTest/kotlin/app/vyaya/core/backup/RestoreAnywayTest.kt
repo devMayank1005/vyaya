@@ -51,7 +51,7 @@ class RestoreAnywayTest {
     }
 
     @Test
-    fun restore_anyway_accepts_a_key_for_the_month_the_backup_was_made_in() { // PR #2 review
+    fun restore_anyway_accepts_the_backup_but_leaves_out_months_this_phone_has_not_reached() { // PR #2 review
         // The exporting phone said 1 March and had generated March's Spotify; this phone still says 27 February.
         val early = Instant.parse("2026-02-01T00:00:00Z")
         val march = app.vyaya.core.model.Generation(R1, kotlinx.datetime.YearMonth(2026, 3))
@@ -70,7 +70,10 @@ class RestoreAnywayTest {
         val phone = Instant.parse("2026-02-27T09:00:00Z")
         assertTrue(assertIs<DecodeResult.Failure>(BackupCodec.decode(text, phone)).clockBehind)
         val restored = assertIs<DecodeResult.Success>(BackupCodec.decode(text, phone, restoreAnyway = true))
-        assertEquals(march, restored.snapshot.entries.single().generatedBy)
+        // #19b: March hasn't come on this phone, so its entry is left out; catch-up makes it again (same id) on
+        // 5 March. Until then this phone can still back up.
+        assertEquals(emptyList(), restored.snapshot.entries)
+        assertIs<EncodeResult.Success>(BackupCodec.write(restored.snapshot, META.copy(exportedAt = Instant.parse("2026-02-28T09:00:00Z"))) {})
     }
 
     @Test
