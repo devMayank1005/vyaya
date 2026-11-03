@@ -347,6 +347,16 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         val personIds = people.mapTo(HashSet()) { it.id }
         val entryIds = entries.mapTo(HashSet()) { it.id }
         val ruleIds = recurring.mapTo(HashSet()) { it.id }
+        val rulesById = recurring.associateBy { it.id }
+        entries.forEach { e ->
+            val key = e.generatedBy ?: return@forEach
+            val rule = rulesById[key.ruleId] ?: return@forEach // an unknown rule is reported below
+            // DATA-004: catch-up starts at the rule's first month, so an earlier key can't be genuine.
+            val first = YearMonth(rule.startsOn.year, rule.startsOn.month)
+            if (key.month < first) problems += "entry ${e.id}: generated for ${key.month}, before its rule starts ($first)"
+            // FLAW-006: the user may change this month's amount, not what kind of money it is.
+            if (e.type != rule.type) problems += "entry ${e.id}: type ${e.type} differs from its rule's (${rule.type})"
+        }
         fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
             if (id != null && id !in known) problems += "$owner: unknown $what $id"
         }
