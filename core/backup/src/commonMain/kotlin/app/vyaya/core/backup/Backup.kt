@@ -255,6 +255,10 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     /** The entries read so far: for [RecordLines], which reads one record at a time. */
     internal val entriesRead: List<Entry> get() = entries
+
+    /** Everything read so far, without the checks across records: for [RecordLines]. Null without valid settings. */
+    internal fun snapshotRead(): Snapshot? =
+        settings?.let { Snapshot(it, accounts, categories, entries, recurring, people, ledger, budgets, merchantRules) }
     private val recurring = mutableListOf<RecurringRule>()
     private val people = mutableListOf<Person>()
     private val ledger = mutableListOf<LedgerEntry>()
