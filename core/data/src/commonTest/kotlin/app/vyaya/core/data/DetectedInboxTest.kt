@@ -96,7 +96,25 @@ class DetectedInboxTest {
         capture.process(sms("AX-AIRBNK-S", "Airtel Payments Bank a/c is credited with Rs.14999.00. Txn ID: 219300000004. Call 180023400",
             time = t0 + 1.minutes), now = t0 + 1.minutes) // transfer
         capture.process(sms("VM-HDFCBK-S", "482913 is your OTP for txn of Rs.500.00 at AMAZON. Do not share."), now = t0) // ignored
-        assertEquals(1, inbox.items().size, "only the first side, added")
+        // DATA-005: the first side's item now shows the transfer, and can't be undone as if it were an expense.
+        val item = inbox.items().single()
+        assertEquals(DetectedKind.TRANSFER, item.kind)
+        assertEquals(EntryType.TRANSFER, item.entry.type)
+        inbox.undo(item.id, now = t0 + 2.minutes)
+        assertEquals(EntryType.TRANSFER, EntryStore(db).byId(item.entry.id)!!.type)
+        assertTrue(!EntryStore(db).byId(item.entry.id)!!.deleted)
+        db.close()
+    }
+
+    @Test
+    fun one_bad_row_does_not_break_the_inbox() = runTest { // FLAW-010 (branch review)
+        val db = inMemoryDatabase()
+        val inbox = DetectedInbox(db)
+        CaptureStore(db, inbox).process(swiggy, now = t0)
+        db.detected().add(DetectedRow("bad", "ADDED", "OPEN", "{not an entry", null, null, 0, entryId = null))
+        assertEquals(1, inbox.items().size, "the bad row is skipped")
+        inbox.undo(inbox.items().single().id, now = t0 + 1.minutes)
+        assertEquals(emptyList(), inbox.items())
         db.close()
     }
 }

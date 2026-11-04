@@ -10,6 +10,9 @@ import app.vyaya.core.model.Generation
 import app.vyaya.core.model.Money
 import app.vyaya.core.parser.RawMessage
 import app.vyaya.core.parser.Source
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.YearMonth
@@ -98,6 +101,36 @@ class StoresTest {
         capture.process(summary, now = t0)
         capture.process(summary, now = t0 + 1.days)
         assertEquals(listOf(Money(5_760), Money(7_760)), EntryStore(db).all().map { it.amount }.sortedBy { it.paise })
+        db.close()
+    }
+
+    @Test
+    fun re_reading_a_card_summary_with_old_rides_adds_nothing() = runTest { // DATA-002 (branch review)
+        val db = inMemoryDatabase()
+        val capture = CaptureStore(db)
+        val tenDaysLater = t0 + 10.days // the summary arrives 10 days after the ride on 26 Oct
+        val summary = sms("Airtel Payments Bank Txns card 1234 \n26-10-26 DELHI METR Rs 77.6\n Call 180023400", time = tenDaysLater, sender = "AX-AIRBNK-S")
+        capture.process(summary, now = tenDaysLater)
+        capture.process(summary, now = tenDaysLater + 1.days)
+        assertEquals(1, EntryStore(db).all().size)
+        db.close()
+    }
+
+    @Test
+    fun the_sms_and_the_notification_at_the_same_moment_are_one_entry() = kotlinx.coroutines.runBlocking { // DATA-004
+        val db = inMemoryDatabase()
+        val capture = CaptureStore(db)
+        coroutineScope {
+            for (i in 0 until 40) {
+                val time = t0 + (i * 30).minutes
+                val ref = (429100000100L + i).toString()
+                val bank = sms("Sent Rs.${100 + i}.00 From HDFC Bank A/C *1234 To Swiggy On 26/10/26 Ref $ref Not You?", time = time)
+                val app = notification("com.phonepe.app", "₹${100 + i} paid to Swiggy", time - 1.minutes)
+                launch(Dispatchers.Default) { capture.process(bank, now = time) }
+                launch(Dispatchers.Default) { capture.process(app, now = time) }
+            }
+        }
+        assertEquals(40, EntryStore(db).all().size)
         db.close()
     }
 }

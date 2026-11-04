@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "e8dc0b05282138691240301c05bec464",
+    "identityHash": "9a5456d76c2b2d52d1596eb64a516768",
     "entities": [
       {
         "tableName": "entries",
@@ -119,7 +119,7 @@
       },
       {
         "tableName": "detected",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `status` TEXT NOT NULL, `entryLine` TEXT NOT NULL, `reason` TEXT, `possibleDuplicateOf` TEXT, `receivedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `status` TEXT NOT NULL, `entryLine` TEXT NOT NULL, `reason` TEXT, `possibleDuplicateOf` TEXT, `receivedAtMs` INTEGER NOT NULL, `entryId` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -160,6 +160,11 @@
             "columnName": "receivedAtMs",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "entryId",
+            "columnName": "entryId",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -183,7 +188,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'e8dc0b05282138691240301c05bec464')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9a5456d76c2b2d52d1596eb64a516768')"
     ]
   }
 }

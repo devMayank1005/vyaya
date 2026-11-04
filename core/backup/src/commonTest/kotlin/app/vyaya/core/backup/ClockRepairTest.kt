@@ -53,4 +53,13 @@ class ClockRepairTest {
         val fine = GOLDEN_V3_SNAPSHOT
         assertSame(fine, ClockRepair.repair(fine, now))
     }
+
+    @Test
+    fun this_months_generated_entries_not_yet_due_are_removed_too() { // DATA-008 (branch review)
+        val october = GOLDEN_V3_SNAPSHOT.entries.single { it.generatedBy != null } // Spotify, due 5 Oct
+        val early = october.copy(createdAt = ahead, updatedAt = ahead)
+        val fourthOfOctober = Instant.parse("2026-10-04T09:00:00Z") // the clock is right again, before the 5th
+        val repaired = ClockRepair.repair(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_V3_SNAPSHOT.entries - october + early), fourthOfOctober)
+        assertEquals(emptyList(), repaired.entries.filter { it.generatedBy != null })
+    }
 }

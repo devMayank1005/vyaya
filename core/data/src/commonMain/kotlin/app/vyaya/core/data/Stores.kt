@@ -9,6 +9,10 @@ import app.vyaya.core.parser.MessageParser
 import app.vyaya.core.parser.MessageSplitter
 import app.vyaya.core.parser.ParseResult
 import app.vyaya.core.parser.RawMessage
+import androidx.room.immediateTransaction
+import androidx.room.useWriterConnection
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
@@ -57,20 +61,33 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
     /** Every capture rule looks at most this far from a message's time (recurring entries: 5 days); references, any time. */
     private val window = 6.days
 
-    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> {
-        val time = raw.receivedAt.instant
-        val refs = MessageSplitter.split(raw).mapNotNull { (MessageParser.parse(it) as? ParseResult.Transaction)?.txn?.upiRef }
-        val existing = entries.nearOrWithRef(time - window, time + window, refs)
-        val outcomes = Capture.processAll(raw, existing, now)
-        val parts = MessageSplitter.split(raw)
-        outcomes.forEachIndexed { i, outcome -> inbox.record(parts.getOrElse(i) { raw }, outcome) }
-        entries.save(outcomes.mapNotNull {
-            when (it) {
-                is Outcome.Added -> it.entry
-                is Outcome.Transfer -> it.entry
-                else -> null
+    /**
+     * DATA-004 (branch review): one message at a time (the SMS receiver and the notification listener can fire together),
+     * and each message in one database transaction, so a crash leaves nothing half-saved. Each part of a message is
+     * looked up near its own date (DATA-002), and split and parsed once (FLAW-009).
+     */
+    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
+        db.useWriterConnection { transactor ->
+            transactor.immediateTransaction {
+                MessageSplitter.split(raw).map { part ->
+                    val parsed = MessageParser.parse(part)
+                    val refs = listOfNotNull((parsed as? ParseResult.Transaction)?.txn?.upiRef)
+                    val time = part.receivedAt.instant
+                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now)
+                    when (outcome) {
+                        is Outcome.Added -> entries.save(listOf(outcome.entry))
+                        is Outcome.Transfer -> entries.save(listOf(outcome.entry))
+                        else -> {}
+                    }
+                    inbox.record(part, outcome)
+                    outcome
+                }
             }
-        })
-        return outcomes
+        }
+    }
+
+    private companion object {
+        /** One capture at a time for the app's one database. */
+        val lock = Mutex()
     }
 }

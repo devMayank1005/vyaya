@@ -26,7 +26,8 @@ object ClockRepair {
         return s.copy(
             accounts = s.accounts.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
             categories = s.categories.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-            entries = s.entries.filter { e -> e.generatedBy.let { it == null || it.month <= thisMonth } }
+            // DATA-008 (branch review): also this month's entries dated after now, which catch-up wouldn't have made yet.
+            entries = s.entries.filter { e -> e.generatedBy.let { it == null || (it.month <= thisMonth && e.occurredAt.instant <= now) } }
                 .map { it.copy(createdAt = it.createdAt.notAfterNow(), updatedAt = it.updatedAt.notAfterNow()) },
             recurring = s.recurring.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
             people = s.people.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
@@ -38,7 +39,7 @@ object ClockRepair {
 
     private fun futureKeys(s: Snapshot, now: Instant): Boolean {
         val thisMonth = now.toLocalDateTime(s.settings.homeTimeZone).date.yearMonth
-        return s.entries.any { e -> e.generatedBy.let { it != null && it.month > thisMonth } }
+        return s.entries.any { e -> e.generatedBy.let { it != null && (it.month > thisMonth || e.occurredAt.instant > now) } }
     }
 
     private fun changeTimes(s: Snapshot): Sequence<Instant> = sequence {

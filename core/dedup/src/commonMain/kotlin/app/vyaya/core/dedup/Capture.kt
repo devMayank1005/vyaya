@@ -11,6 +11,7 @@ import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.Direction
 import app.vyaya.core.parser.MessageParser
 import app.vyaya.core.parser.MessageSplitter
+import app.vyaya.core.parser.ParseResult
 import app.vyaya.core.parser.ParsedTxn
 import app.vyaya.core.parser.RawMessage
 import app.vyaya.core.parser.Source
@@ -76,8 +77,11 @@ object Capture {
         }
     }
 
-    fun process(raw: RawMessage, existing: List<Entry>, now: Instant): Outcome {
-        val verdict = Filters.judge(raw, MessageParser.parse(raw))
+    fun process(raw: RawMessage, existing: List<Entry>, now: Instant): Outcome = process(raw, MessageParser.parse(raw), existing, now)
+
+    /** As [process], for a message already parsed (the database store parses once, to look up by reference). */
+    fun process(raw: RawMessage, parsed: ParseResult, existing: List<Entry>, now: Instant): Outcome {
+        val verdict = Filters.judge(raw, parsed)
         val txn = when (verdict) {
             is Verdict.Ignore -> return Outcome.Ignored(verdict.reason)
             is Verdict.Accept -> verdict.txn

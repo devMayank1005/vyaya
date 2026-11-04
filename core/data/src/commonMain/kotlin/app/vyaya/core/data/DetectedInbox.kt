@@ -7,7 +7,8 @@ import app.vyaya.core.model.Sha256
 import app.vyaya.core.parser.RawMessage
 import kotlin.time.Instant
 
-enum class DetectedKind { ADDED, REVIEW }
+/** ADDED: saved by itself (edit or undo). REVIEW: saved only when confirmed. TRANSFER: an added item that became a transfer. */
+enum class DetectedKind { ADDED, REVIEW, TRANSFER }
 
 /** An open inbox item: [entry] was added by itself ([DetectedKind.ADDED]) or waits for the user ([DetectedKind.REVIEW]). */
 data class DetectedItem(val id: String, val kind: DetectedKind, val entry: Entry, val reason: String?, val possibleDuplicateOf: String?)
@@ -25,18 +26,24 @@ class DetectedInbox(private val db: VyayaDatabase) {
         val (kind, entry, reason, duplicate) = when (outcome) {
             is Outcome.Added -> Quad(DetectedKind.ADDED, outcome.entry, null, null)
             is Outcome.Review -> Quad(DetectedKind.REVIEW, outcome.draft, outcome.reason?.name, outcome.possibleDuplicateOf?.value)
+            // DATA-005: the first side's item now shows the transfer.
+            is Outcome.Transfer -> return db.detected().updateEntry(outcome.entry.id.value, DetectedKind.TRANSFER.name, RecordLines.entry(outcome.entry))
             else -> return
         }
         db.detected().add(DetectedRow(idOf(message), kind.name, "OPEN", RecordLines.entry(entry), reason, duplicate,
-            message.receivedAt.instant.toEpochMilliseconds()))
+            message.receivedAt.instant.toEpochMilliseconds(), entry.id.value))
     }
 
-    suspend fun items(): List<DetectedItem> = db.detected().open().map { row ->
-        DetectedItem(row.id, DetectedKind.valueOf(row.kind), RecordLines.entryOf(row.entryLine) ?: error("detected ${row.id}: bad entry line"),
-            row.reason, row.possibleDuplicateOf)
+    /** Open items, newest first. A row that can't be read is skipped, not fatal (FLAW-010). */
+    suspend fun items(): List<DetectedItem> = db.detected().open().mapNotNull(::itemOf)
+
+    private fun itemOf(row: DetectedRow): DetectedItem? {
+        val entry = RecordLines.entryOf(row.entryLine) ?: return null
+        val kind = DetectedKind.entries.firstOrNull { it.name == row.kind } ?: return null
+        return DetectedItem(row.id, kind, entry, row.reason, row.possibleDuplicateOf)
     }
 
-    /** An added payment the user didn't make: soft-deleted, so the SMS import won't bring it back. */
+    /** An added payment the user didn't make: soft-deleted, so the SMS import won't bring it back. A transfer isn't undone. */
     suspend fun undo(id: String, now: Instant) {
         val item = open(id, DetectedKind.ADDED) ?: return
         entries.byId(item.entry.id)?.let { entries.save(listOf(it.markDeleted(now))) }
@@ -56,7 +63,8 @@ class DetectedInbox(private val db: VyayaDatabase) {
         db.detected().setStatus(id, "DISMISSED")
     }
 
-    private suspend fun open(id: String, kind: DetectedKind): DetectedItem? = items().firstOrNull { it.id == id && it.kind == kind }
+    private suspend fun open(id: String, kind: DetectedKind): DetectedItem? =
+        db.detected().byId(id)?.takeIf { it.status == "OPEN" }?.let(::itemOf)?.takeIf { it.kind == kind }
 
     private data class Quad(val kind: DetectedKind, val entry: Entry, val reason: String?, val duplicate: String?)
 

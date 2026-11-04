@@ -68,6 +68,8 @@ data class DetectedRow(
     val reason: String?,
     val possibleDuplicateOf: String?,
     val receivedAtMs: Long,
+    /** The entry this item is about. */
+    val entryId: String? = null,
 )
 
 @Dao
@@ -84,6 +86,10 @@ interface DetectedDao {
 
     @Query("UPDATE detected SET status = :status WHERE id = :id")
     suspend fun setStatus(id: String, status: String)
+
+    /** The item about [entryId] now shows [line] as [kind] (an added payment that became a transfer). */
+    @Query("UPDATE detected SET kind = :kind, entryLine = :line WHERE entryId = :entryId")
+    suspend fun updateEntry(entryId: String, kind: String, line: String)
 }
 
 @Database(entities = [EntryRow::class, DetectedRow::class], version = 1)
