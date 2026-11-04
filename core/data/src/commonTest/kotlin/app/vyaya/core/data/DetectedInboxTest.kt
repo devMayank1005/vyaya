@@ -8,6 +8,7 @@ import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.RawMessage
 import app.vyaya.core.parser.Source
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import kotlin.test.Test
@@ -138,5 +139,18 @@ class DetectedInboxTest {
             assertEquals(if (mode == RestoreMode.REPLACE) 0 else 2, inbox.items().size, "$mode")
             db.close()
         }
+    }
+
+    @Test
+    fun the_open_items_are_watched_as_they_change() = runTest {
+        val db = inMemoryDatabase()
+        val inbox = DetectedInbox(db)
+        assertEquals(emptyList(), inbox.changes().first())
+        CaptureStore(db, inbox).process(swiggy, now = t0)
+        val item = inbox.changes().first { it.isNotEmpty() }.single()
+        assertEquals(250_00, item.entry.amount.paise)
+        inbox.undo(item.id, now = t0 + 1.minutes)
+        assertEquals(emptyList(), inbox.changes().first())
+        db.close()
     }
 }

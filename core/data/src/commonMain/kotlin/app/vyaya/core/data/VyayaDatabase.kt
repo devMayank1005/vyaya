@@ -1,5 +1,7 @@
 package app.vyaya.core.data
 
+import kotlinx.coroutines.flow.Flow
+
 import androidx.room.ConstructedBy
 import androidx.room.Dao
 import androidx.room.Database
@@ -95,6 +97,9 @@ interface DetectedDao {
 
     @Query("SELECT * FROM detected WHERE status = 'OPEN' ORDER BY receivedAtMs DESC")
     suspend fun open(): List<DetectedRow>
+
+    @Query("SELECT * FROM detected WHERE status = 'OPEN' ORDER BY receivedAtMs DESC")
+    fun watchOpen(): Flow<List<DetectedRow>>
 
     @Query("UPDATE detected SET status = :status WHERE id = :id")
     suspend fun setStatus(id: String, status: String)

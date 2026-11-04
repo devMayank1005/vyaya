@@ -5,6 +5,8 @@ import app.vyaya.core.dedup.Outcome
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.Sha256
 import app.vyaya.core.parser.RawMessage
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlin.time.Instant
 
 /** ADDED: saved by itself (edit or undo). REVIEW: saved only when confirmed. TRANSFER: an added item that became a transfer. */
@@ -36,6 +38,9 @@ class DetectedInbox(private val db: VyayaDatabase) {
 
     /** Open items, newest first. A row that can't be read is skipped, not fatal (FLAW-010). */
     suspend fun items(): List<DetectedItem> = db.detected().open().mapNotNull(::itemOf)
+
+    /** [items], again each time they change (a payment captured while the screen is open). */
+    fun changes(): Flow<List<DetectedItem>> = db.detected().watchOpen().map { rows -> rows.mapNotNull(::itemOf) }
 
     private fun itemOf(row: DetectedRow): DetectedItem? {
         val entry = RecordLines.entryOf(row.entryLine) ?: return null

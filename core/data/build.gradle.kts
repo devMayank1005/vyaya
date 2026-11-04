@@ -27,6 +27,7 @@ kotlin {
             api(project(":core:dedup"))
             implementation(project(":core:backup"))
             implementation(libs.room.runtime)
+            api(libs.kotlinx.coroutines.core) // DetectedInbox.changes() is a Flow
         }
         // The bundled SQLite on JVM and iOS; Android uses the system's (AndroidSQLiteDriver), which its tests can run on.
         jvmMain.dependencies { implementation(libs.sqlite.bundled) }
