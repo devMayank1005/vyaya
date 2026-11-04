@@ -18,7 +18,7 @@ class CaptureListener : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val capture by lazy {
         val app = application as VyayaApp
-        NotificationCapture(app.capture, NotificationReader(smsApps(this)), { Clock.System.now() }, { TimeZone.currentSystemDefault() })
+        NotificationCapture(app.capture, NotificationReader(smsAppsFor(this, Channel.READS_SMS)), { Clock.System.now() }, { TimeZone.currentSystemDefault() })
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -31,6 +31,12 @@ class CaptureListener : NotificationListenerService() {
     }
 
     companion object {
+        /**
+         * The SMS apps whose notifications are read: none when the build reads SMS itself (each SMS would otherwise come
+         * twice, once without its real sender address).
+         */
+        fun smsAppsFor(context: Context, readsSms: Boolean): Set<String> = if (readsSms) emptySet() else smsApps(context)
+
         /** The phone's SMS app (it posts the SMS notifications) and the common ones, in case it changes. */
         fun smsApps(context: Context): Set<String> = setOfNotNull(
             Telephony.Sms.getDefaultSmsPackage(context),
