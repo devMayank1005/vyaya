@@ -31,6 +31,21 @@ class MessageSplitterTest {
     }
 
     @Test
+    fun each_part_is_dated_on_its_own_line_day_at_the_sms_time_of_day() { // DATA-001 (real-samples report)
+        val ist = TimeZone.of("Asia/Kolkata")
+        val nov1 = CapturedAt(Instant.parse("2026-11-01T03:00:00Z"), ist) // 1 Nov, 08:30 in Kolkata
+        val sms = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Airtel Payments Bank Txns card 1234 \n26-10-31 DELHI METR Rs 77.6\n26-13-40 DELHI METR Rs 10\n26-11-05 DELHI METR Rs 20\n Call 180023400", nov1)
+        val parts = MessageSplitter.split(sms)
+        // 31 Oct at 08:30 Kolkata: the ride counts in October.
+        assertEquals(Instant.parse("2026-10-31T03:00:00Z"), parts[0].receivedAt.instant)
+        // An impossible date, or one after the SMS arrived, keeps the arrival time (plus the part's position).
+        assertEquals(nov1.instant + 1.milliseconds, parts[1].receivedAt.instant)
+        assertEquals(nov1.instant + 2.milliseconds, parts[2].receivedAt.instant)
+        assertEquals(parts, MessageSplitter.split(sms), "reading it again gives the same parts")
+    }
+
+    @Test
     fun any_other_message_is_left_as_it_is() {
         val single = RawMessage(Source.SMS, "AX-AIRBNK-S", "Rs. 80.00 debited from Airtel Payments Bank a/c Txn ID 630200000001 Bal:732.43", at)
         assertEquals(listOf(single), MessageSplitter.split(single))
