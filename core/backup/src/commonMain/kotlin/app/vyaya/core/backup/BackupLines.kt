@@ -71,7 +71,7 @@ internal data class CountsV2(
 internal data class TrailerV2(val records: Int, val sha256: String)
 
 internal object BackupLines {
-    private val compact = Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = false }
+    internal val compact = Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = false }
     private val strict = Json { ignoreUnknownKeys = false }
 
     // ---------------------------------------------------------------------------------------------- write
@@ -133,7 +133,7 @@ internal object BackupLines {
     }
 
     /** `{"t": type, ...fields}`: the type first, then the record's fields in declaration order. */
-    private fun line(type: String, fields: JsonElement): String =
+    internal fun line(type: String, fields: JsonElement): String =
         compact.encodeToString(JsonObject.serializer(), buildJsonObject {
             put("t", JsonPrimitive(type))
             fields.jsonObject.forEach { (k, v) -> put(k, v) }
@@ -241,7 +241,7 @@ internal object BackupLines {
     }
 
     /** Decodes a record line (without its "t" field); null if it doesn't match the record's shape. */
-    private fun <T> decode(serializer: KSerializer<T>, obj: JsonObject): T? = try {
+    internal fun <T> decode(serializer: KSerializer<T>, obj: JsonObject): T? = try {
         strict.decodeFromJsonElement(serializer, JsonObject(obj - "t"))
     } catch (e: Exception) {
         null

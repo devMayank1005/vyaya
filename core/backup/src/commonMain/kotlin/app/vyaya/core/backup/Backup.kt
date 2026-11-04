@@ -153,6 +153,15 @@ object BackupCodec {
     internal fun encodeV1(snapshot: Snapshot, meta: ExportMeta): String =
         json.encodeToString(BackupFileV1.serializer(), toContent(snapshot, meta).toV1File())
 
+    /** An entry as its v3 file record. */
+    internal fun entryV3(e: Entry) = EntryV3(
+        e.id.value, e.type.name, e.amount.paise, e.occurredAt.instant.toString(), e.occurredAt.timeZone.id,
+        e.accountId?.value, e.toAccountId?.value, e.categoryId?.value, e.payee, e.note, e.tags, e.source.name,
+        e.upiRef, e.splits.map { SplitV1(it.categoryId.value, it.amount.paise) }, e.linkedEntryId?.value,
+        e.createdAt.toString(), e.updatedAt.toString(), e.deleted,
+        e.generatedBy?.let { GenerationV3(it.ruleId.value, it.month.toString()) },
+    )
+
     internal fun toContent(snapshot: Snapshot, meta: ExportMeta): BackupContent {
         val s = snapshot.normalized()
         return BackupContent(
@@ -170,15 +179,7 @@ object BackupCodec {
             ),
             accounts = s.accounts.map { AccountV1(it.id.value, it.name, it.kind.name, it.mask, it.updatedAt.toString(), it.deleted) },
             categories = s.categories.map { CategoryV1(it.id.value, it.name, it.kind.name, it.updatedAt.toString(), it.deleted) },
-            entries = s.entries.map { e ->
-                EntryV3(
-                    e.id.value, e.type.name, e.amount.paise, e.occurredAt.instant.toString(), e.occurredAt.timeZone.id,
-                    e.accountId?.value, e.toAccountId?.value, e.categoryId?.value, e.payee, e.note, e.tags, e.source.name,
-                    e.upiRef, e.splits.map { SplitV1(it.categoryId.value, it.amount.paise) }, e.linkedEntryId?.value,
-                    e.createdAt.toString(), e.updatedAt.toString(), e.deleted,
-                    e.generatedBy?.let { GenerationV3(it.ruleId.value, it.month.toString()) },
-                )
-            },
+            entries = s.entries.map(::entryV3),
             recurring = s.recurring.map { r ->
                 RecurringV3(
                     r.id.value, r.type.name, r.amount.paise, r.dayOfMonth, r.categoryId?.value, r.accountId?.value, r.note,
@@ -251,6 +252,9 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
     private val accounts = mutableListOf<Account>()
     private val categories = mutableListOf<Category>()
     private val entries = mutableListOf<Entry>()
+
+    /** The entries read so far: for [RecordLines], which reads one record at a time. */
+    internal val entriesRead: List<Entry> get() = entries
     private val recurring = mutableListOf<RecurringRule>()
     private val people = mutableListOf<Person>()
     private val ledger = mutableListOf<LedgerEntry>()
