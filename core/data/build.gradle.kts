@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kover)
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
+    alias(libs.plugins.android.kmp.library)
 }
 
 kotlin {
@@ -13,6 +14,12 @@ kotlin {
     }
     iosArm64()
     iosSimulatorArm64()
+    android {
+        namespace = "app.vyaya.core.data"
+        compileSdk = 37
+        minSdk = 26
+        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+    }
 
     sourceSets {
         commonMain.dependencies {
@@ -20,8 +27,11 @@ kotlin {
             api(project(":core:dedup"))
             implementation(project(":core:backup"))
             implementation(libs.room.runtime)
-            implementation(libs.sqlite.bundled)
         }
+        // The bundled SQLite on JVM and iOS; Android uses the system's (AndroidSQLiteDriver), which its tests can run on.
+        jvmMain.dependencies { implementation(libs.sqlite.bundled) }
+        iosMain.dependencies { implementation(libs.sqlite.bundled) }
+        androidMain.dependencies { api(libs.sqlite.framework) }
         commonTest.dependencies {
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
@@ -35,6 +45,7 @@ room {
 
 dependencies {
     add("kspJvm", libs.room.compiler)
+    add("kspAndroid", libs.room.compiler)
     add("kspIosArm64", libs.room.compiler)
     add("kspIosSimulatorArm64", libs.room.compiler)
 }
