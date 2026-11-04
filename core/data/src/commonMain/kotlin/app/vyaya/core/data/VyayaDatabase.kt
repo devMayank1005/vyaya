@@ -42,6 +42,13 @@ interface EntryDao {
 
     @Query("SELECT * FROM entries WHERE id = :id")
     suspend fun byId(id: String): EntryRow?
+
+    @Query("SELECT * FROM entries")
+    suspend fun all(): List<EntryRow>
+
+    /** Rows dated in [fromMs, toMs], or carrying one of [refs]: what capture needs to recognise a payment again. */
+    @Query("SELECT * FROM entries WHERE (occurredAtMs BETWEEN :fromMs AND :toMs) OR upiRef IN (:refs)")
+    suspend fun nearOrWithRef(fromMs: Long, toMs: Long, refs: List<String>): List<EntryRow>
 }
 
 @Database(entities = [EntryRow::class], version = 1)

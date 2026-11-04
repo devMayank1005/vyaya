@@ -17,6 +17,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(project(":core:model"))
+            api(project(":core:dedup"))
+            implementation(project(":core:backup"))
             implementation(libs.room.runtime)
             implementation(libs.sqlite.bundled)
         }

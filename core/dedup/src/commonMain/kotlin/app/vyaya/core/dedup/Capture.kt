@@ -157,7 +157,7 @@ object Capture {
         return x.isNotEmpty() && x == payeeKey(b.payee ?: return false)
     }
 
-    internal fun payeeKey(payee: String): String = payee.substringBefore('@').lowercase().filter { it.isLetterOrDigit() }
+    fun payeeKey(payee: String): String = payee.substringBefore('@').lowercase().filter { it.isLetterOrDigit() }
 
     private fun within(a: Entry, b: Entry, window: Duration) = (a.occurredAt.instant - b.occurredAt.instant).absoluteValue <= window
 }
