@@ -92,11 +92,28 @@ interface DetectedDao {
     suspend fun updateEntry(entryId: String, kind: String, line: String)
 }
 
-@Database(entities = [EntryRow::class, DetectedRow::class], version = 1)
+/**
+ * Every record that isn't an entry (accounts, categories, recurring rules, people, ledger, budgets, merchant rules), and
+ * the settings (kind "settings"), each as its backup line. Few and small, so one table.
+ */
+@Entity(tableName = "records", primaryKeys = ["kind", "id"])
+data class RecordRow(val kind: String, val id: String, val line: String, val deleted: Boolean, val updatedAtMs: Long)
+
+@Dao
+interface RecordDao {
+    @Upsert
+    suspend fun upsert(rows: List<RecordRow>)
+
+    @Query("SELECT * FROM records ORDER BY kind, id")
+    suspend fun all(): List<RecordRow>
+}
+
+@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class], version = 1)
 @ConstructedBy(VyayaDatabaseConstructor::class)
 abstract class VyayaDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
     abstract fun detected(): DetectedDao
+    abstract fun records(): RecordDao
 }
 
 // Room's compiler supplies the actual implementations for each platform.
