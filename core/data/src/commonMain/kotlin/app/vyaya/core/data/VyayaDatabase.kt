@@ -74,7 +74,7 @@ data class DetectedRow(
     @PrimaryKey val id: String,
     /** ADDED (saved by itself: edit or undo) or REVIEW (saved only when confirmed). */
     val kind: String,
-    /** OPEN, then UNDONE, CONFIRMED or DISMISSED. */
+    /** OPEN, then UNDONE, CONFIRMED or DISMISSED; CLOSED when a Replace restore took away the data it was about (DATA-003). */
     val status: String,
     val entryLine: String,
     val reason: String?,
@@ -98,6 +98,10 @@ interface DetectedDao {
 
     @Query("UPDATE detected SET status = :status WHERE id = :id")
     suspend fun setStatus(id: String, status: String)
+
+    /** Kept, not deleted, so re-reading the same message doesn't bring the item back. */
+    @Query("UPDATE detected SET status = 'CLOSED' WHERE status = 'OPEN'")
+    suspend fun closeOpen()
 
     /** The item about [entryId] now shows [line] as [kind] (an added payment that became a transfer). */
     @Query("UPDATE detected SET kind = :kind, entryLine = :line WHERE entryId = :entryId")

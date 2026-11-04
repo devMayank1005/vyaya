@@ -82,7 +82,12 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
         return try {
             db.useWriterConnection { transactor ->
                 transactor.immediateTransaction {
-                    if (mode == RestoreMode.REPLACE) { db.records().clear(); db.entries().clear() }
+                    if (mode == RestoreMode.REPLACE) {
+                        db.records().clear()
+                        db.entries().clear()
+                        // DATA-003: open Detected items are about data the backup replaces; undo or confirm would act on it.
+                        db.detected().closeOpen()
+                    }
                     val batch = ArrayList<Entry>(pageSize)
                     suspend fun flush() { if (batch.isNotEmpty()) { writeEntries(batch, mode); batch.clear() } }
                     for (line in lines) {

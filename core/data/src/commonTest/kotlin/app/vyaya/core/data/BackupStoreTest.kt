@@ -127,4 +127,18 @@ class BackupStoreTest {
         assertEquals(assertIs<DecodeResult.Success>(BackupCodec.decode(v1, now)).snapshot, SnapshotStore(db).load())
         db.close()
     }
+
+    @Test
+    fun data_001_an_export_restore_would_refuse_fails_instead() = runTest {
+        // Edited while the clock was ahead (4 Nov); the clock is corrected and the export is on 3 Nov.
+        val edited = Instant.parse("2026-11-04T10:00:00Z")
+        val exportAt = Instant.parse("2026-11-03T10:00:00Z")
+        val e = withEntries(1).entries.single().copy(updatedAt = edited, createdAt = edited)
+        val db = inMemoryDatabase()
+        SnapshotStore(db).save(Snapshot.empty().copy(entries = listOf(e)))
+        val result = BackupStore(db).export(meta.copy(exportedAt = exportAt)) {}
+        val failure = assertIs<EncodeResult.Failure>(result)
+        assertTrue("changed after the backup was made" in failure.reason, failure.reason)
+        db.close()
+    }
 }

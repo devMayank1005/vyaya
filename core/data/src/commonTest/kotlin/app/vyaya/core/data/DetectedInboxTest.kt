@@ -1,5 +1,9 @@
 package app.vyaya.core.data
 
+import app.vyaya.core.backup.BackupCodec
+import app.vyaya.core.backup.ExportMeta
+import app.vyaya.core.backup.RestoreMode
+import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.RawMessage
@@ -8,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -116,5 +121,22 @@ class DetectedInboxTest {
         inbox.undo(inbox.items().single().id, now = t0 + 1.minutes)
         assertEquals(emptyList(), inbox.items())
         db.close()
+    }
+
+    @Test
+    fun data_003_a_replace_restore_closes_the_open_items_and_a_merge_keeps_them() = runTest {
+        val backup = BackupCodec.encode(Snapshot.empty(), ExportMeta("1.0.0", "android", t0))
+        for (mode in RestoreMode.entries) {
+            val db = inMemoryDatabase()
+            val inbox = DetectedInbox(db)
+            val capture = CaptureStore(db, inbox)
+            capture.process(swiggy, now = t0)
+            capture.process(unknownBank, now = t0)
+            assertEquals(2, inbox.items().size)
+            assertIs<RestoreResult.Restored>(BackupStore(db).restore(backup.lineSequence(), mode, now = t0 + 1.minutes))
+            // After Replace the items are about data that is gone: undoing or confirming one would act on the restored data.
+            assertEquals(if (mode == RestoreMode.REPLACE) 0 else 2, inbox.items().size, "$mode")
+            db.close()
+        }
     }
 }

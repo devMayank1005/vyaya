@@ -58,7 +58,7 @@ class BackupDecoder(
     /** The result, once every line was given (or [accept] said stop). */
     fun end(): DecodeResult {
         stopped?.let { return it }
-        v1?.let { return BackupCodec.decodeV1(it.toString(), now, limits.maxV1Chars, restoreAnyway) }
+        v1?.let { return BackupCodec.decodeV1(it.toString(), now, limits.maxV1Chars, restoreAnyway, limits) }
         val h = header ?: return BackupCodec.fail("This backup file is empty")
         val trailer = trailer ?: return BackupCodec.fail("The backup file is incomplete: it was cut off before the end")
         if (trailer.sha256 != sha.hexDigest()) return BackupCodec.fail("The backup file is damaged or edited (its checksum does not match)")
@@ -145,6 +145,8 @@ class BackupDecoder(
             else -> return BackupCodec.fail("Line $number has an unknown record type '${type?.take(30)}'")
         } ?: return BackupCodec.fail("Line $number is damaged or was edited")
         counts[read]++
+        // PEN-002: stop as soon as one type passes its limit, before more of them are held.
+        if (read != BackupLimits.ENTRIES && counts[read] > limits.maxRecordsPerType) return BackupCodec.fail(limits.tooManyToRead(counts.toList())!!)
         return if (reader.full) reader.stoppedAt(number) else null // PEN-002: fail fast on a file full of bad records
     }
 }

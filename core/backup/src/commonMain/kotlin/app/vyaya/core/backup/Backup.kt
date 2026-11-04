@@ -196,7 +196,7 @@ object BackupCodec {
         )
     }
 
-    internal fun decodeV1(text: String, now: Instant, maxChars: Int, restoreAnyway: Boolean = false): DecodeResult {
+    internal fun decodeV1(text: String, now: Instant, maxChars: Int, restoreAnyway: Boolean = false, limits: BackupLimits = BackupLimits()): DecodeResult {
         if (text.length > maxChars) return fail("Backup file is too large (more than $maxChars characters)")
         JsonKeys.firstDuplicate(text)?.let { return fail("The backup file has a duplicate key '$it' (it was edited)") }
         val root = try {
@@ -218,7 +218,9 @@ object BackupCodec {
         } catch (e: Exception) {
             return fail("The backup file is damaged or was edited: ${e.message?.lineSequence()?.firstOrNull()?.take(200)}")
         }
-        return Reader.read(file.toContent(), now, restoreAnyway)
+        val content = file.toContent()
+        limits.tooManyToRead(content.counts())?.let { return fail(it) } // PEN-002
+        return Reader.read(content, now, restoreAnyway)
     }
 
     internal fun fail(problem: String) = DecodeResult.Failure(listOf(problem))

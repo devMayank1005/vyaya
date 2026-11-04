@@ -11,6 +11,8 @@ data class RecordCounts(
     val people: Int, val ledger: Int, val budgets: Int, val merchantRules: Int,
 ) {
     val total: Int get() = accounts + categories + entries + recurring + people + ledger + budgets + merchantRules
+
+    internal fun list() = listOf(accounts, categories, entries, recurring, people, ledger, budgets, merchantRules)
 }
 
 /**
@@ -19,7 +21,15 @@ data class RecordCounts(
  * recurring rules, people, ledger, budgets, merchant rules, each type by id. The bytes are the same as
  * [BackupCodec.write] gives for the same data, with the same line, size and record limits.
  */
-class StreamingBackup private constructor(private val limits: BackupLimits, private val sink: (String) -> Unit, private val total: Int) {
+class StreamingBackup private constructor(
+    private val limits: BackupLimits, private val sink: (String) -> Unit, private val total: Int, exportedAt: kotlin.time.Instant,
+) {
+    /**
+     * DATA-001: every line is also read back as a restore would read it (entries are handed out and dropped, so this
+     * needs no more memory), and [finish] fails if the restore would refuse the file. The rows are copied as they are,
+     * so this is where data a restore refuses (a change after the export time, a broken reference) is caught.
+     */
+    private val readBack = BackupDecoder(exportedAt, limits, streamEntries = true)
 
     private val sha = Sha256()
     private var written = 0L
@@ -33,6 +43,8 @@ class StreamingBackup private constructor(private val limits: BackupLimits, priv
         written += line.length + 1
         if (written > limits.maxTotalChars) return tooLarge()
         sha.update(line + "\n")
+        readBack.accept(line)
+        readBack.takeEntries()
         sink(line)
         return null
     }
@@ -52,6 +64,11 @@ class StreamingBackup private constructor(private val limits: BackupLimits, priv
             put("t", JsonPrimitive("end")); put("records", JsonPrimitive(total)); put("sha256", JsonPrimitive(sha.hexDigest()))
         })
         if (written + end.length + 1 > limits.maxTotalChars) return tooLarge()
+        readBack.accept(end)
+        val restored = readBack.end()
+        if (restored is DecodeResult.Failure) {
+            return EncodeResult.Failure("This data can't be backed up because it couldn't be restored: ${restored.problems.joinToString("; ")}")
+        }
         sink(end)
         return EncodeResult.Success
     }
@@ -61,12 +78,13 @@ class StreamingBackup private constructor(private val limits: BackupLimits, priv
         fun begin(meta: ExportMeta, settingsLine: String, counts: RecordCounts, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit):
             Pair<StreamingBackup?, EncodeResult.Failure?> {
             if (counts.total > limits.maxRecords) return null to EncodeResult.Failure("Too many records to back up: ${counts.total} (limit ${limits.maxRecords})")
+            limits.tooManyToWrite(counts.list())?.let { return null to it }
             val (currency, settings) = RecordLines.settingsOf(settingsLine) ?: return null to EncodeResult.Failure("The settings can't be read")
             val header = HeaderV2(
                 BackupCodec.FORMAT, BackupCodec.SCHEMA_VERSION, meta.appVersion, meta.createdOn, meta.exportedAt.toString(), currency, settings,
                 CountsV2(counts.accounts, counts.categories, counts.entries, counts.recurring, counts.people, counts.ledger, counts.budgets, counts.merchantRules),
             )
-            val writer = StreamingBackup(limits, sink, counts.total)
+            val writer = StreamingBackup(limits, sink, counts.total, meta.exportedAt)
             writer.emit(BackupLines.line("header", BackupLines.compact.encodeToJsonElement(HeaderV2.serializer(), header)), "Settings")
                 ?.let { return null to it }
             return writer to null

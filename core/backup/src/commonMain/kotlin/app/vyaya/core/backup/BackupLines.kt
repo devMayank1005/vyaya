@@ -42,7 +42,30 @@ data class BackupLimits(
      * 371 MB to read, more than low-end phones give an app (PEN-002).
      */
     val maxTotalChars: Long = 128L * 1024 * 1024,
-)
+    /**
+     * PEN-002 (reports/core-data-2026-11-04.md): records other than entries are kept in memory while a backup is read,
+     * so each of those types has a limit, far above real use (a few hundred). Entries are streamed and have none.
+     */
+    val maxRecordsPerType: Int = 10_000,
+) {
+    /** The writer's failure for [counts] (per type, in backup order), or null. */
+    internal fun tooManyToWrite(counts: List<Int>): EncodeResult.Failure? = overLimit(counts)?.let { (i, n) ->
+        EncodeResult.Failure("Too many ${TYPE_NAMES[i]} to back up: $n (limit $maxRecordsPerType)")
+    }
+
+    /** The reader's problem for [counts], or null. */
+    internal fun tooManyToRead(counts: List<Int>): String? =
+        overLimit(counts)?.let { (i, _) -> "The backup has too many ${TYPE_NAMES[i]} (limit $maxRecordsPerType)" }
+
+    private fun overLimit(counts: List<Int>): Pair<Int, Int>? =
+        counts.withIndex().firstOrNull { (i, n) -> i != ENTRIES && n > maxRecordsPerType }?.let { it.index to it.value }
+
+    internal companion object {
+        /** The record types in backup order. */
+        val TYPE_NAMES = listOf("accounts", "categories", "entries", "recurring rules", "people", "ledger entries", "budgets", "merchant rules")
+        const val ENTRIES = 2
+    }
+}
 
 sealed interface EncodeResult {
     data object Success : EncodeResult
@@ -81,6 +104,7 @@ internal object BackupLines {
         require(version == 2 || version == BackupCodec.SCHEMA_VERSION) { "can't write schema $version" }
         val total = file.recordCount
         if (total > limits.maxRecords) return EncodeResult.Failure("Too many records to back up: $total (limit ${limits.maxRecords})")
+        limits.tooManyToWrite(file.counts())?.let { return it }
 
         val sha = Sha256()
         var written = 0L
@@ -192,3 +216,7 @@ internal object JsonKeys {
         null
     }
 }
+
+/** Records per type, in backup order. */
+internal fun BackupContent.counts(): List<Int> =
+    listOf(accounts.size, categories.size, entries.size, recurring.size, people.size, ledger.size, budgets.size, merchantRules.size)
