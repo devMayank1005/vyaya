@@ -74,3 +74,20 @@ test**. When a fix is agreed, its first step is a failing test that proves it.
 ## Decisions needed from you
 - Which to fix. Recommended: **1–6 and 8–10 now** (1–4 can double-count or lose money; all are small);
   **7** when screenshots and Shortcuts are built.
+
+## Resolution (2026-11-04)
+
+Your decision: fix 1–6 and 8–10; 7 later. Each fix started with a failing test.
+
+| # | Status |
+|---|---|
+| 1 DATA-001 | ✅ Fixed: a captured transfer is a duplicate of either side |
+| 2 DATA-002 | ✅ Fixed: each message part is looked up near its own date |
+| 3 DATA-003 | ✅ Fixed: a review item for a captured payment points at it |
+| 4 DATA-004 | ✅ Fixed: one capture at a time, each in one database transaction (40 concurrent pairs → 40 entries) |
+| 5 DATA-005 | ✅ Fixed: the inbox item follows its entry to TRANSFER; a transfer isn't undone |
+| 6 FLAW-006 | ✅ Fixed: only messages giving a code are OTPs |
+| 7 FLAW-007 | ⏳ Later: screenshot and Shortcut trust rules, with those features |
+| 8 DATA-008 | ✅ Fixed: ClockRepair also removes generated entries not yet due |
+| 9 FLAW-009 | ✅ Fixed: split and parse once |
+| 10 FLAW-010 | ✅ Fixed: lookup by id; bad rows skipped |
