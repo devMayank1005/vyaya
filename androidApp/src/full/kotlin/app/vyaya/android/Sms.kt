@@ -11,11 +11,13 @@ import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.parser.RawMessage
 import app.vyaya.core.parser.Source
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.TimeZone
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
@@ -80,13 +82,14 @@ class ContentResolverSmsSource(private val resolver: ContentResolver) : SmsSourc
 }
 
 /** Reads the last [DAYS] days of SMS into capture; reading again adds nothing (de-dup). */
-class SmsImport(private val source: SmsSource, private val capture: SmsCapture) {
+class SmsImport(private val source: SmsSource, private val capture: SmsCapture, private val io: CoroutineDispatcher = Dispatchers.IO) {
 
     /** The number of entries added. */
     suspend fun run(now: Instant): Int {
         val since = (now - DAYS.days).toEpochMilliseconds()
-        // Each stored SMS is already whole.
-        return capture.process(source.inbox(since).flatMap { SmsParts.join(listOf(it), TimeZone.currentSystemDefault()) }.toList())
+        // FLAW-002: a month of SMS can be thousands of rows; never read them on the main thread. Each stored SMS is whole.
+        val messages = withContext(io) { source.inbox(since).flatMap { SmsParts.join(listOf(it), TimeZone.currentSystemDefault()) }.toList() }
+        return capture.process(messages)
     }
 
     companion object {

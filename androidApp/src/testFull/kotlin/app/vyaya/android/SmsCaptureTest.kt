@@ -100,6 +100,20 @@ class SmsCaptureTest {
         // Allowed: each SMS comes itself, with the sender's real address; its notification would be a second copy.
         assertEquals(emptySet<String>(), CaptureListener.smsAppsToRead(context))
     }
+
+    @Test
+    fun flaw_002_the_import_reads_the_inbox_off_the_main_thread() = runTest {
+        var onMain: Boolean? = null
+        val source = object : SmsSource {
+            override fun inbox(sinceMs: Long): Sequence<SmsParts.Part> {
+                onMain = android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+                return emptySequence()
+            }
+        }
+        assertTrue("this test runs on the main thread", android.os.Looper.myLooper() == android.os.Looper.getMainLooper())
+        SmsImport(source, SmsCapture(capture, { now }, { ist })).run(now)
+        assertEquals(false, onMain)
+    }
 }
 
 /** A stand-in for the system's SMS provider, honouring the `date >= ?` selection. */
