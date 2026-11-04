@@ -78,5 +78,6 @@ internal fun reasonText(reason: String?): String = when (reason) {
     "UNKNOWN_HEADER" -> "From a sender not on the bank list"
     "BARE_HEADER" -> "Sender ID without the operator prefix"
     "SAVED_CONTACT" -> "From a saved contact, not a bank"
+    "UNVERIFIED_APP" -> "From an app the phone couldn't confirm is the real one"
     else -> "Check this payment"
 }

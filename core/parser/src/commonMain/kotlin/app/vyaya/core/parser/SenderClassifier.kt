@@ -5,7 +5,16 @@ import kotlinx.serialization.json.Json
 
 /** A UPI app (or bank app with UPI) whose payment notifications Vyaya reads. Android only: iOS cannot read notifications. */
 @Serializable
-data class UpiApp(val id: String, val name: String, val packageName: String)
+data class UpiApp(
+    val id: String,
+    val name: String,
+    val packageName: String,
+    /**
+     * SEC-003: SHA-256 digests of the real app's signing certificates (as `apksigner` prints them), when known. An app
+     * installed under this package name but signed otherwise is not the real one. Empty: not known yet.
+     */
+    val certSha256: List<String> = emptyList(),
+)
 
 /** The list of trusted apps; a notification from any other package is ignored (core/filters, SEC-001). */
 class UpiAppList(val version: Int, val apps: List<UpiApp>) {

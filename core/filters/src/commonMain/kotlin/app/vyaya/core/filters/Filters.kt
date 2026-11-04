@@ -47,6 +47,12 @@ enum class ReviewReason {
 
     /** The SMS app's notification is titled with a saved contact's name, which anyone can make look like a bank (SEC-002). */
     SAVED_CONTACT,
+
+    /**
+     * SEC-003: a notification from a listed app's package name, but the phone couldn't confirm it is the real app (its
+     * signing certificate doesn't match, or it wasn't installed from the Play Store or with the phone).
+     */
+    UNVERIFIED_APP,
 }
 
 sealed interface Verdict {
@@ -87,7 +93,10 @@ object Filters {
         val sender = SenderClassifier.classify(raw.sender)
         var review: ReviewReason? = null
         when (raw.source) {
-            Source.NOTIFICATION -> if (sender !is SenderKind.App) return Verdict.Ignore(IgnoreReason.UNTRUSTED_APP)
+            Source.NOTIFICATION -> {
+                if (sender !is SenderKind.App) return Verdict.Ignore(IgnoreReason.UNTRUSTED_APP)
+                if (raw.appUnverified) review = ReviewReason.UNVERIFIED_APP
+            }
             else -> when (sender) {
                 is SenderKind.PhoneNumber -> return Verdict.Ignore(IgnoreReason.PERSONAL_NUMBER)
                 is SenderKind.Header -> {

@@ -18,13 +18,17 @@ enum class Source {
     SHORTCUT,
 }
 
-/** [senderIsContact]: for [Source.SMS_APP_NOTIFICATION], the title is a name saved in the user's contacts. */
+/**
+ * [senderIsContact]: for [Source.SMS_APP_NOTIFICATION], the title is a name saved in the user's contacts.
+ * [appUnverified]: for [Source.NOTIFICATION], the phone could not confirm the app is the real one (SEC-003).
+ */
 data class RawMessage(
     val source: Source,
     val sender: String,
     val text: String,
     val receivedAt: CapturedAt,
     val senderIsContact: Boolean = false,
+    val appUnverified: Boolean = false,
 )
 
 enum class Direction { DEBIT, CREDIT }

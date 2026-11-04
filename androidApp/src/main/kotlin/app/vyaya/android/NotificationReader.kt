@@ -35,6 +35,8 @@ data class NotificationContent(
 class NotificationReader(
     private val smsApps: Set<String>,
     private val upiApps: Set<String> = UpiApps.default.apps.mapTo(HashSet()) { it.packageName },
+    /** SEC-003: whether the app under a listed package name is the real one ([AppVerifier]). */
+    private val isGenuine: (String) -> Boolean = { true },
 ) {
     fun read(c: NotificationContent, zone: TimeZone): List<RawMessage> {
         if (c.isGroupSummary || c.isOngoing) return emptyList()
@@ -51,7 +53,7 @@ class NotificationReader(
         val bodies = c.textLines.ifEmpty { listOfNotNull(c.bigText?.takeIf { it.isNotBlank() } ?: c.text) }
         return bodies.mapNotNull { body ->
             val text = listOfNotNull(c.title, body).filter { it.isNotBlank() }.joinToString("\n")
-            if (text.isBlank()) null else RawMessage(Source.NOTIFICATION, c.packageName, text, at(c.postTimeMs, zone))
+            if (text.isBlank()) null else RawMessage(Source.NOTIFICATION, c.packageName, text, at(c.postTimeMs, zone), appUnverified = !isGenuine(c.packageName))
         }
     }
 

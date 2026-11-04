@@ -18,7 +18,7 @@ class CaptureListener : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val capture by lazy {
         val app = application as VyayaApp
-        NotificationCapture(app.capture, { NotificationReader(smsAppsToRead(this)) }, { Clock.System.now() }, { TimeZone.currentSystemDefault() })
+        NotificationCapture(app.capture, { NotificationReader(smsAppsToRead(this), isGenuine = app.appVerifier::isGenuine) }, { Clock.System.now() }, { TimeZone.currentSystemDefault() })
     }
 
     override fun onListenerConnected() {

@@ -42,4 +42,11 @@ class UpiAppsTest {
             UpiApps.load("""{"version":1,"apps":[{"id":"a","name":"A","packageName":"x.y"},{"id":"b","name":"B","packageName":"x.y"}]}""")
         }
     }
+
+    @Test
+    fun sec_003_an_app_may_list_its_signing_certificate_digests() {
+        val list = UpiApps.load("""{"version":1,"apps":[{"id":"pop","name":"POP","packageName":"com.popclub.android","certSha256":["AB:CD"]},{"id":"x","name":"X","packageName":"x.y"}]}""")
+        assertEquals(listOf("AB:CD"), list.byPackage("com.popclub.android")!!.certSha256)
+        assertEquals(emptyList(), list.byPackage("x.y")!!.certSha256)
+    }
 }
