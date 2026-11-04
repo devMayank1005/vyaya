@@ -20,6 +20,8 @@ import kotlinx.datetime.TimeZone
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.robolectric.Shadows.shadowOf
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
@@ -90,9 +92,13 @@ class SmsCaptureTest {
     }
 
     @Test
-    fun the_full_build_reads_sms_itself_so_it_skips_the_sms_apps_notifications() {
+    fun data_001_the_full_build_reads_the_sms_apps_notifications_until_sms_is_allowed() {
         assertEquals(true, Channel.READS_SMS)
-        assertEquals(emptySet<String>(), CaptureListener.smsAppsFor(context, Channel.READS_SMS))
+        // Not allowed (or taken back): the SMS app's notifications are the only way bank SMS arrive.
+        assertTrue("com.google.android.apps.messaging" in CaptureListener.smsAppsToRead(context))
+        shadowOf(context as android.app.Application).grantPermissions(android.Manifest.permission.RECEIVE_SMS)
+        // Allowed: each SMS comes itself, with the sender's real address; its notification would be a second copy.
+        assertEquals(emptySet<String>(), CaptureListener.smsAppsToRead(context))
     }
 }
 

@@ -18,7 +18,7 @@ class CaptureListener : NotificationListenerService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val capture by lazy {
         val app = application as VyayaApp
-        NotificationCapture(app.capture, NotificationReader(smsAppsFor(this, Channel.READS_SMS)), { Clock.System.now() }, { TimeZone.currentSystemDefault() })
+        NotificationCapture(app.capture, { NotificationReader(smsAppsToRead(this)) }, { Clock.System.now() }, { TimeZone.currentSystemDefault() })
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -32,10 +32,15 @@ class CaptureListener : NotificationListenerService() {
 
     companion object {
         /**
-         * The SMS apps whose notifications are read: none when the build reads SMS itself (each SMS would otherwise come
-         * twice, once without its real sender address).
+         * The SMS apps whose notifications are read, asked at each notification: none while this build receives SMS
+         * itself (each SMS would otherwise come twice, once without its real sender address). DATA-001: until the user
+         * allows SMS, or after they take it back, the notifications are the only way bank SMS arrive.
          */
-        fun smsAppsFor(context: Context, readsSms: Boolean): Set<String> = if (readsSms) emptySet() else smsApps(context)
+        fun smsAppsToRead(context: Context): Set<String> {
+            val receivesSms = Channel.READS_SMS &&
+                context.checkSelfPermission(android.Manifest.permission.RECEIVE_SMS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            return if (receivesSms) emptySet() else smsApps(context)
+        }
 
         /** The phone's SMS app (it posts the SMS notifications) and the common ones, in case it changes. */
         fun smsApps(context: Context): Set<String> = setOfNotNull(

@@ -17,7 +17,7 @@ class PlayChannelTest {
     fun the_play_build_reads_the_sms_apps_notifications() {
         val context: Context = ApplicationProvider.getApplicationContext()
         assertEquals(false, Channel.READS_SMS)
-        assertTrue("com.google.android.apps.messaging" in CaptureListener.smsAppsFor(context, Channel.READS_SMS))
+        assertTrue("com.google.android.apps.messaging" in CaptureListener.smsAppsToRead(context))
     }
 
     @Test

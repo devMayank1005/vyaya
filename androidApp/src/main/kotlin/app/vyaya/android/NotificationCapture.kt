@@ -54,13 +54,14 @@ private fun people(n: Notification): List<String> {
  */
 class NotificationCapture(
     private val capture: CaptureStore,
-    private val reader: NotificationReader,
+    /** Made for each notification: which apps it reads can change (SMS allowed or taken back). */
+    private val reader: () -> NotificationReader,
     private val clock: () -> Instant,
     private val zone: () -> TimeZone,
 ) {
     suspend fun handle(sbn: StatusBarNotification) {
         try {
-            for (raw in reader.read(NotificationContent.of(sbn), zone())) capture.process(raw, clock())
+            for (raw in reader().read(NotificationContent.of(sbn), zone())) capture.process(raw, clock())
         } catch (e: CancellationException) {
             // Our own cancellation goes on; one from inside (a closed database cancels its work) is a failure like any other.
             currentCoroutineContext().ensureActive()

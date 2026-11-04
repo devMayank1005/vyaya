@@ -34,7 +34,7 @@ class NotificationCaptureTest {
     private val inbox = DetectedInbox(db)
     private val now = Instant.parse("2026-11-04T10:00:00Z")
     private val capture = NotificationCapture(
-        CaptureStore(db, inbox), NotificationReader(smsApps = setOf("com.google.android.apps.messaging")),
+        CaptureStore(db, inbox), { NotificationReader(smsApps = setOf("com.google.android.apps.messaging")) },
         clock = { now }, zone = { TimeZone.of("Asia/Kolkata") },
     )
 
