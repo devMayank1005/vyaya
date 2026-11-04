@@ -45,3 +45,12 @@
 ## Decisions needed from you
 - **#1:** date card summary payments from their line (recommended)?
 - **#2, #3:** watch with more samples, or tighten now?
+
+## Resolution (2026-11-04)
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed | Card summary payments are dated on their own line's day, at the SMS's time of day |
+| 2 DATA-002 | ⏳ Watch | Refund reusing the payment's reference: check with more real samples |
+| 3 FLAW-003 | ⏳ Watch | "Txn ID" as reference for any sender: check with more real samples |
+| 4 FLAW-004 | ✅ Fixed | 31 UPI and bank apps (POP included) as versioned data, each package checked on the Indian Play Store; WhatsApp and Fi left out on purpose |
