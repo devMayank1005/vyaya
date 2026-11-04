@@ -112,3 +112,19 @@
 - **#5:** listener health check and battery guide (recommended)?
 - **#6:** wallet cashback: income, or ignored?
 - **#7:** use the receive time for live SMS (recommended)?
+
+## Resolution (2026-11-04)
+
+Your decision: go with the recommendations.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed | Which SMS apps' notifications are read is decided at each notification: all of them until RECEIVE_SMS is granted (or after it is taken back) |
+| 2 FLAW-002 | ✅ Fixed | `SmsImport` reads the SMS inbox on `Dispatchers.IO` |
+| 3 SEC-003 | ✅ Fixed (digests pending) | `AppVerifier`: a known certificate digest decides; otherwise Play Store, Galaxy Store or preinstalled. Unverified notifications go to Review (`UNVERIFIED_APP`). `<queries>` names every listed app. **The digest list is still empty**: to be read from the real apps on your phone |
+| 4 FLAW-004 | ⏳ Open | Needs a check on your phone (which SMS app gives people info) |
+| 5 FLAW-005 | ✅ Fixed | `ListenerHealth`; rebind when dropped and when the app opens; the setup card shows a stopped listener with Battery settings |
+| 6 DATA-006 | ⏳ Open | Wallet cashback: your decision (counted as income for now) |
+| 7 DATA-007 | ✅ Fixed | A live SMS is dated at receive time, like the import |
+| 8 SEC-008 | ⏳ Open | Encryption at rest, with the app lock |
+| 9 FLAW-009 | ⏳ Open | Import message counts |
