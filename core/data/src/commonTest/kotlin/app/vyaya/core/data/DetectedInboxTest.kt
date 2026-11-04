@@ -68,4 +68,35 @@ class DetectedInboxTest {
         assertEquals(emptyList(), inbox.items(), "a dismissed message stays dismissed")
         db.close()
     }
+
+    @Test
+    fun actions_on_the_wrong_item_do_nothing() = runTest {
+        val db = inMemoryDatabase()
+        val inbox = DetectedInbox(db)
+        val capture = CaptureStore(db, inbox)
+        capture.process(swiggy, now = t0)
+        capture.process(unknownBank, now = t0)
+        val added = inbox.items().single { it.kind == DetectedKind.ADDED }
+        val review = inbox.items().single { it.kind == DetectedKind.REVIEW }
+        inbox.confirm(added.id, now = t0); inbox.dismiss(added.id) // only review items are confirmed or dismissed
+        inbox.undo(review.id, now = t0) // only added items are undone
+        inbox.undo("no-such-item", now = t0); inbox.confirm("no-such-item", now = t0); inbox.dismiss("no-such-item")
+        assertEquals(2, inbox.items().size)
+        assertTrue(!EntryStore(db).byId(added.entry.id)!!.deleted)
+        assertNull(EntryStore(db).byId(review.entry.id))
+        db.close()
+    }
+
+    @Test
+    fun duplicates_transfers_and_ignored_messages_are_not_inbox_items() = runTest {
+        val db = inMemoryDatabase()
+        val inbox = DetectedInbox(db)
+        val capture = CaptureStore(db, inbox)
+        capture.process(sms("AX-HDFCBK-S", "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul\nOn 30/10/26\nRef 219300000004\nNot You?"), now = t0)
+        capture.process(sms("AX-AIRBNK-S", "Airtel Payments Bank a/c is credited with Rs.14999.00. Txn ID: 219300000004. Call 180023400",
+            time = t0 + 1.minutes), now = t0 + 1.minutes) // transfer
+        capture.process(sms("VM-HDFCBK-S", "482913 is your OTP for txn of Rs.500.00 at AMAZON. Do not share."), now = t0) // ignored
+        assertEquals(1, inbox.items().size, "only the first side, added")
+        db.close()
+    }
 }
