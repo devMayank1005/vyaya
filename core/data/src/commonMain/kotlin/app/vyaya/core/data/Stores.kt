@@ -50,7 +50,7 @@ class EntryStore(private val db: VyayaDatabase) {
  * entry, a transfer, a duplicate (nothing saved) or a review item. Detected payments are added automatically (the
  * user's choice); the app's Detected inbox lists them for edit or undo.
  */
-class CaptureStore(private val db: VyayaDatabase) {
+class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInbox = DetectedInbox(db)) {
 
     private val entries = EntryStore(db)
 
@@ -62,6 +62,8 @@ class CaptureStore(private val db: VyayaDatabase) {
         val refs = MessageSplitter.split(raw).mapNotNull { (MessageParser.parse(it) as? ParseResult.Transaction)?.txn?.upiRef }
         val existing = entries.nearOrWithRef(time - window, time + window, refs)
         val outcomes = Capture.processAll(raw, existing, now)
+        val parts = MessageSplitter.split(raw)
+        outcomes.forEachIndexed { i, outcome -> inbox.record(parts.getOrElse(i) { raw }, outcome) }
         entries.save(outcomes.mapNotNull {
             when (it) {
                 is Outcome.Added -> it.entry

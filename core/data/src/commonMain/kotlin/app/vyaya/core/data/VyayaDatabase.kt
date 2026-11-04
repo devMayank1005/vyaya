@@ -5,6 +5,8 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Index
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
@@ -51,10 +53,44 @@ interface EntryDao {
     suspend fun nearOrWithRef(fromMs: Long, toMs: Long, refs: List<String>): List<EntryRow>
 }
 
-@Database(entities = [EntryRow::class], version = 1)
+/**
+ * One item of the Detected inbox. [id] comes from the message itself (sender, text, time), so the same message read
+ * again (live, then the import) is never a second item. [entryLine] is the entry as its backup line; no SMS text is kept.
+ */
+@Entity(tableName = "detected", indices = [Index("status")])
+data class DetectedRow(
+    @PrimaryKey val id: String,
+    /** ADDED (saved by itself: edit or undo) or REVIEW (saved only when confirmed). */
+    val kind: String,
+    /** OPEN, then UNDONE, CONFIRMED or DISMISSED. */
+    val status: String,
+    val entryLine: String,
+    val reason: String?,
+    val possibleDuplicateOf: String?,
+    val receivedAtMs: Long,
+)
+
+@Dao
+interface DetectedDao {
+    /** A message already in the inbox (in any status) is left as it is. */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(row: DetectedRow)
+
+    @Query("SELECT * FROM detected WHERE id = :id")
+    suspend fun byId(id: String): DetectedRow?
+
+    @Query("SELECT * FROM detected WHERE status = 'OPEN' ORDER BY receivedAtMs DESC")
+    suspend fun open(): List<DetectedRow>
+
+    @Query("UPDATE detected SET status = :status WHERE id = :id")
+    suspend fun setStatus(id: String, status: String)
+}
+
+@Database(entities = [EntryRow::class, DetectedRow::class], version = 1)
 @ConstructedBy(VyayaDatabaseConstructor::class)
 abstract class VyayaDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
+    abstract fun detected(): DetectedDao
 }
 
 // Room's compiler supplies the actual implementations for each platform.
