@@ -69,6 +69,14 @@ class FiltersTest {
     private val hdfcText = "Sent Rs.500.00 From HDFC Bank A/C *1234 To Rahul On 26/10/26 Ref 429112345678 Not You? Call 18002586161"
 
     @Test
+    fun every_listed_upi_apps_payment_notification_is_accepted_and_whatsapp_is_not() {
+        for (app in app.vyaya.core.parser.UpiApps.default.apps) {
+            assertIs<Verdict.Accept>(notification(app.packageName, "₹250 paid to Swiggy"), app.name)
+        }
+        assertEquals(Verdict.Ignore(IgnoreReason.UNTRUSTED_APP), notification("com.whatsapp", "₹500 paid to Rahul Sharma"))
+    }
+
+    @Test
     fun the_users_real_airtel_payments_bank_sms_are_handled() { // the user's samples, masked
         assertIs<Verdict.Accept>(sms("AX-AIRBNK-S", "Rs. 1000.00 debited from Airtel Payments Bank a/c Txn ID 617300000001 Bal:8491.05 Call 180023400 for help"))
         assertIs<Verdict.Accept>(sms("AX-AIRBNK-S", "Airtel Payments Bank a/c is credited with Rs.400.00. Txn ID: 078600000003. Call 180023400 for help"))

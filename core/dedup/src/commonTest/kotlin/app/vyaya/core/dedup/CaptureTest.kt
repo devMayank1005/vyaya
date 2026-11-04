@@ -90,6 +90,14 @@ class CaptureTest {
     }
 
     @Test
+    fun a_pop_notification_and_the_airtel_sms_for_one_payment_are_one_entry() { // the user's apps
+        val pop = RawMessage(Source.NOTIFICATION, "com.popclub.android", "₹250 paid to Swiggy", at(t0))
+        val sms = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Rs. 250.00 debited from Airtel Payments Bank a/c Txn ID 630200000009 Bal:732.43 Call 180023400 for help", at(t0 + 2.minutes))
+        assertEquals(1, captureAll(listOf(pop, sms)).first.size)
+    }
+
+    @Test
     fun money_moved_between_your_own_accounts_is_one_transfer_not_spending_and_income() { // the user's samples, masked
         val sent = RawMessage(Source.SMS, "AX-HDFCBK-S",
             "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul Sharma\nOn 30/10/26\nRef 219300000004\nNot You?\nCall 18002586161", at(t0))

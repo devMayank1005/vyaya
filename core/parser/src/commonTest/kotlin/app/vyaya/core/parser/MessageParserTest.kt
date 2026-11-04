@@ -45,7 +45,7 @@ class MessageParserTest {
         val result = MessageParser.parse(RawMessage(Source.NOTIFICATION, "com.phonepe.app", "₹120 paid to Swiggy", at))
         val txn = (result as ParseResult.Transaction).txn
         assertEquals(at, txn.occurredAt)
-        assertEquals(SenderKind.App(UpiApp.PHONEPE), txn.sender)
+        assertEquals("phonepe", (txn.sender as SenderKind.App).app.id)
     }
 
     @Test
