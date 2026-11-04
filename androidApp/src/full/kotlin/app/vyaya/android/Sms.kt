@@ -27,6 +27,15 @@ import kotlin.time.Instant
 object SmsParts {
     data class Part(val address: String, val body: String, val timeMs: Long)
 
+    /** A part as the system delivers it; [sentAtMs] is the network's time, not used (DATA-007). */
+    data class Delivered(val address: String, val body: String, val sentAtMs: Long)
+
+    /**
+     * DATA-007: dated when the phone received it, as the SMS inbox stores it (its `date` column), so a live read and a
+     * later import of the same SMS agree. The network's sent time can be hours off.
+     */
+    fun delivered(parts: List<Delivered>, receivedAtMs: Long): List<Part> = parts.map { Part(it.address, it.body, receivedAtMs) }
+
     /** A long SMS arrives in parts; one message per sender, its parts in order, at its first part's time. */
     fun join(parts: List<Part>, zone: TimeZone): List<RawMessage> =
         parts.groupBy { it.address }.mapNotNull { (address, ps) ->
@@ -108,9 +117,10 @@ fun VyayaApp.smsCapture() = SmsCapture(capture, { Clock.System.now() }, { TimeZo
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
-        val parts = Telephony.Sms.Intents.getMessagesFromIntent(intent).orEmpty().mapNotNull { m ->
-            SmsParts.Part(m?.originatingAddress ?: return@mapNotNull null, m.messageBody.orEmpty(), m.timestampMillis)
+        val delivered = Telephony.Sms.Intents.getMessagesFromIntent(intent).orEmpty().mapNotNull { m ->
+            SmsParts.Delivered(m?.originatingAddress ?: return@mapNotNull null, m.messageBody.orEmpty(), m.timestampMillis)
         }
+        val parts = SmsParts.delivered(delivered, receivedAtMs = System.currentTimeMillis())
         if (parts.isEmpty()) return
         val app = context.applicationContext as VyayaApp
         val pending = goAsync()

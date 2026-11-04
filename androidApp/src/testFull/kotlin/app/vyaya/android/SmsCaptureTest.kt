@@ -114,6 +114,16 @@ class SmsCaptureTest {
         SmsImport(source, SmsCapture(capture, { now }, { ist })).run(now)
         assertEquals(false, onMain)
     }
+
+    @Test
+    fun data_007_an_arriving_sms_is_dated_when_the_phone_received_it() {
+        // The network's sent time can be hours off (late delivery, a wrong clock at the SMS centre); the inbox's own
+        // date column is the receive time, so the import and the live read must agree on it.
+        val sentHoursAgo = ms - 5 * 3_600_000
+        val parts = SmsParts.delivered(listOf(SmsParts.Delivered("VM-HDFCBK-S", hdfc.take(60), sentHoursAgo), SmsParts.Delivered("VM-HDFCBK-S", hdfc.drop(60), sentHoursAgo)), receivedAtMs = ms)
+        assertEquals(listOf(ms, ms), parts.map { it.timeMs })
+        assertEquals(hdfc, SmsParts.join(parts, ist).single().text)
+    }
 }
 
 /** A stand-in for the system's SMS provider, honouring the `date >= ?` selection. */
