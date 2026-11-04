@@ -65,7 +65,17 @@ sealed interface Verdict {
  */
 object Filters {
 
-    private val OTP = Regex("""\b(otp|one[ -]?time password|verification code)\b""", RegexOption.IGNORE_CASE)
+    /**
+     * A message that gives a code ("482913 is your OTP", "OTP ... is 482913", "Use verification code 4829"). A real alert
+     * that only warns ("Never share your OTP") is not an OTP (FLAW-006, branch review).
+     */
+    private val OTP = Regex(
+        """\b\d{4,8}\s+is\s+(?:your|the)\b.{0,30}?\b(?:otp|one[ -]?time password|verification code|code)\b""" +
+            """|\b(?:otp|one[ -]?time password|verification code)\b.{0,60}?\bis\s*:?\s*\d{4,8}\b""" +
+            """|\b(?:otp|one[ -]?time password|verification code)\s*[:\-]\s*\d{4,8}\b""" +
+            """|\b(?:use|enter)\s+(?:otp|one[ -]?time password|verification code|code)\s+\d{4,8}\b""",
+        RegexOption.IGNORE_CASE,
+    )
     private val FAILED = Regex("""\b(failed|declined|unsuccessful|rejected|could not be (processed|completed)|reversed)\b""", RegexOption.IGNORE_CASE)
     private val NOT_YET = Regex(
         """\bwill be (debited|credited|deducted|processed|charged|refunded)\b|\b(is|are) due\b|\bdue (on|date|by)\b|\breminder\b|\bscheduled\b|\b(refund|reversal)\b[^.]*\binitiated\b""",

@@ -90,6 +90,26 @@ class CaptureTest {
     }
 
     @Test
+    fun re_reading_either_sms_of_a_transfer_adds_nothing() { // DATA-001 (branch review)
+        val sent = RawMessage(Source.SMS, "AX-HDFCBK-S",
+            "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul Sharma\nOn 30/10/26\nRef 219300000004\nNot You?", at(t0))
+        val received = RawMessage(Source.SMS, "AX-AIRBNK-S",
+            "Airtel Payments Bank a/c is credited with Rs.14999.00. Txn ID: 219300000004. Call 180023400", at(t0 + 1.minutes))
+        val first = assertIs<Outcome.Added>(Capture.process(sent, emptyList(), now)).entry
+        val transfer = assertIs<Outcome.Transfer>(Capture.process(received, listOf(first), now)).entry
+        assertEquals(transfer.id, assertIs<Outcome.Duplicate>(Capture.process(sent, listOf(transfer), now)).of)
+        assertEquals(transfer.id, assertIs<Outcome.Duplicate>(Capture.process(received, listOf(transfer), now)).of)
+    }
+
+    @Test
+    fun a_review_item_for_a_payment_already_captured_says_so() { // DATA-003 (branch review)
+        val added = assertIs<Outcome.Added>(Capture.process(phonepe("500", to = "Zomato"), emptyList(), now)).entry
+        val bareHeader = RawMessage(Source.SMS, "HDFCBK",
+            "Sent Rs.500.00 From HDFC Bank A/C *1234 To Zomato On 26/10/26 Ref 429100000077 Not You?", at(t0 + 1.minutes))
+        assertEquals(added.id, assertIs<Outcome.Review>(Capture.process(bareHeader, listOf(added), now)).possibleDuplicateOf)
+    }
+
+    @Test
     fun a_pop_notification_and_the_airtel_sms_for_one_payment_are_one_entry() { // the user's apps
         val pop = RawMessage(Source.NOTIFICATION, "com.popclub.android", "₹250 paid to Swiggy", at(t0))
         val sms = RawMessage(Source.SMS, "AX-AIRBNK-S",

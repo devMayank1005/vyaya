@@ -77,6 +77,17 @@ class FiltersTest {
     }
 
     @Test
+    fun a_real_alert_that_warns_about_otps_is_not_an_otp() { // FLAW-006 (branch review)
+        assertIs<Verdict.Accept>(sms("VM-HDFCBK-S",
+            "Sent Rs.500.00 From HDFC Bank A/C *1234 To Swiggy On 26/10/26 Ref 429100000001. Never share your OTP/PIN with anyone."))
+        assertIs<Verdict.Accept>(sms("VM-HDFCBK-S", "Rs.80.00 debited from A/c XX1234. UPI Ref 429100000002. Do not share OTP, CVV with anyone."))
+        // Messages that give a code are still OTPs.
+        assertEquals(Verdict.Ignore(IgnoreReason.OTP), sms("VM-HDFCBK-S", "482913 is your OTP for txn of Rs.500.00 at AMAZON. Do not share."))
+        assertEquals(Verdict.Ignore(IgnoreReason.OTP), sms("VM-HDFCBK-S", "OTP for Rs.500.00 payment to AMAZON is 482913. Valid for 5 mins."))
+        assertEquals(Verdict.Ignore(IgnoreReason.OTP), sms("VM-HDFCBK-S", "Use verification code 4829 to authorise Rs.500.00 at AMAZON."))
+    }
+
+    @Test
     fun the_users_real_airtel_payments_bank_sms_are_handled() { // the user's samples, masked
         assertIs<Verdict.Accept>(sms("AX-AIRBNK-S", "Rs. 1000.00 debited from Airtel Payments Bank a/c Txn ID 617300000001 Bal:8491.05 Call 180023400 for help"))
         assertIs<Verdict.Accept>(sms("AX-AIRBNK-S", "Airtel Payments Bank a/c is credited with Rs.400.00. Txn ID: 078600000003. Call 180023400 for help"))

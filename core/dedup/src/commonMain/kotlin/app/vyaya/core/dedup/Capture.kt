@@ -88,7 +88,8 @@ object Capture {
             otherSideOf(entry, existing)?.let { return Outcome.Transfer(it.copy(type = EntryType.TRANSFER, updatedAt = now)) }
             duplicateOf(entry, existing)?.let { return Outcome.Duplicate(it) }
         }
-        val possible = possibleDuplicateOf(entry, existing)
+        // DATA-003: a review item for a payment already captured points at it, so confirming can't log it twice.
+        val possible = (if (verdict is Verdict.Review) duplicateOf(entry, existing) else null) ?: possibleDuplicateOf(entry, existing)
         return when {
             verdict is Verdict.Review -> Outcome.Review(entry, verdict.reason, possible)
             possible != null -> Outcome.Review(entry, null, possible)
@@ -120,6 +121,9 @@ object Capture {
      * deleted when its bank SMS or the import brings it again.
      */
     private fun duplicateOf(c: Entry, existing: List<Entry>): EntityId? = existing.firstOrNull { e ->
+        // DATA-001: a transfer stands for both of its sides; re-reading either side's message is the same money.
+        e.source in CAPTURED && e.type == EntryType.TRANSFER && c.upiRef != null && e.upiRef == c.upiRef && e.amount == c.amount
+    }?.id ?: existing.firstOrNull { e ->
         e.source in CAPTURED && e.type == c.type && e.amount == c.amount && when {
             e.upiRef != null && c.upiRef != null -> e.upiRef == c.upiRef // the bank's reference decides
             e.source == c.source && e.occurredAt.instant == c.occurredAt.instant -> true // the same message read again
