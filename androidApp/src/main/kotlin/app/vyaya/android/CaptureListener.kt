@@ -21,6 +21,16 @@ class CaptureListener : NotificationListenerService() {
         NotificationCapture(app.capture, { NotificationReader(smsAppsToRead(this)) }, { Clock.System.now() }, { TimeZone.currentSystemDefault() })
     }
 
+    override fun onListenerConnected() {
+        ListenerHealth(this).connected()
+    }
+
+    /** FLAW-005: noted for the app to show, and a new connection asked for. */
+    override fun onListenerDisconnected() {
+        ListenerHealth(this).disconnected()
+        requestRebind(component(this))
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         scope.launch { capture.handle(sbn) }
     }
@@ -31,6 +41,8 @@ class CaptureListener : NotificationListenerService() {
     }
 
     companion object {
+        fun component(context: Context) = android.content.ComponentName(context, CaptureListener::class.java)
+
         /**
          * The SMS apps whose notifications are read, asked at each notification: none while this build receives SMS
          * itself (each SMS would otherwise come twice, once without its real sender address). DATA-001: until the user

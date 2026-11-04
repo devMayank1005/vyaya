@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Settings
+import android.service.notification.NotificationListenerService
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
                     onNotificationAccess = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                     onSms = { askSms.launch(SmsFeature.permissions) },
                     onImport = ::importSms,
+                    onBattery = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                 )
             }
         }
@@ -48,8 +50,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refresh() {
+        val access = packageName in NotificationManagerCompat.getEnabledListenerPackages(this)
+        // FLAW-005: ask the system to (re)connect the listener whenever the app is opened with access granted.
+        if (access) NotificationListenerService.requestRebind(CaptureListener.component(this))
         setup.value = Setup(
-            notificationAccess = packageName in NotificationManagerCompat.getEnabledListenerPackages(this),
+            notificationAccess = access,
+            listenerStopped = ListenerHealth(this).status(access) == ListenerHealth.Status.STOPPED,
             smsAvailable = SmsFeature.AVAILABLE,
             smsGranted = SmsFeature.permissions.isNotEmpty() &&
                 SmsFeature.permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },

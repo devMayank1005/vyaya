@@ -25,13 +25,14 @@ fun VyayaScreen(
     onNotificationAccess: () -> Unit,
     onSms: () -> Unit,
     onImport: () -> Unit,
+    onBattery: () -> Unit = {},
 ) {
     val items = remember(inbox) { inbox.changes() }.collectAsState(emptyList()).value
     val scope = rememberCoroutineScope()
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             Text("Detected", Modifier.padding(16.dp), style = MaterialTheme.typography.headlineSmall)
-            SetupCard(setup, onNotificationAccess, onSms, onImport)
+            SetupCard(setup, onNotificationAccess, onSms, onImport, onBattery = onBattery)
             DetectedScreen(
                 items,
                 onUndo = { id -> scope.launch { inbox.undo(id, clock()) } },
