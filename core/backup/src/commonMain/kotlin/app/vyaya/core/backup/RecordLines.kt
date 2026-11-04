@@ -42,6 +42,10 @@ object RecordLines {
     private val json = Json { ignoreUnknownKeys = false }
     private val anyTime = Instant.parse("2000-01-01T00:00:00Z")
 
+    /** The currency and settings in a settings line; null when it can't be read. */
+    internal fun settingsOf(line: String): Pair<String, SettingsV1>? =
+        runCatching { json.decodeFromString(SettingsLine.serializer(), line) }.getOrNull()?.let { it.currency to it.settings }
+
     fun entry(e: Entry): String = line("entry", EntryV3.serializer(), BackupCodec.entryV3(e))
 
     /** The entry in [line]; null when it isn't a valid entry line. */

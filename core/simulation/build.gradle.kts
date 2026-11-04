@@ -21,6 +21,10 @@ kotlin {
         }
         jvmTest.dependencies {
             implementation(kotlin("test"))
+            implementation(project(":core:data"))
+            implementation(libs.room.runtime)
+            implementation(libs.sqlite.bundled)
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
@@ -35,5 +39,6 @@ tasks.named<Test>("jvmTest") {
     systemProperty("sim.backup.big", providers.gradleProperty("sim.backup.big").getOrElse("false"))
     systemProperty("sim.backup.report", layout.buildDirectory.file("simulation/backup-report.txt").get().asFile.absolutePath)
     systemProperty("sim.report", layout.buildDirectory.file("simulation/report.txt").get().asFile.absolutePath)
+    providers.gradleProperty("sim.heap").orNull?.let { maxHeapSize = it } // e.g. -Psim.heap=256m for the memory checks
     outputs.upToDateWhen { false }
 }

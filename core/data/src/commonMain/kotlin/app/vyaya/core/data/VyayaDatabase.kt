@@ -48,6 +48,18 @@ interface EntryDao {
     @Query("SELECT * FROM entries")
     suspend fun all(): List<EntryRow>
 
+    @Query("SELECT * FROM entries WHERE id IN (:ids)")
+    suspend fun byIds(ids: List<String>): List<EntryRow>
+
+    @Query("SELECT line FROM entries ORDER BY id LIMIT :limit OFFSET :offset")
+    suspend fun page(limit: Int, offset: Int): List<String>
+
+    @Query("SELECT COUNT(*) FROM entries")
+    suspend fun count(): Int
+
+    @Query("DELETE FROM entries")
+    suspend fun clear()
+
     /** Rows dated in [fromMs, toMs], or carrying one of [refs]: what capture needs to recognise a payment again. */
     @Query("SELECT * FROM entries WHERE (occurredAtMs BETWEEN :fromMs AND :toMs) OR upiRef IN (:refs)")
     suspend fun nearOrWithRef(fromMs: Long, toMs: Long, refs: List<String>): List<EntryRow>
@@ -106,6 +118,15 @@ interface RecordDao {
 
     @Query("SELECT * FROM records ORDER BY kind, id")
     suspend fun all(): List<RecordRow>
+
+    @Query("SELECT line FROM records WHERE kind = :kind ORDER BY id LIMIT :limit OFFSET :offset")
+    suspend fun page(kind: String, limit: Int, offset: Int): List<String>
+
+    @Query("SELECT COUNT(*) FROM records WHERE kind = :kind")
+    suspend fun count(kind: String): Int
+
+    @Query("DELETE FROM records")
+    suspend fun clear()
 }
 
 @Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class], version = 1)

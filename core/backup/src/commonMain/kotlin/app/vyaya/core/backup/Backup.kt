@@ -231,7 +231,12 @@ object BackupCodec {
  * fails validation is dropped straight away, so oversized fields are never held (PEN-002). References between
  * records are checked in [finish], so the order of records in the file doesn't matter.
  */
-internal class Reader(private val now: Instant, private val restoreAnyway: Boolean = false) {
+/**
+ * Builds domain records from backup records and collects every problem. With [streamEntries], valid entries are not
+ * kept: they wait in [streamed] (dates already moved when restoring anyway) for the caller to take, and only what
+ * the checks across records need stays (PEN-003).
+ */
+internal class Reader(private val now: Instant, private val restoreAnyway: Boolean = false, private val streamEntries: Boolean = false) {
 
     private val problems = mutableListOf<String>()
 
@@ -252,6 +257,12 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
     private val accounts = mutableListOf<Account>()
     private val categories = mutableListOf<Category>()
     private val entries = mutableListOf<Entry>()
+
+    private val entryRefs = mutableListOf<EntryRef>()
+    private val sameIds = HashMap<EntityId, EntityId>()
+
+    /** Entries read and not yet taken ([streamEntries] only). */
+    internal var streamed = ArrayList<Entry>()
 
     /** The entries read so far: for [RecordLines], which reads one record at a time. */
     internal val entriesRead: List<Entry> get() = entries
@@ -325,8 +336,27 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
                 e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, month(it.month, "generatedBy month")!!) },
             )
-        }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt); keyNotAfterExport(it) }?.let(entries::add)
+        }?.also { notAfterExport("entry", id, it.createdAt, it.updatedAt); keyNotAfterExport(it) }?.let(::keep)
     }
+
+    private fun keep(e: Entry) {
+        if (!streamEntries) { entries += e; return }
+        entryRefs += EntryRef.of(e) { sameIds.getOrPut(it) { it } }
+        if (resetFutureDates && exportedAt != null) movedBack(e)?.let(streamed::add) else streamed += e
+    }
+
+    /** This phone's month, for restoring anyway (see [finish]). */
+    private val thisMonth by lazy { now.toLocalDateTime(homeZone ?: TimeZone.UTC).date.yearMonth }
+
+    private fun Instant.shiftedBack() = maxOf(this - (exportedAt!! - now), earliest)
+
+    /**
+     * #19b: entries generated for months this phone hasn't reached are left out; catch-up makes them again, with the
+     * same id, when the month comes. Kept, they would block this phone's backups until then.
+     */
+    private fun movedBack(e: Entry): Entry? =
+        if (e.generatedBy.let { it == null || it.month <= thisMonth }) e.copy(createdAt = e.createdAt.shiftedBack(), updatedAt = e.updatedAt.shiftedBack())
+        else null
 
     fun recurring(r: RecurringV3) {
         val id = id(r.id, "recurring rule") ?: return
@@ -362,7 +392,8 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
     fun finish(appVersion: String, createdOn: String): DecodeResult {
-        problems += Consistency.crossRecord(accounts, categories, entries, recurring, people, ledger, budgets, merchantRules)
+        val refs = if (streamEntries) entryRefs else entries.map(EntryRef::of)
+        problems += Consistency.crossRecord(accounts, categories, refs, recurring, people, ledger, budgets, merchantRules)
 
         // A missing settings or export time always comes with a problem, so "no problems" means both are present.
         val settings = settings; val exportedAt = exportedAt
@@ -376,17 +407,11 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
             // time moves back by the clock difference, as if the backup were made now. That keeps its order against
             // this phone's own edits (resetting to now made every restored record the newest). Never before 2000, so
             // the result can be backed up again. Only change times move; when things happened stays as it was.
-            val difference = exportedAt - now
-            val thisMonth = now.toLocalDateTime(homeZone ?: TimeZone.UTC).date.yearMonth
-            fun Instant.shiftedBack() = maxOf(this - difference, earliest)
             val snapshot = Snapshot(
                 settings,
                 accounts.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 categories.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
-                // #19b: entries generated for months this phone hasn't reached are left out; catch-up makes them again,
-                // with the same id, when the month comes. Kept, they would block this phone's backups until then.
-                entries.filter { e -> e.generatedBy.let { it == null || it.month <= thisMonth } }
-                    .map { it.copy(createdAt = it.createdAt.shiftedBack(), updatedAt = it.updatedAt.shiftedBack()) },
+                entries.mapNotNull(::movedBack),
                 recurring.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 people.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 ledger.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },

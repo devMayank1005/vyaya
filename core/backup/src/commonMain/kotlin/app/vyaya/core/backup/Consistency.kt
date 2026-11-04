@@ -5,6 +5,8 @@ import app.vyaya.core.model.Budget
 import app.vyaya.core.model.Category
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Generation
 import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.MerchantRule
 import app.vyaya.core.model.Person
@@ -68,7 +70,7 @@ internal object Consistency {
         s.merchantRules.forEach { after("merchant rule", it.id, it.updatedAt) }
         s.entries.forEach { keyAfterExport(it, exportedAt, s.settings.homeTimeZone)?.let(problems::add) }
 
-        problems += crossRecord(s.accounts, s.categories, s.entries, s.recurring, s.people, s.ledger, s.budgets, s.merchantRules)
+        problems += crossRecord(s.accounts, s.categories, s.entries.map(EntryRef::of), s.recurring, s.people, s.ledger, s.budgets, s.merchantRules)
         return problems
     }
 
@@ -87,17 +89,17 @@ internal object Consistency {
 
     /** References between records, duplicate ids, and generated entries against their rules. */
     fun crossRecord(
-        accounts: List<Account>, categories: List<Category>, entries: List<Entry>, recurring: List<RecurringRule>,
+        accounts: List<Account>, categories: List<Category>, entries: List<EntryRef>, recurring: List<RecurringRule>,
         people: List<Person>, ledger: List<LedgerEntry>, budgets: List<Budget>, merchantRules: List<MerchantRule>,
     ): List<String> {
-        val s = Snapshot(Settings.default(), accounts, categories, entries, recurring, people, ledger, budgets, merchantRules)
+        val s = Snapshot(Settings.default(), accounts, categories, emptyList(), recurring, people, ledger, budgets, merchantRules)
         val problems = mutableListOf<String>()
         val accountIds = s.accounts.mapTo(HashSet()) { it.id }
         val categoryIds = s.categories.mapTo(HashSet()) { it.id } + SystemCategories.all.map { it.id }
         val personIds = s.people.mapTo(HashSet()) { it.id }
-        val entryIds = s.entries.mapTo(HashSet()) { it.id }
+        val entryIds = entries.mapTo(HashSet()) { it.id }
         val rulesById = s.recurring.associateBy { it.id }
-        s.entries.forEach { e ->
+        entries.forEach { e ->
             val key = e.generatedBy ?: return@forEach
             val rule = rulesById[key.ruleId] ?: return@forEach // an unknown rule is reported below
             // DATA-004: catch-up starts at the rule's first month, so an earlier key can't be genuine.
@@ -109,10 +111,10 @@ internal object Consistency {
         fun check(owner: String, id: EntityId?, known: Set<EntityId>, what: String) {
             if (id != null && id !in known) problems += "$owner: unknown $what $id"
         }
-        s.entries.forEach { e ->
+        entries.forEach { e ->
             val owner = "entry ${e.id}"
             check(owner, e.accountId, accountIds, "account"); check(owner, e.toAccountId, accountIds, "account")
-            check(owner, e.categoryId, categoryIds, "category"); e.splits.forEach { check(owner, it.categoryId, categoryIds, "category") }
+            check(owner, e.categoryId, categoryIds, "category"); e.splitCategories.forEach { check(owner, it, categoryIds, "category") }
             check(owner, e.linkedEntryId, entryIds, "linked entry"); check(owner, e.generatedBy?.ruleId, rulesById.keys, "recurring rule")
         }
         s.recurring.forEach { r ->
@@ -123,12 +125,32 @@ internal object Consistency {
         s.merchantRules.forEach { check("merchant rule ${it.id}", it.categoryId, categoryIds, "category") }
 
         listOf(
-            "accounts" to s.accounts.map { it.id }, "categories" to s.categories.map { it.id }, "entries" to s.entries.map { it.id },
+            "accounts" to s.accounts.map { it.id }, "categories" to s.categories.map { it.id }, "entries" to entries.map { it.id },
             "recurring" to s.recurring.map { it.id }, "people" to s.people.map { it.id }, "ledger" to s.ledger.map { it.id },
             "budgets" to s.budgets.map { it.id }, "merchantRules" to s.merchantRules.map { it.id },
         ).forEach { (name, ids) ->
             ids.groupingBy { it }.eachCount().filterValues { it > 1 }.keys.forEach { problems += "$name: duplicate id $it" }
         }
         return problems
+    }
+}
+
+/**
+ * What the checks across records need of an entry: its id and what it points at. A restore into the database keeps
+ * only these while the entries themselves go to the database (PEN-003).
+ */
+internal class EntryRef(
+    val id: EntityId, val type: EntryType, val accountId: EntityId?, val toAccountId: EntityId?, val categoryId: EntityId?,
+    val splitCategories: List<EntityId>, val linkedEntryId: EntityId?, val generatedBy: Generation?,
+) {
+    companion object {
+        fun of(e: Entry): EntryRef = of(e) { it }
+
+        /** [same] gives one shared instance per id, so 200,000 entries don't keep 200,000 copies of a few account ids. */
+        fun of(e: Entry, same: (EntityId) -> EntityId): EntryRef = EntryRef(
+            e.id, e.type, e.accountId?.let(same), e.toAccountId?.let(same), e.categoryId?.let(same),
+            if (e.splits.isEmpty()) emptyList() else e.splits.map { same(it.categoryId) }, e.linkedEntryId,
+            e.generatedBy?.let { Generation(same(it.ruleId), it.month) },
+        )
     }
 }

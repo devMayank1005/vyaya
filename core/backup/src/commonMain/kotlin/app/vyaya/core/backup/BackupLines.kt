@@ -72,7 +72,7 @@ internal data class TrailerV2(val records: Int, val sha256: String)
 
 internal object BackupLines {
     internal val compact = Json { encodeDefaults = true; explicitNulls = true; ignoreUnknownKeys = false }
-    private val strict = Json { ignoreUnknownKeys = false }
+    internal val strict = Json { ignoreUnknownKeys = false }
 
     // ---------------------------------------------------------------------------------------------- write
 
@@ -142,102 +142,9 @@ internal object BackupLines {
     // ----------------------------------------------------------------------------------------------- read
 
     fun read(lines: Sequence<String>, now: Instant, limits: BackupLimits, restoreAnyway: Boolean = false): DecodeResult {
-        // Counts characters as they are read, newlines between lines included (PEN-002).
-        var total = -1L
-        val iterator = lines.map { total += it.length + 1; it }.iterator()
-        fun tooLarge() = total > limits.maxTotalChars
-        val tooLargeFailure = { BackupCodec.fail("The backup file is too large (more than ${limits.maxTotalChars} characters)") }
-        var first: String? = null
-        while (iterator.hasNext()) {
-            val l = iterator.next().removePrefix("﻿").removeSuffix("\r") // FLAW-007: BOM, Windows line endings
-            if (tooLarge()) return tooLargeFailure()
-            if (l.isNotBlank()) { first = l; break }
-        }
-        if (first == null) return BackupCodec.fail("This backup file is empty")
-        if (first.trim() == "{") return readV1(first, iterator, now, limits, restoreAnyway) // v1: one pretty-printed JSON document
-        if (first.length > limits.maxLineChars) return BackupCodec.fail("Line 1 is too long (limit ${limits.maxLineChars} characters)")
-        JsonKeys.firstDuplicate(first)?.let { return BackupCodec.fail("Line 1 has a duplicate key '$it' (the file was edited)") }
-        val parsed = try { strict.parseToJsonElement(first) } catch (e: Exception) { null }
-            ?: return BackupCodec.fail("This is not a Vyaya backup file (it is not valid JSON)")
-        val header = parsed as? JsonObject ?: return BackupCodec.fail("This is not a Vyaya backup file (no header)")
-        if (header["t"] == null && header["format"] != null) return readV1(first, iterator, now, limits, restoreAnyway)
-        if ((header["t"] as? JsonPrimitive)?.content != "header" || (header["format"] as? JsonPrimitive)?.content != BackupCodec.FORMAT) {
-            return BackupCodec.fail("This is not a Vyaya backup file (no header)")
-        }
-        val version = (header["schemaVersion"] as? JsonPrimitive)?.intOrNull
-            ?: return BackupCodec.fail("This is not a Vyaya backup file (no schema version)")
-        if (version > BackupCodec.SCHEMA_VERSION) {
-            return BackupCodec.fail("This backup was made by a newer version of Vyaya (schema $version). Update the app to restore it.")
-        }
-        if (version != 2 && version != 3) return BackupCodec.fail("Unsupported backup schema version $version")
-        val h = decode(HeaderV2.serializer(), header) ?: return BackupCodec.fail("Line 1 is damaged or was edited")
-
-        val sha = Sha256().apply { update(first + "\n") }
-        // Each record becomes a domain record as soon as it is read; nothing else is kept (PEN-003).
-        val reader = Reader(now, restoreAnyway).apply { header(h.currency, h.exportedAt, h.settings) }
-        val counts = IntArray(8) // per type, in the header's order
-        var records = 0
-        var trailer: TrailerV2? = null
-        var number = 1
-
-        while (iterator.hasNext()) {
-            number++
-            val l = iterator.next().removeSuffix("\r")
-            if (tooLarge()) return tooLargeFailure()
-            if (trailer != null) {
-                if (l.isNotBlank()) return BackupCodec.fail("There is data after the end of the backup (line $number)")
-                continue
-            }
-            if (l.length > limits.maxLineChars) return BackupCodec.fail("Line $number is too long (limit ${limits.maxLineChars} characters)")
-            JsonKeys.firstDuplicate(l)?.let { return BackupCodec.fail("Line $number has a duplicate key '$it' (the file was edited)") }
-            val obj = try { strict.parseToJsonElement(l) as? JsonObject } catch (e: Exception) { null }
-                ?: return BackupCodec.fail("Line $number is damaged (not valid JSON)")
-            val type = (obj["t"] as? JsonPrimitive)?.content
-            if (type == "end") {
-                trailer = decode(TrailerV2.serializer(), obj) ?: return BackupCodec.fail("The last line (line $number) is damaged")
-                continue
-            }
-            sha.update(l + "\n")
-            if (++records > limits.maxRecords) return BackupCodec.fail("The backup has too many records (limit ${limits.maxRecords})")
-            val read = when (type) {
-                "account" -> decode(AccountV1.serializer(), obj)?.let { reader.account(it); 0 }
-                "category" -> decode(CategoryV1.serializer(), obj)?.let { reader.category(it); 1 }
-                "entry" -> (if (version == 2) decode(EntryV1.serializer(), obj)?.toV3() else decode(EntryV3.serializer(), obj))
-                    ?.let { reader.entry(it); 2 }
-                "recurring" -> (if (version == 2) decode(RecurringV1.serializer(), obj)?.toV3() else decode(RecurringV3.serializer(), obj))
-                    ?.let { reader.recurring(it); 3 }
-                "person" -> decode(PersonV1.serializer(), obj)?.let { reader.person(it); 4 }
-                "ledger" -> decode(LedgerV1.serializer(), obj)?.let { reader.ledger(it); 5 }
-                "budget" -> decode(BudgetV1.serializer(), obj)?.let { reader.budget(it); 6 }
-                "merchantRule" -> decode(MerchantRuleV1.serializer(), obj)?.let { reader.merchantRule(it); 7 }
-                else -> return BackupCodec.fail("Line $number has an unknown record type '${type?.take(30)}'")
-            } ?: return BackupCodec.fail("Line $number is damaged or was edited")
-            counts[read]++
-            if (reader.full) return reader.stoppedAt(number) // PEN-002: fail fast on a file full of bad records
-        }
-
-        if (trailer == null) return BackupCodec.fail("The backup file is incomplete: it was cut off before the end")
-        if (trailer.sha256 != sha.hexDigest()) return BackupCodec.fail("The backup file is damaged or edited (its checksum does not match)")
-        if (trailer.records != records) return BackupCodec.fail("The backup file says it has ${trailer.records} records but has $records")
-        val c = h.counts
-        val mismatches = listOf(
-            Triple("accounts", c.accounts, counts[0]), Triple("categories", c.categories, counts[1]),
-            Triple("entries", c.entries, counts[2]), Triple("recurring", c.recurring, counts[3]),
-            Triple("people", c.people, counts[4]), Triple("ledger", c.ledger, counts[5]),
-            Triple("budgets", c.budgets, counts[6]), Triple("merchantRules", c.merchantRules, counts[7]),
-        ).filter { it.second != it.third }.map { "${it.first}: the header says ${it.second} but the file has ${it.third} (count mismatch)" }
-        if (mismatches.isNotEmpty()) return DecodeResult.Failure(mismatches)
-        return reader.finish(h.appVersion, h.createdOn)
-    }
-
-    /** A v1 file: collect the rest of the document (within the v1 size limit) and decode it as before. */
-    private fun readV1(first: String, rest: Iterator<String>, now: Instant, limits: BackupLimits, restoreAnyway: Boolean): DecodeResult {
-        val text = StringBuilder(first)
-        while (rest.hasNext()) {
-            text.append('\n').append(rest.next())
-            if (text.length > limits.maxV1Chars) return BackupCodec.fail("Backup file is too large (more than ${limits.maxV1Chars} characters)")
-        }
-        return BackupCodec.decodeV1(text.toString(), now, limits.maxV1Chars, restoreAnyway)
+        val decoder = BackupDecoder(now, limits, restoreAnyway)
+        for (line in lines) if (!decoder.accept(line)) break
+        return decoder.end()
     }
 
     /** Decodes a record line (without its "t" field); null if it doesn't match the record's shape. */
