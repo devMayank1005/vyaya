@@ -59,8 +59,8 @@ fun BackupScreen(
     deviceSecure: Boolean = true,
 ) {
     val busy = status is BackupStatus.Working
-    var password by remember { mutableStateOf("") }
-    var repeat by remember { mutableStateOf("") }
+    var secretText by remember { mutableStateOf("") }
+    var secretAgain by remember { mutableStateOf("") }
     var problem by remember { mutableStateOf<String?>(null) }
     var plainAsked by remember { mutableStateOf(false) }
     var restorePassword by remember { mutableStateOf("") }
@@ -91,21 +91,21 @@ fun BackupScreen(
         }
         Text("A backup is a file you keep (on Drive, a computer, another phone). Nothing is uploaded by Vyaya.",
             style = MaterialTheme.typography.bodyMedium)
-        OutlinedTextField(password, { password = it; problem = null; plainAsked = false }, Modifier.fillMaxWidth(), label = { Text("Password") },
+        OutlinedTextField(secretText, { secretText = it; problem = null; plainAsked = false }, Modifier.fillMaxWidth(), label = { Text("Password") },
             singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-        OutlinedTextField(repeat, { repeat = it; problem = null }, Modifier.fillMaxWidth(), label = { Text("Repeat the password") },
+        OutlinedTextField(secretAgain, { secretAgain = it; problem = null }, Modifier.fillMaxWidth(), label = { Text("Repeat the password") },
             singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             isError = problem != null, supportingText = problem?.let { { Text(it) } })
         Text("There is no way to recover a forgotten password: without it the backup can't be opened. Keep it somewhere safe.",
             style = MaterialTheme.typography.bodySmall)
-        TextButton({ PasswordCheck.passphrase().let { password = it; repeat = it; problem = null; shown = it } }) { Text("Suggest a passphrase") }
-        shown?.takeIf { it == password }?.let { Text("Write it down: $it", style = MaterialTheme.typography.bodyMedium) }
+        TextButton({ PasswordCheck.passphrase().let { secretText = it; secretAgain = it; problem = null; shown = it } }) { Text("Suggest a passphrase") }
+        shown?.takeIf { it == secretText }?.let { Text("Write it down: $it", style = MaterialTheme.typography.bodyMedium) }
         Button({
             when {
-                password.isEmpty() -> plainAsked = true
-                PasswordCheck.problem(password) != null -> problem = PasswordCheck.problem(password)
-                password != repeat -> problem = "The passwords don't match"
-                else -> { onExport(password.toCharArray()); password = ""; repeat = "" }
+                secretText.isEmpty() -> plainAsked = true
+                PasswordCheck.problem(secretText) != null -> problem = PasswordCheck.problem(secretText)
+                secretText != secretAgain -> problem = "The passwords don't match"
+                else -> { onExport(secretText.toCharArray()); secretText = ""; secretAgain = "" }
             }
         }, enabled = !busy) { Text("Export backup") }
         if (plainAsked) {
