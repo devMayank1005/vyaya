@@ -8,6 +8,7 @@ import android.service.notification.NotificationListenerService
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
@@ -36,8 +37,11 @@ class MainActivity : ComponentActivity() {
     private val opened = mutableIntStateOf(0)
 
     private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
-    private var restoreMode = RestoreMode.MERGE
-    private var restoreUri: Uri? = null
+    private val restoreFlow: RestoreFlow<Uri> = RestoreFlow(
+        open = { uri -> runCatching { contentResolver.openInputStream(uri) }.getOrNull() },
+        pick = { restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+        restore = { input, mode, anyway -> backupFiles().restore(input, mode, Clock.System.now(), anyway) },
+    )
 
     private val exportTo = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri ?: return@registerForActivityResult
@@ -52,10 +56,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private val restoreFrom = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+    private val restoreFrom: ActivityResultLauncher<Array<String>> = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
-        restoreUri = uri
-        restore(anyway = false)
+        showRestore { restoreFlow.picked(uri) }
     }
 
     private val askSms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -76,8 +79,8 @@ class MainActivity : ComponentActivity() {
                     onBattery = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                     backupStatus = backupStatus.value,
                     onExport = { exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.json") },
-                    onRestore = { mode -> restoreMode = mode; restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                    onRestoreAnyway = { restore(anyway = true) },
+                    onRestore = { mode -> restoreFlow.start(mode) },
+                    onRestoreAnyway = { showRestore { restoreFlow.restoreAnyway() } },
                 )
             }
         }
@@ -119,11 +122,11 @@ class MainActivity : ComponentActivity() {
 
     private fun backupFiles() = BackupFiles((application as VyayaApp).database, cacheDir, appVersion = BuildInfo.versionName(this))
 
-    private fun restore(anyway: Boolean) {
-        val uri = restoreUri ?: return
+    /** Runs a restore step and shows its result; a null result means the file is being asked for again. */
+    private fun showRestore(step: suspend () -> RestoreResult?) {
         backupStatus.value = BackupStatus.Working("Restoring…")
         lifecycleScope.launch {
-            val result = contentResolver.openInputStream(uri)?.use { backupFiles().restore(it, restoreMode, Clock.System.now(), anyway) }
+            val result = step()
             backupStatus.value = when (result) {
                 is RestoreResult.Restored -> {
                     // A restore can bring rules, settings and change times: run the open routine on what is now there.
@@ -132,7 +135,7 @@ class MainActivity : ComponentActivity() {
                     BackupStatus.Done("Restored")
                 }
                 is RestoreResult.Refused -> BackupStatus.Refused(result.failure)
-                null -> BackupStatus.Refused(DecodeResult.Failure(listOf("The file couldn't be opened")))
+                null -> BackupStatus.Working("Pick the backup file again to restore it anyway")
             }
         }
     }
