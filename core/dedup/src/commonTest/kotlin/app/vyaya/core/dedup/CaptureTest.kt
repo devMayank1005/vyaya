@@ -17,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -189,5 +190,20 @@ class CaptureTest {
             Capture.process(RawMessage(Source.SMS, "+919812345678", "Dear customer Rs.25,000 credited to your account.", at(t0)), emptyList(), now))
         val lookalike = hdfcSms("250.00", "429112345678").copy(sender = "VM-HDFCBNK-S")
         assertEquals(ReviewReason.UNKNOWN_HEADER, assertIs<Outcome.Review>(Capture.process(lookalike, emptyList(), now)).reason)
+    }
+
+    private fun axisCard(time: Instant, source: Source = Source.SMS) = RawMessage(source, "AD-AXISBK-S",
+        "Spent INR 2,499 Axis Bank Card no. XX9876 26-10-26 10:00:00 IST AMAZON Avl Limit: INR 45,000", at(time))
+
+    @Test
+    fun review_data_001_an_sms_without_a_reference_read_again_is_one_entry() {
+        // Live read (phone time), the SMS app's notification (postTime) and the import (the inbox's date) stamp one SMS
+        // a few milliseconds or seconds apart.
+        val (entries, outcomes) = captureAll(listOf(
+            axisCard(t0), axisCard(t0 + 3.seconds, Source.SMS_APP_NOTIFICATION), axisCard(t0 + 87.milliseconds),
+        ))
+        assertEquals(1, entries.size, outcomes.toString())
+        // Two real spends of the same amount at the same shop, minutes apart, stay two.
+        assertEquals(2, captureAll(listOf(axisCard(t0), axisCard(t0 + 10.minutes))).first.size)
     }
 }

@@ -57,6 +57,9 @@ object Capture {
      */
     private val SAME_PAYMENT_TWO_APPS = 2.minutes
 
+    /** One SMS read again (live, from the SMS app's notification, by the import): the stamps differ by seconds at most. */
+    private val SAME_SMS_AGAIN = 2.minutes
+
     /** How far a typed-in entry with the same payee may be from the bank's message and still be the same payment. */
     private val MANUAL_NEARBY = 24.hours
 
@@ -131,7 +134,13 @@ object Capture {
         e.source in CAPTURED && e.type == c.type && e.amount == c.amount && when {
             e.upiRef != null && c.upiRef != null -> e.upiRef == c.upiRef // the bank's reference decides
             e.source == c.source && e.occurredAt.instant == c.occurredAt.instant -> true // the same message read again
-            e.source == c.source -> c.source == EntrySource.NOTIFICATION && within(e, c, SAME_PAYMENT_TWO_APPS) && samePayee(e, c)
+            e.source == c.source -> when (c.source) {
+                EntrySource.NOTIFICATION -> within(e, c, SAME_PAYMENT_TWO_APPS) && samePayee(e, c)
+                // DATA-001 (review 2026-11-06): one SMS read live, from the SMS app's notification and by the import is
+                // stamped a few milliseconds or seconds apart each time.
+                EntrySource.SMS -> within(e, c, SAME_SMS_AGAIN) && (e.payee == null && c.payee == null || samePayee(e, c))
+                else -> false
+            }
             else -> within(e, c, SAME_PAYMENT) // the app's notification and the bank's SMS
         }
     }?.id
