@@ -25,7 +25,11 @@ kover {
     reports {
         filters {
             // Plain @Serializable data holders: their branches are compiler-generated serializer code.
-            excludes { annotatedBy("kotlinx.serialization.Serializable") }
+            excludes {
+                annotatedBy("kotlinx.serialization.Serializable")
+                // Room's generated implementations (DAOs, the database class): generated code, like the serializers.
+                classes("*_Impl", "*_Impl$*", "app.vyaya.core.data.VyayaDatabaseConstructor")
+            }
         }
         verify {
             rule("Shared core coverage") {

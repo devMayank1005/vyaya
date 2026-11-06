@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "780c45c630705a0c1aa77fb966473c37",
+    "identityHash": "b8c73fce61c894ed403501cbc52e3564",
     "entities": [
       {
         "tableName": "entries",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `line` TEXT NOT NULL, `occurredAtMs` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, `type` TEXT NOT NULL, `upiRef` TEXT, `payeeKey` TEXT, `ruleId` TEXT, `month` TEXT, `deleted` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `line` TEXT NOT NULL, `occurredAtMs` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, `type` TEXT NOT NULL, `upiRef` TEXT, `payeeKey` TEXT, `ruleId` TEXT, `month` TEXT, `deleted` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -67,6 +67,12 @@
           {
             "fieldPath": "updatedAtMs",
             "columnName": "updatedAtMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtMs",
+            "columnName": "createdAtMs",
             "affinity": "INTEGER",
             "notNull": true
           }
@@ -231,7 +237,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '780c45c630705a0c1aa77fb966473c37')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b8c73fce61c894ed403501cbc52e3564')"
     ]
   }
 }

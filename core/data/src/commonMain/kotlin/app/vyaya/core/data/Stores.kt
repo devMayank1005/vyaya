@@ -11,6 +11,8 @@ import app.vyaya.core.parser.ParseResult
 import app.vyaya.core.parser.RawMessage
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration.Companion.days
@@ -29,7 +31,21 @@ class EntryStore(private val db: VyayaDatabase) {
     suspend fun nearOrWithRef(from: Instant, to: Instant, refs: List<String>): List<Entry> =
         db.entries().nearOrWithRef(from.toEpochMilliseconds(), to.toEpochMilliseconds(), refs).map(::entryOf)
 
-    private fun entryOf(row: EntryRow): Entry =
+    /** Entries dated from [from] (inclusive) to [to] (exclusive). */
+    suspend fun inRange(from: Instant, to: Instant): List<Entry> =
+        db.entries().inRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map(::entryOf)
+
+    /** [inRange], again each time the entries change. */
+    fun watchRange(from: Instant, to: Instant): Flow<List<Entry>> =
+        db.entries().watchRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map { rows -> rows.map(::entryOf) }
+
+    internal suspend fun generated(): List<Entry> = db.entries().generated().map(::entryOf)
+
+    internal suspend fun changedAfter(t: Instant): List<Entry> = db.entries().changedAfter(t.toEpochMilliseconds()).map(::entryOf)
+
+    internal suspend fun delete(ids: List<EntityId>) = BackupStore.lookupChunks(ids.map { it.value }).forEach { db.entries().delete(it) }
+
+    internal fun entryOf(row: EntryRow): Entry =
         RecordLines.entryOf(row.line) ?: error("entry ${row.id}: its stored line is not a valid entry") // written only by save()
 
     companion object {
@@ -45,6 +61,7 @@ class EntryStore(private val db: VyayaDatabase) {
             month = e.generatedBy?.month?.toString(),
             deleted = e.deleted,
             updatedAtMs = e.updatedAt.toEpochMilliseconds(),
+            createdAtMs = e.createdAt.toEpochMilliseconds(),
         )
     }
 }
