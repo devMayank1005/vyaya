@@ -16,7 +16,13 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.vyaya.android.ui.Setup
+import android.net.Uri
+import app.vyaya.android.ui.BackupStatus
 import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.core.backup.DecodeResult
+import app.vyaya.core.backup.EncodeResult
+import app.vyaya.core.backup.RestoreMode
+import app.vyaya.core.data.RestoreResult
 import app.vyaya.core.data.AppOpen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -28,6 +34,29 @@ class MainActivity : ComponentActivity() {
 
     /** Counts the open routine's runs, so the screens read categories and settings again after it. */
     private val opened = mutableIntStateOf(0)
+
+    private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
+    private var restoreMode = RestoreMode.MERGE
+    private var restoreUri: Uri? = null
+
+    private val exportTo = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        uri ?: return@registerForActivityResult
+        backupStatus.value = BackupStatus.Working("Writing the backup…")
+        lifecycleScope.launch {
+            val result = contentResolver.openOutputStream(uri)?.use { backupFiles().export(it, Clock.System.now()) }
+            backupStatus.value = when (result) {
+                EncodeResult.Success -> BackupStatus.Done("Backup saved")
+                is EncodeResult.Failure -> BackupStatus.Refused(DecodeResult.Failure(listOf(result.reason)))
+                null -> BackupStatus.Refused(DecodeResult.Failure(listOf("The file couldn't be opened")))
+            }
+        }
+    }
+
+    private val restoreFrom = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@registerForActivityResult
+        restoreUri = uri
+        restore(anyway = false)
+    }
 
     private val askSms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         refresh()
@@ -45,6 +74,10 @@ class MainActivity : ComponentActivity() {
                     onSms = { askSms.launch(SmsFeature.permissions) },
                     onImport = ::importSms,
                     onBattery = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
+                    backupStatus = backupStatus.value,
+                    onExport = { exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.json") },
+                    onRestore = { mode -> restoreMode = mode; restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                    onRestoreAnyway = { restore(anyway = true) },
                 )
             }
         }
@@ -82,6 +115,26 @@ class MainActivity : ComponentActivity() {
 
     private companion object {
         const val LISTENER_GRACE_MS = 3_000L
+    }
+
+    private fun backupFiles() = BackupFiles((application as VyayaApp).database, cacheDir, appVersion = BuildInfo.versionName(this))
+
+    private fun restore(anyway: Boolean) {
+        val uri = restoreUri ?: return
+        backupStatus.value = BackupStatus.Working("Restoring…")
+        lifecycleScope.launch {
+            val result = contentResolver.openInputStream(uri)?.use { backupFiles().restore(it, restoreMode, Clock.System.now(), anyway) }
+            backupStatus.value = when (result) {
+                is RestoreResult.Restored -> {
+                    // A restore can bring rules, settings and change times: run the open routine on what is now there.
+                    AppOpen((application as VyayaApp).database).run(Clock.System.now())
+                    opened.intValue++
+                    BackupStatus.Done("Restored")
+                }
+                is RestoreResult.Refused -> BackupStatus.Refused(result.failure)
+                null -> BackupStatus.Refused(DecodeResult.Failure(listOf("The file couldn't be opened")))
+            }
+        }
     }
 
     private fun importSms() {

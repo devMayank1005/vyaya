@@ -72,4 +72,13 @@ class VyayaRootTest {
         compose.onNodeWithText("Detected").performClick()
         waitFor("Nothing detected yet")
     }
+
+    @Test
+    fun the_backup_tab_offers_export_and_restore() {
+        var exported = 0
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}, onExport = { exported++ }) }
+        compose.onNodeWithText("Backup").performClick()
+        compose.onNodeWithText("Export backup").performClick()
+        assertEquals(1, exported)
+    }
 }

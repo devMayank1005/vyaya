@@ -28,7 +28,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
-private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹"), DETECTED("Detected", "✓") }
+private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹"), DETECTED("Detected", "✓"), BACKUP("Backup", "⇅") }
 
 /**
  * The app: Home (this month, add and edit by hand) and Detected (capture's inbox), over the database. [opened] changes
@@ -45,6 +45,10 @@ fun VyayaRoot(
     onImport: () -> Unit,
     onBattery: () -> Unit = {},
     zone: () -> TimeZone = { TimeZone.currentSystemDefault() },
+    backupStatus: BackupStatus = BackupStatus.Idle,
+    onExport: () -> Unit = {},
+    onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
+    onRestoreAnyway: () -> Unit = {},
 ) {
     val months = remember(db) { MonthStore(db) }
     val entries = remember(db) { EntryStore(db) }
@@ -98,6 +102,7 @@ fun VyayaRoot(
                 Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                     onAdd = { adding = true }, onOpen = { editing = it })
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
+                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway)
             }
         }
     }
