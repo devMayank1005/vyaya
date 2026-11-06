@@ -16,6 +16,7 @@ androidx-test-core = "1.7.0"
 junit = "4.13.2"
 androidx-core = "1.19.1"
 biometric = "1.1.0"
+fragment = "1.9.1"
 
 [libraries]
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
@@ -38,6 +39,7 @@ androidx-test-core = { module = "androidx.test:core", version.ref = "androidx-te
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
 biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
+fragment = { module = "androidx.fragment:fragment-ktx", version.ref = "fragment" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

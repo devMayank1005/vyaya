@@ -54,6 +54,8 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.androidx.core)
     implementation(libs.biometric)
+    // biometric 1.1.0 brings Fragment 1.2, whose activity results don't reach a FragmentActivity (file pickers).
+    implementation(libs.fragment)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
