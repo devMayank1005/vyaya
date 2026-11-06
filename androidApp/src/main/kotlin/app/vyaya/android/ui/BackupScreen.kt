@@ -12,7 +12,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +52,8 @@ fun BackupScreen(
     onRestore: (RestoreMode) -> Unit,
     onRestoreAnyway: () -> Unit,
     onPassword: (CharArray) -> Unit = {},
+    lockEnabled: Boolean = false,
+    onLockEnabled: (Boolean) -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var password by remember { mutableStateOf("") }
@@ -103,6 +110,15 @@ fun BackupScreen(
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
+        Text("Privacy", style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().toggleable(lockEnabled, role = Role.Switch, onValueChange = onLockEnabled), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Ask to unlock Vyaya")
+                Text("With your fingerprint, face or the phone's PIN, when Vyaya opens or was away for 30 seconds.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(lockEnabled, onCheckedChange = null)
+        }
     }
 }
 

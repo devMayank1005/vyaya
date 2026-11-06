@@ -37,7 +37,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.ConscryptMode
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.time.Instant
@@ -45,7 +44,6 @@ import kotlin.time.Instant
 /** Backups to and from files the user picks (export via a temp file; restore from a local copy, FLAW-005). */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
-@ConscryptMode(ConscryptMode.Mode.OFF) // the JDK's own AES-GCM; Robolectric's Conscrypt fails to start on this JDK
 class BackupFilesTest {
 
     @get:Rule val compose = createComposeRule()

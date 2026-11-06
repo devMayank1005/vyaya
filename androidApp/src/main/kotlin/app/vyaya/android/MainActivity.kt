@@ -6,7 +6,8 @@ import android.os.Bundle
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.widget.Toast
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -29,7 +30,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = SmsFeature.AVAILABLE, smsGranted = false))
 
@@ -37,6 +38,12 @@ class MainActivity : ComponentActivity() {
     private val opened = mutableIntStateOf(0)
 
     private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
+
+    // SEC-003: the app lock, and the phone's own check before a backup leaves or replaces the data.
+    private val appLock by lazy { AppLock.of(this) }
+    private val authenticator by lazy { BiometricAuthenticator(this) }
+    private val locked = mutableStateOf(false)
+    private val lockEnabled = mutableStateOf(false)
     private val restoreFlow: RestoreFlow<Uri> = RestoreFlow(
         open = { uri -> runCatching { contentResolver.openInputStream(uri) }.getOrNull() },
         pick = { restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
@@ -83,17 +90,54 @@ class MainActivity : ComponentActivity() {
                     onBattery = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                     backupStatus = backupStatus.value,
                     onExport = { password ->
-                        exportPassword = password
-                        // Protected: the .vyaya file (docs/encrypted-backup-v1.md); plain: readable JSON lines.
-                        exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.${if (password != null) "vyaya" else "json"}")
+                        AppLock.confirmThen(authenticator, "Export a backup of all your data") {
+                            exportPassword = password
+                            // Protected: the .vyaya file (docs/encrypted-backup-v1.md); plain: readable JSON lines.
+                            exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.${if (password != null) "vyaya" else "json"}")
+                        }
                     },
                     onPassword = { pw -> showRestore { restoreFlow.withPassword(pw) } },
-                    onRestore = { mode -> restoreFlow.start(mode) },
-                    onRestoreAnyway = { showRestore { restoreFlow.restoreAnyway() } },
+                    locked = locked.value,
+                    onUnlock = ::askToUnlock,
+                    lockEnabled = lockEnabled.value,
+                    onLockEnabled = { on ->
+                        // Turning it off is a change to protection too: confirm it's you.
+                        AppLock.confirmThen(authenticator, if (on) "Turn on the app lock" else "Turn off the app lock") {
+                            appLock.enabled = on
+                            lockEnabled.value = on
+                            secureWindow(on)
+                        }
+                    },
+                    onRestore = { mode ->
+                        AppLock.confirmThen(authenticator, "Restore a backup over your data") { restoreFlow.start(mode) }
+                    },
+                    onRestoreAnyway = { AppLock.confirmThen(authenticator, "Restore a backup over your data") { showRestore { restoreFlow.restoreAnyway() } } },
                 )
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        lockEnabled.value = appLock.enabled
+        secureWindow(appLock.enabled)
+        appLock.onStart()
+        locked.value = appLock.locked
+        if (locked.value) askToUnlock()
+    }
+
+    override fun onStop() {
+        appLock.onStop()
+        super.onStop()
+    }
+
+    private fun askToUnlock() = authenticator.authenticate("Unlock Vyaya") { ok ->
+        if (ok) { appLock.unlocked(); locked.value = false }
+    }
+
+    /** With the lock on, the app's screen is left out of the recent-apps preview and screenshots. */
+    private fun secureWindow(on: Boolean) =
+        if (on) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE) else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
 
     override fun onResume() {
         super.onResume()

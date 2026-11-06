@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
     implementation(libs.androidx.core)
+    implementation(libs.biometric)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)

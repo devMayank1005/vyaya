@@ -50,7 +50,14 @@ fun VyayaRoot(
     onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
     onRestoreAnyway: () -> Unit = {},
     onPassword: (CharArray) -> Unit = {},
+    locked: Boolean = false,
+    onUnlock: () -> Unit = {},
+    lockEnabled: Boolean = false,
+    onLockEnabled: (Boolean) -> Unit = {},
 ) {
+    // SEC-003: while locked, nothing of the money is composed at all.
+    if (locked) return LockScreen(onUnlock)
+
     val months = remember(db) { MonthStore(db) }
     val entries = remember(db) { EntryStore(db) }
     val inbox = remember(db) { DetectedInbox(db) }
@@ -103,7 +110,7 @@ fun VyayaRoot(
                 Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                     onAdd = { adding = true }, onOpen = { editing = it })
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
-                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword)
+                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled)
             }
         }
     }
