@@ -26,8 +26,7 @@ object ClockRepair {
         return s.copy(
             accounts = s.accounts.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
             categories = s.categories.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
-            // DATA-008 (branch review): also this month's entries dated after now, which catch-up wouldn't have made yet.
-            entries = s.entries.filter { e -> e.generatedBy.let { it == null || (it.month <= thisMonth && e.occurredAt.instant <= now) } }
+            entries = s.entries.filter { e -> e.generatedBy.let { it == null || (it.month <= thisMonth && !madeEarly(e, now)) } }
                 .map { it.copy(createdAt = it.createdAt.notAfterNow(), updatedAt = it.updatedAt.notAfterNow()) },
             recurring = s.recurring.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
             people = s.people.map { it.copy(updatedAt = it.updatedAt.notAfterNow()) },
@@ -39,8 +38,15 @@ object ClockRepair {
 
     private fun futureKeys(s: Snapshot, now: Instant): Boolean {
         val thisMonth = now.toLocalDateTime(s.settings.homeTimeZone).date.yearMonth
-        return s.entries.any { e -> e.generatedBy.let { it != null && (it.month > thisMonth || e.occurredAt.instant > now) } }
+        return s.entries.any { e -> e.generatedBy.let { it != null && (it.month > thisMonth || madeEarly(e, now)) } }
     }
+
+    /**
+     * DATA-008 (review 2026-11-04): this month's entry that catch-up made before it was due, while the clock was ahead.
+     * Both: dated after now *and* made after now. Review 2026-11-06 #2: dated after now alone also caught entries made
+     * this morning for noon, moved later by the user, or skipped, and deleted them (losing the edit or the "No").
+     */
+    private fun madeEarly(e: app.vyaya.core.model.Entry, now: Instant) = e.occurredAt.instant > now && e.createdAt > now
 
     private fun changeTimes(s: Snapshot): Sequence<Instant> = sequence {
         s.accounts.forEach { yield(it.updatedAt) }

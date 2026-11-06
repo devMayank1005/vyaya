@@ -62,4 +62,22 @@ class ClockRepairTest {
         val repaired = ClockRepair.repair(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_V3_SNAPSHOT.entries - october + early), fourthOfOctober)
         assertEquals(emptyList(), repaired.entries.filter { it.generatedBy != null })
     }
+
+    @Test
+    fun review_data_002_this_months_entries_made_with_a_right_clock_stay() {
+        val october = GOLDEN_V3_SNAPSHOT.entries.single { it.generatedBy != null } // Spotify, due on the 5th at noon IST
+        val key = Generation(R1, YearMonth(2026, 11))
+        val morningOfTheFifth = Instant.parse("2026-11-05T03:30:00Z") // 09:00 IST, before the entry's noon
+        val madeToday = Instant.parse("2026-11-05T03:00:00Z")
+        // Catch-up made November's this morning and the user edited it; or moved it to the 20th; or said "No" (skip).
+        val edited = october.copy(id = key.entryId, generatedBy = key, occurredAt = CapturedAt(Instant.parse("2026-11-05T06:30:00Z"), IST),
+            createdAt = madeToday, updatedAt = madeToday, note = "edited")
+        val moved = edited.copy(occurredAt = CapturedAt(Instant.parse("2026-11-20T06:30:00Z"), IST))
+        val skipped = edited.markDeleted(madeToday)
+        for (e in listOf(edited, moved, skipped)) {
+            val s = GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_V3_SNAPSHOT.entries + e)
+            assertFalse(ClockRepair.needed(s, morningOfTheFifth), e.toString())
+            assertSame(s, ClockRepair.repair(s, morningOfTheFifth))
+        }
+    }
 }
