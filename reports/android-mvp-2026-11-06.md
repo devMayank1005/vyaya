@@ -73,3 +73,18 @@
 - **#1:** keep a recurring entry's type fixed (recommended)?
 - **#2 and #3:** encrypted backups and the app lock next (recommended; both are plan items before release)?
 - **#4, #5, #6:** fix with the form and backup screen polish (recommended)?
+
+## Resolution (2026-11-06)
+
+Your decision: go with the recommendations.
+
+| # | Status | Commit | Fix |
+|---|---|---|---|
+| 1 DATA-001 | ✅ Fixed | `5012fc7` | A recurring entry keeps its rule's type (the form says so) |
+| 2 SEC-002 | ✅ Fixed | `4f8636b`, `6258384` | Password-protected `.vyaya` backups, docs/encrypted-backup-v1.md; plain export needs a second tap after a warning |
+| 3 SEC-003 | ✅ Fixed | `10a65fe` | Export and restore always ask for the phone's check; optional app lock |
+| 4 FLAW-004 | ✅ Fixed | `5012fc7` | The form says why a recurring entry can't move that far |
+| 5 FLAW-005 | ✅ Fixed | `5012fc7` | Fields stop at their limits; specific messages |
+| 6 FLAW-006 | ✅ Fixed | `bab196f` | Restore anyway asks for the file again when it's no longer at hand |
+
+The lock and encryption have their own break-phase report: `reports/android-lock-encryption-2026-11-06.md`.
