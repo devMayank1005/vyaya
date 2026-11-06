@@ -64,3 +64,15 @@
 - **#1:** one lock for the process (recommended)?
 - **#2:** refuse common passwords and suggest a passphrase (recommended)?
 - **#3 and #4:** add the two lines of text (recommended)?
+
+## Resolution (2026-11-06)
+
+Your decision: go with the recommendations.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed | One `AppLock` for the process (`VyayaApp.appLock`); a re-created screen isn't taken for a return |
+| 2 SEC-002 | ✅ Fixed | `PasswordCheck` refuses common passwords (and with digits added), keyboard rows and sequences, one repeated character, digits only under 12, the app's name. "Suggest a passphrase": 5 words from a 622-word list written for Vyaya (about 46 bits) |
+| 3 FLAW-003 | ✅ Fixed | "There is no way to recover a forgotten password…" under the fields |
+| 4 FLAW-004 | ✅ Fixed | Without a screen lock, the switch says the lock has nothing to ask |
+| 5 SEC-005 | Accepted risk | Compose text fields hold Strings that can't be wiped; the arrays passed on are cleared. Reason: platform limitation, only exposed by a memory dump of a rooted phone |

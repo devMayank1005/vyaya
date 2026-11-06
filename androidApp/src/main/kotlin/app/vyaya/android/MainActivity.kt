@@ -40,7 +40,7 @@ class MainActivity : FragmentActivity() {
     private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
 
     // SEC-003: the app lock, and the phone's own check before a backup leaves or replaces the data.
-    private val appLock by lazy { AppLock.of(this) }
+    private val appLock by lazy { (application as VyayaApp).appLock }
     private val authenticator by lazy { BiometricAuthenticator(this) }
     private val locked = mutableStateOf(false)
     private val lockEnabled = mutableStateOf(false)
@@ -100,6 +100,7 @@ class MainActivity : FragmentActivity() {
                     locked = locked.value,
                     onUnlock = ::askToUnlock,
                     lockEnabled = lockEnabled.value,
+                    deviceSecure = getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure == true,
                     onLockEnabled = { on ->
                         // Turning it off is a change to protection too: confirm it's you.
                         AppLock.confirmThen(authenticator, if (on) "Turn on the app lock" else "Turn off the app lock") {

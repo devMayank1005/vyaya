@@ -79,7 +79,7 @@ class VyayaRootTest {
         var exported = 0
         compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}, onExport = { exported++ }) }
         compose.onNodeWithText("Backup").performClick()
-        compose.onNodeWithText("Export backup").performClick()
+        compose.onNodeWithText("Export backup").performScrollTo().performClick()
         compose.onNodeWithText("Export without a password").performScrollTo().performClick()
         assertEquals(1, exported)
     }

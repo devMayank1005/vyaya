@@ -14,6 +14,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import app.vyaya.android.PasswordCheck
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.Alignment
@@ -54,6 +56,7 @@ fun BackupScreen(
     onPassword: (CharArray) -> Unit = {},
     lockEnabled: Boolean = false,
     onLockEnabled: (Boolean) -> Unit = {},
+    deviceSecure: Boolean = true,
 ) {
     val busy = status is BackupStatus.Working
     var password by remember { mutableStateOf("") }
@@ -61,6 +64,7 @@ fun BackupScreen(
     var problem by remember { mutableStateOf<String?>(null) }
     var plainAsked by remember { mutableStateOf(false) }
     var restorePassword by remember { mutableStateOf("") }
+    var shown by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Backup", style = MaterialTheme.typography.headlineSmall)
@@ -92,10 +96,14 @@ fun BackupScreen(
         OutlinedTextField(repeat, { repeat = it; problem = null }, Modifier.fillMaxWidth(), label = { Text("Repeat the password") },
             singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             isError = problem != null, supportingText = problem?.let { { Text(it) } })
+        Text("There is no way to recover a forgotten password: without it the backup can't be opened. Keep it somewhere safe.",
+            style = MaterialTheme.typography.bodySmall)
+        TextButton({ PasswordCheck.passphrase().let { password = it; repeat = it; problem = null; shown = it } }) { Text("Suggest a passphrase") }
+        shown?.takeIf { it == password }?.let { Text("Write it down: $it", style = MaterialTheme.typography.bodyMedium) }
         Button({
             when {
                 password.isEmpty() -> plainAsked = true
-                password.length < MIN_PASSWORD -> problem = "At least $MIN_PASSWORD characters"
+                PasswordCheck.problem(password) != null -> problem = PasswordCheck.problem(password)
                 password != repeat -> problem = "The passwords don't match"
                 else -> { onExport(password.toCharArray()); password = ""; repeat = "" }
             }
@@ -119,7 +127,10 @@ fun BackupScreen(
             }
             Switch(lockEnabled, onCheckedChange = null)
         }
+        if (!deviceSecure) {
+            Text("This phone has no screen lock, so the app lock has nothing to ask. Set a screen lock in the phone's Settings first.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
-private const val MIN_PASSWORD = 8
