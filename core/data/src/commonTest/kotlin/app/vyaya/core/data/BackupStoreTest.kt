@@ -141,4 +141,20 @@ class BackupStoreTest {
         assertTrue("changed after the backup was made" in failure.reason, failure.reason)
         db.close()
     }
+
+    @Test
+    fun review_data_003_lookups_stay_within_old_androids_999_variables() = runTest {
+        // A merge batch is 2,000 entries; each lookup of their current copies is one IN (...) statement.
+        assertTrue(BackupStore.lookupChunks(List(2_000) { "$it" }).all { it.size <= 500 })
+        assertEquals(2_000, BackupStore.lookupChunks(List(2_000) { "$it" }).sumOf { it.size })
+        // And a merge over existing entries, in full batches, still gives the merge rule's result.
+        val db = inMemoryDatabase()
+        val current = withEntries(2_100)
+        SnapshotStore(db).save(current)
+        val backup = current.copy(entries = current.entries.map { it.copy(note = "newer", updatedAt = t + 5.minutes) })
+        val text = BackupCodec.encode(backup, meta.copy(exportedAt = t + 10.minutes))
+        assertIs<RestoreResult.Restored>(BackupStore(db).restore(text.lineSequence(), RestoreMode.MERGE, now))
+        assertEquals(Restore.apply(current, backup, RestoreMode.MERGE), SnapshotStore(db).load())
+        db.close()
+    }
 }

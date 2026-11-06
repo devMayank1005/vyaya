@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.androidx.core)
 
     testImplementation(libs.junit)
+    testImplementation(project(":core:backup"))
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)

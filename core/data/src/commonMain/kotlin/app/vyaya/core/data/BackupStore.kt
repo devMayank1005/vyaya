@@ -118,7 +118,7 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
     /** Replace writes them all; merge keeps the current copy unless the backup's is newer ([Restore.apply]'s rule). */
     private suspend fun writeEntries(entries: List<Entry>, mode: RestoreMode) {
         val incoming = if (mode == RestoreMode.REPLACE) entries else {
-            val current = db.entries().byIds(entries.map { it.id.value }).associate { row ->
+            val current = lookupChunks(entries.map { it.id.value }).flatMap { db.entries().byIds(it) }.associate { row ->
                 // Compared exactly (the line keeps the full time), not by the millisecond column.
                 row.id to (RecordLines.entryOf(row.line) ?: error("the database holds a record that is not valid")).updatedAt
             }
@@ -130,7 +130,13 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
     /** Thrown inside the transaction to roll it back. */
     private class Refusal(val failure: DecodeResult.Failure) : Exception()
 
-    private companion object {
+    internal companion object {
+        /** Review 2026-11-06 #3: the system SQLite before Android 11 allows 999 variables in one statement. */
+        const val MAX_SQL_VARIABLES = 500
+
+        /** Ids for `IN (...)` lookups, in statements small enough for every Android version. */
+        fun lookupChunks(ids: List<String>): List<List<String>> = ids.chunked(MAX_SQL_VARIABLES)
+
         const val ENTRY = "entry"
         /** Backup order (the same as the writer's), with the name a failure gives a record of that kind. */
         val KINDS = listOf(
