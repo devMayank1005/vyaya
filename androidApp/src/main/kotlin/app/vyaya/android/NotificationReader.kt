@@ -40,6 +40,9 @@ class NotificationReader(
     /** SEC-003: whether the app under a listed package name is the real one ([AppVerifier]). */
     private val isGenuine: (String) -> Boolean = { true },
 ) {
+    /** Whether this app's notifications are read at all (checked before their content is). */
+    fun reads(packageName: String): Boolean = packageName in smsApps || packageName in upiApps
+
     fun read(c: NotificationContent, zone: TimeZone): List<RawMessage> {
         if (c.isGroupSummary || c.isOngoing) return emptyList()
         return when (c.packageName) {

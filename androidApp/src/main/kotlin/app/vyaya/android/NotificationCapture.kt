@@ -59,10 +59,14 @@ class NotificationCapture(
     private val reader: () -> NotificationReader,
     private val clock: () -> Instant,
     private val zone: () -> TimeZone,
+    private val extract: (StatusBarNotification) -> NotificationContent = { NotificationContent.of(it) },
 ) {
     suspend fun handle(sbn: StatusBarNotification) {
         try {
-            for (raw in reader().read(NotificationContent.of(sbn), zone())) capture.process(raw, clock())
+            val reader = reader()
+            // Review 2026-11-06 #7: any other app's notification is dropped before its content is read or copied.
+            if (!reader.reads(sbn.packageName)) return
+            for (raw in reader.read(extract(sbn), zone())) capture.process(raw, clock())
         } catch (e: CancellationException) {
             // Our own cancellation goes on; one from inside (a closed database cancels its work) is a failure like any other.
             currentCoroutineContext().ensureActive()

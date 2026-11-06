@@ -115,4 +115,15 @@ class NotificationCaptureTest {
         capture.handle(posted(paid(". Scratch card won!"), now.toEpochMilliseconds() + 3 * 60_000))
         assertEquals(1, inbox.items().size)
     }
+
+    @Test
+    fun review_sec_007_other_apps_notifications_are_not_read_at_all() = runTest {
+        var read = 0
+        val counting = NotificationCapture(CaptureStore(db, inbox), { NotificationReader(smsApps = emptySet()) }, { now }, { TimeZone.of("Asia/Kolkata") },
+            extract = { read++; NotificationContent.of(it) })
+        counting.handle(sbn("com.whatsapp", phonePe("₹500 paid to Rahul")))
+        assertEquals("a chat's content is never copied", 0, read)
+        counting.handle(sbn("com.phonepe.app", phonePe("₹120 paid to Swiggy")))
+        assertEquals(1, read)
+    }
 }
