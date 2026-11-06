@@ -76,7 +76,7 @@ data class DetectedRow(
     @PrimaryKey val id: String,
     /** ADDED (saved by itself: edit or undo) or REVIEW (saved only when confirmed). */
     val kind: String,
-    /** OPEN, then UNDONE, CONFIRMED or DISMISSED; CLOSED when a Replace restore took away the data it was about (DATA-003). */
+    /** OPEN, then UNDONE, CONFIRMED, DUPLICATE (captured meanwhile) or DISMISSED; CLOSED when a Replace restore took away the data it was about (DATA-003). */
     val status: String,
     val entryLine: String,
     val reason: String?,

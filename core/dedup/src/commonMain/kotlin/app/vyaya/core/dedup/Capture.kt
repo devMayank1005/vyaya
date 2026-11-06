@@ -123,6 +123,9 @@ object Capture {
 
     private val CAPTURED = setOf(EntrySource.SMS, EntrySource.NOTIFICATION, EntrySource.SCREENSHOT, EntrySource.SHORTCUT)
 
+    /** An entry already captured for the same payment as [c] (the rules capture uses), or null. */
+    fun capturedCopyOf(c: Entry, existing: List<Entry>): EntityId? = duplicateOf(c, existing)
+
     /**
      * An entry captured earlier for the same payment. Deleted ones count too: a payment the user deleted stays
      * deleted when its bank SMS or the import brings it again.

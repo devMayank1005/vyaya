@@ -153,4 +153,20 @@ class DetectedInboxTest {
         assertEquals(emptyList(), inbox.changes().first())
         db.close()
     }
+
+    @Test
+    fun review_data_004_confirming_a_payment_added_meanwhile_doesnt_add_it_twice() = runTest {
+        val db = inMemoryDatabase()
+        val inbox = DetectedInbox(db)
+        val capture = CaptureStore(db, inbox)
+        capture.process(unknownBank, now = t0) // Review: a header not on the bank list
+        // The same payment then comes from a trusted bank (same reference and amount) and is added by itself.
+        capture.process(sms("VM-HDFCBK-S", "Sent Rs.500.00 From HDFC Bank A/C *1234 To Zomato On 26/10/26 Ref 429100000002 Not You?"), now = t0)
+        assertEquals(1, EntryStore(db).all().size)
+        val review = inbox.items().single { it.kind == DetectedKind.REVIEW }
+        assertEquals(ConfirmResult.ALREADY_ADDED, inbox.confirm(review.id, now = t0 + 1.minutes))
+        assertEquals(1, EntryStore(db).all().size, "not added twice")
+        assertTrue(inbox.items().none { it.id == review.id }, "the review item is closed")
+        db.close()
+    }
 }
