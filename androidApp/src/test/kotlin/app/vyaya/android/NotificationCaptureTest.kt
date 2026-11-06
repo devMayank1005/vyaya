@@ -103,4 +103,16 @@ class NotificationCaptureTest {
         capture.handle(sbn("com.phonepe.app", phonePe("₹120 paid to Swiggy")))
         assertTrue(true)
     }
+
+    @Test
+    fun review_data_005_an_app_updating_its_notification_minutes_later_adds_nothing() = runTest {
+        val shown = now.toEpochMilliseconds() - 10_000
+        fun paid(extra: String) = NotificationCompat.Builder(context, "c").setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setWhen(shown).setContentTitle("PhonePe").setContentText("₹500 paid successfully$extra").build()
+        fun posted(n: Notification, at: Long) = StatusBarNotification("com.phonepe.app", "com.phonepe.app", 1, null, 10_001, 0, 0, n, Process.myUserHandle(), at)
+        assertEquals(shown, NotificationContent.of(posted(paid(""), now.toEpochMilliseconds())).whenMs)
+        capture.handle(posted(paid(""), now.toEpochMilliseconds()))
+        capture.handle(posted(paid(". Scratch card won!"), now.toEpochMilliseconds() + 3 * 60_000))
+        assertEquals(1, inbox.items().size)
+    }
 }

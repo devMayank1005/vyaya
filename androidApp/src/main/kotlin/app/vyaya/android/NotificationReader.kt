@@ -22,6 +22,8 @@ data class NotificationContent(
     val people: List<String> = emptyList(),
     val isGroupSummary: Boolean = false,
     val isOngoing: Boolean = false,
+    /** The notification's own time (`Notification.when`): an app keeps it when it updates the notification. 0 if unset. */
+    val whenMs: Long = 0,
 ) {
     data class Message(val sender: String?, val text: String, val timeMs: Long, val senderUri: String?)
 
@@ -53,7 +55,7 @@ class NotificationReader(
         val bodies = c.textLines.ifEmpty { listOfNotNull(c.bigText?.takeIf { it.isNotBlank() } ?: c.text) }
         return bodies.mapNotNull { body ->
             val text = listOfNotNull(c.title, body).filter { it.isNotBlank() }.joinToString("\n")
-            if (text.isBlank()) null else RawMessage(Source.NOTIFICATION, c.packageName, text, at(c.postTimeMs, zone), appUnverified = !isGenuine(c.packageName))
+            if (text.isBlank()) null else RawMessage(Source.NOTIFICATION, c.packageName, text, at(timeOf(c), zone), appUnverified = !isGenuine(c.packageName))
         }
     }
 
@@ -76,6 +78,14 @@ class NotificationReader(
         if (text.isNullOrBlank()) return emptyList()
         return listOf(RawMessage(Source.SMS_APP_NOTIFICATION, sender, text, at(c.postTimeMs, zone), conversationIsContact))
     }
+
+    /**
+     * Review 2026-11-06 #5: an app that updates its notification (a reward line added) posts it again with a new post
+     * time; its own time stays, so the update is the same message read again. Used when plausible: set, not after it was
+     * posted (a minute's slack), and not more than a day before.
+     */
+    private fun timeOf(c: NotificationContent): Long =
+        c.whenMs.takeIf { it > 0 && it <= c.postTimeMs + 60_000 && it >= c.postTimeMs - 86_400_000 } ?: c.postTimeMs
 
     private fun isContact(uri: String) = uri.startsWith("content://com.android.contacts/")
 }

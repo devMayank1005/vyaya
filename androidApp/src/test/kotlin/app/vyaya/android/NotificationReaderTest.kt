@@ -81,4 +81,17 @@ class NotificationReaderTest {
         assertEquals("Rahul", raw.sender)
         assertTrue(raw.senderIsContact)
     }
+
+    @Test
+    fun review_data_005_a_notification_is_dated_by_its_own_time_so_a_repost_is_the_same_message() {
+        val shown = t - 60_000 // the app's own time for the notification
+        val first = upi().copy(whenMs = shown, postTimeMs = t)
+        val repost = first.copy(postTimeMs = t + 3 * 60_000, text = "₹120 paid to Swiggy. You won a scratch card!")
+        assertEquals(shown, reader.read(first, ist).single().receivedAt.instant.toEpochMilliseconds())
+        assertEquals(shown, reader.read(repost, ist).single().receivedAt.instant.toEpochMilliseconds())
+        // An implausible own time (unset, or after it was posted, or days before) falls back to the post time.
+        for (bad in listOf(0L, t + 5 * 60_000, t - 3 * 86_400_000L)) {
+            assertEquals(t, reader.read(upi().copy(whenMs = bad), ist).single().receivedAt.instant.toEpochMilliseconds())
+        }
+    }
 }

@@ -32,6 +32,7 @@ fun NotificationContent.Companion.of(sbn: StatusBarNotification): NotificationCo
         people = people(n),
         isGroupSummary = n.flags and Notification.FLAG_GROUP_SUMMARY != 0,
         isOngoing = sbn.isOngoing,
+        whenMs = n.`when`,
     )
 }
 
