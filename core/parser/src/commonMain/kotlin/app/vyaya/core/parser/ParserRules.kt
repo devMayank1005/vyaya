@@ -28,7 +28,9 @@ class CompiledRule internal constructor(val spec: RuleSpec) {
     private val senderRegex = spec.senderPattern?.let { Regex(it, RegexOption.IGNORE_CASE) }
 
     fun match(text: String, source: Source, sender: String): RuleHit? {
-        if (source !in spec.sources) return null
+        // The SMS app's notification carries the bank's SMS itself (the Play build reads SMS only that way).
+        val asSource = if (source == Source.SMS_APP_NOTIFICATION) Source.SMS else source
+        if (asSource !in spec.sources) return null
         if (senderRegex != null && !senderRegex.containsMatchIn(sender)) return null
         val match = regex.find(text) ?: return null
         val amount = group(match, spec.amountGroup)?.let(AmountReader::read) ?: return null

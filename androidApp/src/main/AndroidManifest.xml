@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- SEC-003: Android 11+ hides other apps unless named here; the listed UPI and bank apps are checked to be the real
+         ones. Kept equal to UpiApps.default by AppVerifierTest. -->
+    <queries>
+        <package android:name="com.phonepe.app" />
+        <package android:name="com.google.android.apps.nbu.paisa.user" />
+        <package android:name="net.one97.paytm" />
+        <package android:name="in.org.npci.upiapp" />
+        <package android:name="in.amazon.mShop.android.shopping" />
+        <package android:name="com.dreamplug.androidapp" />
+        <package android:name="com.mobikwik_new" />
+        <package android:name="com.freecharge.android" />
+        <package android:name="com.naviapp" />
+        <package android:name="com.popclub.android" />
+        <package android:name="money.super.payments" />
+        <package android:name="money.jupiter" />
+        <package android:name="indwin.c3.shareapp" />
+        <package android:name="com.nextbillion.groww" />
+        <package android:name="in.gokiwi.kiwitpap" />
+        <package android:name="com.myairtelapp" />
+        <package android:name="in.jfs.jiofinance" />
+        <package android:name="com.sbi.lotusintouch" />
+        <package android:name="com.sbi.upi" />
+        <package android:name="com.hdfcbank.android.now" />
+        <package android:name="com.hdfcbank.payzapp" />
+        <package android:name="com.csam.icici.bank.imobile" />
+        <package android:name="com.axis.mobile" />
+        <package android:name="com.kotak.bank.mobile" />
+        <package android:name="com.kotak811mobilebankingapp.instantsavingsupiscanandpayrecharge" />
+        <package android:name="com.bankofbaroda.mconnect" />
+        <package android:name="com.Version1" />
+        <package android:name="com.idfcfirstbank.optimus" />
+        <package android:name="com.indusind.indie" />
+        <package android:name="in.irisbyyes.app" />
+        <package android:name="com.fedmobile" />
+    </queries>
+
+    <application
+        android:name=".VyayaApp"
+        android:label="@string/app_name"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Only the system (holding BIND_NOTIFICATION_LISTENER_SERVICE) can bind it; the user grants access in settings. -->
+        <service
+            android:name=".CaptureListener"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

@@ -129,6 +129,21 @@ class DomainTest {
     }
 
     @Test
+    fun amounts_are_capped_at_100_crore_so_totals_cannot_overflow() { // DATA-004
+        val over = Money(Money.MAX.paise + 1)
+        entry(amount = Money.MAX)
+        assertFailsWith<IllegalArgumentException> { entry(amount = over) }
+        assertFailsWith<IllegalArgumentException> { Split(id(), over) }
+        assertFailsWith<IllegalArgumentException> {
+            RecurringRule(id(), EntryType.EXPENSE, over, 5, null, null, "", false, LocalDate(2026, 1, 5), now, false)
+        }
+        assertFailsWith<IllegalArgumentException> { LedgerEntry(id(), id(), LedgerDirection.LENT, over, LocalDate(2026, 1, 5), "", false, now, false) }
+        assertFailsWith<IllegalArgumentException> { Budget(id(), id(), over, now, false) }
+        // A million maximum entries still add up without overflowing.
+        assertEquals(Money.MAX.paise * 1_000_000, List(1_000_000) { Money.MAX }.fold(Money(0)) { a, b -> a + b }.paise)
+    }
+
+    @Test
     fun splits_must_add_up_to_the_amount() {
         val a = id(); val b = id()
         entry(amount = Money(240000), splits = listOf(Split(a, Money(180000)), Split(b, Money(60000))))

@@ -166,7 +166,7 @@ duplicate keys and accept a BOM, and encryption before release. Every fix starte
 | 1 DATA-001 | ✅ Fixed `597557a` | Writer and reader share `BackupLimits`; the app refuses to write what it can't restore |
 | 2 PEN-002 | ✅ Fixed `597557a` | Line-by-line write and read; 200k entries now fit a 512 MB heap (little margin left, see v2 report PEN-003) |
 | 3 DATA-003 | ✅ Fixed `597557a` | SHA-256 end line; silent changes went from 577 to 0 of 20,000 corruptions (integrity only, see v2 report SEC-001) |
-| 4 DATA-004 | ⏸ Not fixed (your choice) | Amounts above ₹100 crore are still accepted |
+| 4 DATA-004 | ✅ Fixed `4cf128e` (2026-11-03) | Amounts above ₹100 crore are refused by the model, after the engine report showed they crash the totals |
 | 5 SEC-005 | ✅ Fixed `597557a` | Records newer than the export, or an export from the future, are refused (side effect: v2 report FLAW-004) |
 | 6 FLAW-006 | ✅ Fixed `597557a` | Duplicate keys refused in v1 and v2, comparing keys after unescaping |
 | 7 FLAW-007 | ✅ Fixed `597557a` | A leading BOM and CRLF line endings are accepted |

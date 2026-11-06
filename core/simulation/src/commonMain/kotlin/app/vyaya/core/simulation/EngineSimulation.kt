@@ -1,6 +1,7 @@
 package app.vyaya.core.simulation
 
 import app.vyaya.core.backup.BackupCodec
+import app.vyaya.core.backup.ClockRepair
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.ExportMeta
@@ -59,7 +60,7 @@ class EngineSimulationResult(
     val duplicates: Int,
     /** Months that came due but have no entry for their key (must be 0). */
     val missing: Int,
-    /** Keys for months whose due date is after the real today: made while the clock was ahead. */
+    /** Keys for months whose due date is after the real today at the end (made while the clock was ahead). */
     val early: Int,
     /** Months where Saved - overspent != left, or left != income - spent (must be 0). */
     val savedMismatches: Int,
@@ -111,7 +112,7 @@ object EngineSimulation {
                 val day = random.nextInt(1, 32)
                 RecurringRule(random.nextId(), if (random.nextInt(5) == 0) EntryType.INCOME else EntryType.EXPENSE,
                     Money(random.nextLong(1_000, 5_000_000)), day, categories.random(random).id, null, "Rule $it",
-                    paused = random.nextInt(12) == 0, Recurring.startsOnFor(created, day), at(created), false)
+                    paused = random.nextInt(12) == 0, Recurring.startsOnFor(created, day), at(START), false)
             }
             val people = List(3) { app.vyaya.core.model.Person(random.nextId(), "Friend $it", at(START), false) }
             val ledger = List(random.nextInt(0, 12)) {
@@ -122,6 +123,13 @@ object EngineSimulation {
             /** Saves [e] the way the database will: one record per id, a newer version replaces the older. */
             fun save(e: Entry) { entries = entries.filter { it.id != e.id } + e }
             fun open(clockToday: LocalDate) {
+                // What the app does on opening: if its clock went back, repair what was stamped ahead (SIM-001/002).
+                val state = Snapshot(settings, emptyList(), categories, entries, rules, people, ledger, emptyList(), emptyList())
+                if (ClockRepair.needed(state, at(clockToday))) {
+                    chaos("clock repair")
+                    val repaired = ClockRepair.repair(state, at(clockToday))
+                    entries = repaired.entries; rules = repaired.recurring
+                }
                 val mark = TimeSource.Monotonic.markNow()
                 val added = Recurring.catchUp(rules, entries, clockToday, IST, at(clockToday))
                 catchUpMicros += mark.elapsedNow().inWholeMicroseconds

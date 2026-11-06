@@ -36,3 +36,23 @@ jobs:
       - run: ./gradlew iosSimulatorArm64Test --console=plain
       - if: always()
         run: python3 scripts/test-summary.py iosSimulatorArm64Test
+
+  # The Android app: Robolectric and Compose UI tests for both flavors, and R8 release builds.
+  # Robolectric 4.17 needs Java 21+ to run tests; the app compiles with the Java 17 toolchain.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: |
+            21
+            17
+      - uses: gradle/actions/setup-gradle@v6
+      - run: >-
+          ./gradlew :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
+          :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
+          -Pvyaya.testJdk=21 --console=plain
+      - if: always()
+        run: python3 scripts/test-summary.py testPlayDebugUnitTest && python3 scripts/test-summary.py testFullDebugUnitTest

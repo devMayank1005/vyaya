@@ -6,30 +6,34 @@ import kotlin.test.assertEquals
 class SenderClassifierTest {
 
     @Test
+    fun the_trai_category_suffix_is_kept() { // SEC-006 (parser report): promotional headers can then be dropped
+        assertEquals(SenderKind.Header("PHONPE", HeaderCategory.PROMOTIONAL), SenderClassifier.classify("VK-PHONPE-P"))
+        assertEquals(SenderKind.Header("PHONPE", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("VK-PHONPE-T"))
+        assertEquals(SenderKind.Header("GOVTIN", HeaderCategory.GOVERNMENT), SenderClassifier.classify("VM-GOVTIN-G"))
+    }
+
+    @Test
     fun trai_headers_are_recognised_with_and_without_category_suffix() {
-        assertEquals(SenderKind.Header("HDFCBK"), SenderClassifier.classify("VM-HDFCBK"))
-        assertEquals(SenderKind.Header("HDFCBK"), SenderClassifier.classify("VM-HDFCBK-S"))
-        assertEquals(SenderKind.Header("SBIUPI"), SenderClassifier.classify("jd-sbiupi-t"))
-        assertEquals(SenderKind.Header("ICICIT"), SenderClassifier.classify("AX-ICICIT-T"))
+        assertEquals(SenderKind.Header("HDFCBK", null), SenderClassifier.classify("VM-HDFCBK"))
+        assertEquals(SenderKind.Header("HDFCBK", HeaderCategory.SERVICE), SenderClassifier.classify("VM-HDFCBK-S"))
+        assertEquals(SenderKind.Header("SBIUPI", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("jd-sbiupi-t"))
+        assertEquals(SenderKind.Header("ICICIT", HeaderCategory.TRANSACTIONAL), SenderClassifier.classify("AX-ICICIT-T"))
     }
 
     @Test
     fun bare_headers_without_operator_prefix_are_recognised() {
         // Some phones show the header without the 2-letter operator/circle prefix.
-        assertEquals(SenderKind.Header("KOTAKB"), SenderClassifier.classify("KOTAKB"))
+        // Recognised, but marked bare: filters send it to review (SEC-003, filters-dedup report).
+        assertEquals(SenderKind.Header("KOTAKB", null, prefixed = false), SenderClassifier.classify("KOTAKB"))
     }
 
     @Test
     fun known_upi_app_packages_are_recognised() {
-        assertEquals(SenderKind.App(UpiApp.PHONEPE), SenderClassifier.classify("com.phonepe.app"))
-        assertEquals(SenderKind.App(UpiApp.GOOGLE_PAY), SenderClassifier.classify("com.google.android.apps.nbu.paisa.user"))
-        assertEquals(SenderKind.App(UpiApp.PAYTM), SenderClassifier.classify("net.one97.paytm"))
-        assertEquals(SenderKind.App(UpiApp.BHIM), SenderClassifier.classify("in.org.npci.upiapp"))
-        assertEquals(SenderKind.App(UpiApp.CRED), SenderClassifier.classify("com.dreamplug.androidapp"))
-        assertEquals(SenderKind.App(UpiApp.AMAZON_PAY), SenderClassifier.classify("in.amazon.mShop.android.shopping"))
-        assertEquals(SenderKind.App(UpiApp.NAVI), SenderClassifier.classify("com.naviapp"))
-        assertEquals(SenderKind.App(UpiApp.MOBIKWIK), SenderClassifier.classify("com.mobikwik_new"))
-        assertEquals(SenderKind.App(UpiApp.FREECHARGE), SenderClassifier.classify("com.freecharge.android"))
+        for (app in UpiApps.default.apps) assertEquals(SenderKind.App(app), SenderClassifier.classify(app.packageName))
+        assertEquals("pop", (SenderClassifier.classify("com.popclub.android") as SenderKind.App).app.id)
+        // A lookalike package is not the app.
+        assertEquals(SenderKind.Unknown, SenderClassifier.classify("com.phonepe.app.fake"))
+        assertEquals(SenderKind.Unknown, SenderClassifier.classify("com.whatsapp"))
     }
 
     @Test

@@ -2,6 +2,11 @@ plugins {
     alias(libs.plugins.kotlin.multiplatform) apply false
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.kover)
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.room) apply false
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.android.kmp.library) apply false
+    alias(libs.plugins.kotlin.compose) apply false
 }
 
 dependencies {
@@ -10,6 +15,9 @@ dependencies {
     kover(project(":core:parser"))
     kover(project(":core:backup"))
     kover(project(":core:engine"))
+    kover(project(":core:filters"))
+    kover(project(":core:dedup"))
+    kover(project(":core:data"))
 }
 
 // Coverage gate from CLAUDE.md: shared core >= 90 % lines and branches. `./gradlew koverVerify` fails below it.

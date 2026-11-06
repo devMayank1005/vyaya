@@ -23,6 +23,16 @@ class MessageParserTest {
         if (failures.isNotEmpty()) fail("${failures.size} golden case(s) failed:\n" + failures.joinToString("\n"))
     }
 
+    @Test
+    fun review_data_001_a_bank_sms_seen_in_the_sms_apps_notification_parses_as_the_sms() {
+        // The Play build reads bank SMS only through the SMS app's notification: the SMS rules must apply to it.
+        val failures = GOLDEN.filter { it.source == Source.SMS }.mapNotNull { case ->
+            val result = MessageParser.parse(RawMessage(Source.SMS_APP_NOTIFICATION, case.sender, case.text, at))
+            check(case.expected, result)?.let { "${case.name}: $it" }
+        }
+        if (failures.isNotEmpty()) fail("${failures.size} case(s) differ:\n" + failures.joinToString("\n"))
+    }
+
     private fun check(expected: Expect, result: ParseResult): String? = when (expected) {
         Expect.NoTxn -> if (result is ParseResult.Transaction) "expected no transaction" else null
         is Expect.Txn -> {
@@ -45,7 +55,7 @@ class MessageParserTest {
         val result = MessageParser.parse(RawMessage(Source.NOTIFICATION, "com.phonepe.app", "₹120 paid to Swiggy", at))
         val txn = (result as ParseResult.Transaction).txn
         assertEquals(at, txn.occurredAt)
-        assertEquals(SenderKind.App(UpiApp.PHONEPE), txn.sender)
+        assertEquals("phonepe", (txn.sender as SenderKind.App).app.id)
     }
 
     @Test
