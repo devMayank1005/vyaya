@@ -46,9 +46,10 @@ fun VyayaRoot(
     onBattery: () -> Unit = {},
     zone: () -> TimeZone = { TimeZone.currentSystemDefault() },
     backupStatus: BackupStatus = BackupStatus.Idle,
-    onExport: () -> Unit = {},
+    onExport: (CharArray?) -> Unit = {},
     onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
     onRestoreAnyway: () -> Unit = {},
+    onPassword: (CharArray) -> Unit = {},
 ) {
     val months = remember(db) { MonthStore(db) }
     val entries = remember(db) { EntryStore(db) }
@@ -102,7 +103,7 @@ fun VyayaRoot(
                 Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                     onAdd = { adding = true }, onOpen = { editing = it })
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
-                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway)
+                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword)
             }
         }
     }

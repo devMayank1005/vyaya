@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
@@ -79,6 +80,7 @@ class VyayaRootTest {
         compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}, onExport = { exported++ }) }
         compose.onNodeWithText("Backup").performClick()
         compose.onNodeWithText("Export backup").performClick()
+        compose.onNodeWithText("Export without a password").performScrollTo().performClick()
         assertEquals(1, exported)
     }
 }

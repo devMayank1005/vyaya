@@ -40,14 +40,18 @@ class MainActivity : ComponentActivity() {
     private val restoreFlow: RestoreFlow<Uri> = RestoreFlow(
         open = { uri -> runCatching { contentResolver.openInputStream(uri) }.getOrNull() },
         pick = { restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-        restore = { input, mode, anyway -> backupFiles().restore(input, mode, Clock.System.now(), anyway) },
+        restore = { input, mode, anyway, password -> backupFiles().restore(input, mode, Clock.System.now(), anyway, password) },
     )
 
-    private val exportTo = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        uri ?: return@registerForActivityResult
+    /** The password chosen for the export being saved; cleared once used. */
+    private var exportPassword: CharArray? = null
+
+    private val exportTo = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val password = exportPassword.also { exportPassword = null }
+        if (uri == null) { password?.fill(' '); return@registerForActivityResult }
         backupStatus.value = BackupStatus.Working("Writing the backup…")
         lifecycleScope.launch {
-            val result = contentResolver.openOutputStream(uri)?.use { backupFiles().export(it, Clock.System.now()) }
+            val result = contentResolver.openOutputStream(uri)?.use { backupFiles().export(it, Clock.System.now(), password) }
             backupStatus.value = when (result) {
                 EncodeResult.Success -> BackupStatus.Done("Backup saved")
                 is EncodeResult.Failure -> BackupStatus.Refused(DecodeResult.Failure(listOf(result.reason)))
@@ -78,7 +82,12 @@ class MainActivity : ComponentActivity() {
                     onImport = ::importSms,
                     onBattery = { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                     backupStatus = backupStatus.value,
-                    onExport = { exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.json") },
+                    onExport = { password ->
+                        exportPassword = password
+                        // Protected: the .vyaya file (docs/encrypted-backup-v1.md); plain: readable JSON lines.
+                        exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.${if (password != null) "vyaya" else "json"}")
+                    },
+                    onPassword = { pw -> showRestore { restoreFlow.withPassword(pw) } },
                     onRestore = { mode -> restoreFlow.start(mode) },
                     onRestoreAnyway = { showRestore { restoreFlow.restoreAnyway() } },
                 )
@@ -134,8 +143,12 @@ class MainActivity : ComponentActivity() {
                     opened.intValue++
                     BackupStatus.Done("Restored")
                 }
-                is RestoreResult.Refused -> BackupStatus.Refused(result.failure)
-                null -> BackupStatus.Working("Pick the backup file again to restore it anyway")
+                is RestoreResult.Refused -> when {
+                    result.needsPassword() -> BackupStatus.NeedsPassword(null)
+                    result.failure.problems.firstOrNull()?.startsWith("Wrong password") == true -> BackupStatus.NeedsPassword(result.failure.problems.first())
+                    else -> BackupStatus.Refused(result.failure)
+                }
+                null -> BackupStatus.Working("Pick the backup file again")
             }
         }
     }

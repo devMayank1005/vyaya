@@ -5,14 +5,22 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.RestoreMode
@@ -24,12 +32,29 @@ sealed interface BackupStatus {
     data class Done(val message: String) : BackupStatus
     /** Nothing was changed; [failure] says why (and whether "Restore anyway" may be offered). */
     data class Refused(val failure: DecodeResult.Failure) : BackupStatus
+    /** The picked backup is password-protected; [problem] when the last password didn't open it. */
+    data class NeedsPassword(val problem: String?) : BackupStatus
 }
 
-/** Export a backup file; restore one by merging (newer wins, your settings stay) or replacing everything. */
+/**
+ * Export a backup file, protected by a password unless the user says no twice (SEC-002); restore one by merging
+ * (newer wins, your settings stay) or replacing everything.
+ */
 @Composable
-fun BackupScreen(status: BackupStatus, onExport: () -> Unit, onRestore: (RestoreMode) -> Unit, onRestoreAnyway: () -> Unit) {
+fun BackupScreen(
+    status: BackupStatus,
+    onExport: (CharArray?) -> Unit,
+    onRestore: (RestoreMode) -> Unit,
+    onRestoreAnyway: () -> Unit,
+    onPassword: (CharArray) -> Unit = {},
+) {
     val busy = status is BackupStatus.Working
+    var password by remember { mutableStateOf("") }
+    var repeat by remember { mutableStateOf("") }
+    var problem by remember { mutableStateOf<String?>(null) }
+    var plainAsked by remember { mutableStateOf(false) }
+    var restorePassword by remember { mutableStateOf("") }
+
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Backup", style = MaterialTheme.typography.headlineSmall)
         // The result first, where it is seen without scrolling.
@@ -42,10 +67,37 @@ fun BackupScreen(status: BackupStatus, onExport: () -> Unit, onRestore: (Restore
                 status.failure.problems.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                 if (status.failure.clockBehind) Button(onRestoreAnyway) { Text("Restore anyway") }
             }
+            is BackupStatus.NeedsPassword -> {
+                Text("This backup is protected by a password.", style = MaterialTheme.typography.bodyMedium)
+                status.problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                OutlinedTextField(restorePassword, { restorePassword = it }, Modifier.fillMaxWidth(), label = { Text("Backup password") },
+                    singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                Button({ onPassword(restorePassword.toCharArray()); restorePassword = "" }, enabled = restorePassword.isNotEmpty()) {
+                    Text("Restore with this password")
+                }
+            }
         }
         Text("A backup is a file you keep (on Drive, a computer, another phone). Nothing is uploaded by Vyaya.",
             style = MaterialTheme.typography.bodyMedium)
-        Button(onExport, enabled = !busy) { Text("Export backup") }
+        OutlinedTextField(password, { password = it; problem = null; plainAsked = false }, Modifier.fillMaxWidth(), label = { Text("Password") },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+        OutlinedTextField(repeat, { repeat = it; problem = null }, Modifier.fillMaxWidth(), label = { Text("Repeat the password") },
+            singleLine = true, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            isError = problem != null, supportingText = problem?.let { { Text(it) } })
+        Button({
+            when {
+                password.isEmpty() -> plainAsked = true
+                password.length < MIN_PASSWORD -> problem = "At least $MIN_PASSWORD characters"
+                password != repeat -> problem = "The passwords don't match"
+                else -> { onExport(password.toCharArray()); password = ""; repeat = "" }
+            }
+        }, enabled = !busy) { Text("Export backup") }
+        if (plainAsked) {
+            Text("Without a password anyone who gets the file can read it: every payee, amount and note.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton({ plainAsked = false; onExport(null) }, enabled = !busy) { Text("Export without a password") }
+        }
         Text("Restore", style = MaterialTheme.typography.titleMedium)
         Text("Merge keeps what's on this phone; where both have the same entry, the newer change wins.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
@@ -53,3 +105,5 @@ fun BackupScreen(status: BackupStatus, onExport: () -> Unit, onRestore: (Restore
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
     }
 }
+
+private const val MIN_PASSWORD = 8

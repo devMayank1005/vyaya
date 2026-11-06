@@ -13,15 +13,20 @@ import java.io.InputStream
 class RestoreFlow<K>(
     private val open: (K) -> InputStream?,
     private val pick: () -> Unit,
-    private val restore: suspend (InputStream, RestoreMode, Boolean) -> RestoreResult,
+    private val restore: suspend (InputStream, RestoreMode, Boolean, CharArray?) -> RestoreResult,
 ) {
     private var mode = RestoreMode.MERGE
     private var file: K? = null
     private var anywayNext = false
 
+    /** The encrypted backup's password, kept for "Restore anyway" on the same file; cleared when a new restore starts. */
+    private var password: CharArray? = null
+
     fun start(mode: RestoreMode) {
         this.mode = mode
         anywayNext = false
+        password?.fill(' ')
+        password = null
         pick()
     }
 
@@ -29,7 +34,14 @@ class RestoreFlow<K>(
         file = k
         val anyway = anywayNext
         anywayNext = false
-        return open(k)?.use { restore(it, mode, anyway) } ?: RestoreResult.Refused(DecodeResult.Failure(listOf("The file couldn't be opened")))
+        return open(k)?.use { restore(it, mode, anyway, password?.copyOf()) } ?: RestoreResult.Refused(DecodeResult.Failure(listOf("The file couldn't be opened")))
+    }
+
+    /** The same file again, with its password. Null when the file had to be asked for again. */
+    suspend fun withPassword(pw: CharArray): RestoreResult? {
+        password = pw
+        val stream = file?.let(open) ?: run { pick(); return null }
+        return stream.use { restore(it, mode, false, pw.copyOf()) }
     }
 
     /** Null when the file had to be asked for again (the result then comes from [picked]). */
@@ -40,6 +52,6 @@ class RestoreFlow<K>(
             pick()
             return null
         }
-        return stream.use { restore(it, mode, true) }
+        return stream.use { restore(it, mode, true, password?.copyOf()) }
     }
 }

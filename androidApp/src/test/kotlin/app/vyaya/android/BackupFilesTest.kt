@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
@@ -34,6 +37,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.ConscryptMode
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import kotlin.time.Instant
@@ -41,6 +45,7 @@ import kotlin.time.Instant
 /** Backups to and from files the user picks (export via a temp file; restore from a local copy, FLAW-005). */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
+@ConscryptMode(ConscryptMode.Mode.OFF) // the JDK's own AES-GCM; Robolectric's Conscrypt fails to start on this JDK
 class BackupFilesTest {
 
     @get:Rule val compose = createComposeRule()
@@ -108,13 +113,87 @@ class BackupFilesTest {
             BackupScreen(status.value, onExport = { clicks += "export" }, onRestore = { clicks += it.name }, onRestoreAnyway = { clicks += "anyway" })
         }
         compose.onNodeWithText("Export backup").performClick()
-        compose.onNodeWithText("Restore: merge").performClick()
-        compose.onNodeWithText("Restore: replace everything").performClick()
+        compose.onNodeWithText("Export without a password").performScrollTo().performClick()
+        compose.onNodeWithText("Restore: merge").performScrollTo().performClick()
+        compose.onNodeWithText("Restore: replace everything").performScrollTo().performClick()
         status.value = BackupStatus.Refused(DecodeResult.Failure(listOf("This backup was made on 2027-01-01…"), clockBehind = true))
         compose.onNodeWithText("This backup was made on 2027-01-01…").assertExists()
-        compose.onNodeWithText("Restore anyway").performClick()
+        compose.onNodeWithText("Restore anyway").performScrollTo().performClick()
         status.value = BackupStatus.Done("Restored")
         compose.onNodeWithText("Restored").assertExists()
         assertEquals(listOf("export", "MERGE", "REPLACE", "anyway"), clicks)
+    }
+
+    private val pw = "a good long password".toCharArray()
+
+    @Test
+    fun sec_002_a_password_protected_backup_restores_with_its_password_only() = runTest {
+        val s = data(500)
+        SnapshotStore(db).save(s)
+        val out = ByteArrayOutputStream()
+        assertEquals(EncodeResult.Success, files().export(out, now, password = pw.copyOf()))
+        val file = out.toByteArray()
+        assertTrue(BackupCrypto.isEncrypted(file.copyOf(8)))
+        assertTrue("no plain text in the file", !String(file, Charsets.ISO_8859_1).contains("Shop 1"))
+
+        val other: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+        val otherFiles = BackupFiles(other, context.cacheDir, appVersion = "0.1.0")
+        assertTrue(otherFiles.restore(ByteArrayInputStream(file), RestoreMode.REPLACE, now).needsPassword())
+        val wrong = otherFiles.restore(ByteArrayInputStream(file), RestoreMode.REPLACE, now, password = "not it at all".toCharArray())
+        assertTrue(wrong.toString(), wrong is RestoreResult.Refused && wrong.failure.problems.single().startsWith("Wrong password"))
+        val restored = otherFiles.restore(ByteArrayInputStream(file), RestoreMode.REPLACE, now, password = pw.copyOf())
+        assertTrue(restored.toString(), restored is RestoreResult.Restored)
+        assertEquals(s.normalized(), SnapshotStore(other).load())
+        other.close()
+    }
+
+    @Test
+    fun sec_002_an_encrypted_file_changed_after_export_changes_nothing() = runTest {
+        SnapshotStore(db).save(data(500))
+        val out = ByteArrayOutputStream()
+        files().export(out, now, password = pw.copyOf())
+        val file = out.toByteArray().also { it[it.size - 100] = (it[it.size - 100].toInt() xor 1).toByte() } // a late chunk
+        val other: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+        val before = SnapshotStore(other).load()
+        val r = BackupFiles(other, context.cacheDir, appVersion = "0.1.0").restore(ByteArrayInputStream(file), RestoreMode.REPLACE, now, password = pw.copyOf())
+        assertTrue(r.toString(), r is RestoreResult.Refused)
+        assertEquals(before, SnapshotStore(other).load())
+        other.close()
+    }
+
+    @Test
+    fun sec_002_the_screen_asks_for_matching_passwords_or_an_explicit_no() {
+        val exported = mutableListOf<String?>()
+        compose.setContent { BackupScreen(BackupStatus.Idle, onExport = { exported += it?.concatToString() }, onRestore = {}, onRestoreAnyway = {}) }
+        compose.onNodeWithText("Password").performTextInput("short")
+        compose.onNodeWithText("Export backup").performClick()
+        compose.onNodeWithText("At least 8 characters", substring = true).assertExists()
+        compose.onNodeWithText("Password").performTextReplacement("a good long password")
+        compose.onNodeWithText("Repeat the password").performTextInput("a good long passwort")
+        compose.onNodeWithText("Export backup").performClick()
+        compose.onNodeWithText("The passwords don't match").assertExists()
+        compose.onNodeWithText("Repeat the password").performTextReplacement("a good long password")
+        compose.onNodeWithText("Export backup").performClick()
+        assertEquals(listOf<String?>("a good long password"), exported)
+    }
+
+    @Test
+    fun sec_002_exporting_without_a_password_needs_a_second_explicit_tap() {
+        val exported = mutableListOf<String?>()
+        compose.setContent { BackupScreen(BackupStatus.Idle, onExport = { exported += it?.concatToString() }, onRestore = {}, onRestoreAnyway = {}) }
+        compose.onNodeWithText("Export backup").performClick()
+        compose.onNodeWithText("anyone who gets the file can read it", substring = true).assertExists()
+        assertEquals(emptyList<String?>(), exported)
+        compose.onNodeWithText("Export without a password").performScrollTo().performClick()
+        assertEquals(listOf<String?>(null), exported)
+    }
+
+    @Test
+    fun sec_002_a_protected_backup_asks_for_its_password() {
+        val given = mutableListOf<String>()
+        compose.setContent { BackupScreen(BackupStatus.NeedsPassword(null), onExport = {}, onRestore = {}, onRestoreAnyway = {}, onPassword = { given += it.concatToString() }) }
+        compose.onNodeWithText("Backup password").performTextInput("a good long password")
+        compose.onNodeWithText("Restore with this password").performClick()
+        assertEquals(listOf("a good long password"), given)
     }
 }

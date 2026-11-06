@@ -18,7 +18,7 @@ class RestoreFlowTest {
     private val now = Instant.parse("2026-11-06T10:00:00Z")
     private val calls = mutableListOf<Pair<RestoreMode, Boolean>>()
     private var picks = 0
-    private val restore: suspend (InputStream, RestoreMode, Boolean) -> RestoreResult = { _, mode, anyway ->
+    private val restore: suspend (InputStream, RestoreMode, Boolean, CharArray?) -> RestoreResult = { _, mode, anyway, _ ->
         calls += mode to anyway
         if (anyway) RestoreResult.Restored(ExportMeta("1", "android", now)) else RestoreResult.Refused(DecodeResult.Failure(listOf("clock"), clockBehind = true))
     }
@@ -52,5 +52,20 @@ class RestoreFlowTest {
         gone = true
         assertNull(f.restoreAnyway())
         assertEquals(2, picks)
+    }
+
+    @Test
+    fun a_password_is_used_on_the_same_file_and_kept_for_restore_anyway() = runTest {
+        val seen = mutableListOf<String?>()
+        val f = RestoreFlow<String>(open = { ByteArrayInputStream(ByteArray(1)) }, pick = { picks++ }, restore = { _, _, anyway, pw ->
+            seen += pw?.concatToString()
+            if (pw == null) RestoreResult.Refused(DecodeResult.Failure(listOf(BackupFiles.NEEDS_PASSWORD)))
+            else if (!anyway) RestoreResult.Refused(DecodeResult.Failure(listOf("clock"), clockBehind = true))
+            else RestoreResult.Restored(ExportMeta("1", "android", now))
+        })
+        f.start(RestoreMode.MERGE); f.picked("file")
+        assertEquals(true, f.withPassword("secret pw".toCharArray()) is RestoreResult.Refused)
+        assertEquals(true, f.restoreAnyway() is RestoreResult.Restored)
+        assertEquals(listOf(null, "secret pw", "secret pw"), seen)
     }
 }
