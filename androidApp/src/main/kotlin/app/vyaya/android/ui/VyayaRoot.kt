@@ -19,6 +19,8 @@ import androidx.compose.ui.Modifier
 import app.vyaya.core.data.DetectedInbox
 import app.vyaya.core.data.EntryStore
 import app.vyaya.core.data.MonthStore
+import app.vyaya.core.data.RulesStore
+import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.data.SnapshotStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.Entry
@@ -28,7 +30,7 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
-private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹"), DETECTED("Detected", "✓"), BACKUP("Backup", "⇅") }
+private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹"), RECURRING("Recurring", "↻"), DETECTED("Detected", "✓"), BACKUP("Backup", "⇅") }
 
 /**
  * The app: Home (this month, add and edit by hand) and Detected (capture's inbox), over the database. [opened] changes
@@ -55,6 +57,7 @@ fun VyayaRoot(
     lockEnabled: Boolean = false,
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
+    onRulesChanged: () -> Unit = {},
 ) {
     // SEC-003: while locked, nothing of the money is composed at all.
     if (locked) return LockScreen(onUnlock)
@@ -67,6 +70,12 @@ fun VyayaRoot(
     var monthOffset by remember { mutableStateOf(0) }
     var editing by remember { mutableStateOf<Entry?>(null) }
     var adding by remember { mutableStateOf(false) }
+    val rulesStore = remember(db) { RulesStore(db) }
+    var rulesVersion by remember { mutableStateOf(0) }
+    val rules by produceState(emptyList<RecurringRule>(), db, opened, rulesVersion) { value = rulesStore.active() }
+    var editingRule by remember { mutableStateOf<RecurringRule?>(null) }
+    var addingRule by remember { mutableStateOf(false) }
+    fun rulesChanged() { rulesVersion++; onRulesChanged() }
     val scope = rememberCoroutineScope()
 
     val settings = records?.settings
@@ -79,6 +88,26 @@ fun VyayaRoot(
     }
     val view by remember(month, settings) { if (month != null && settings != null) months.watch(month, settings) else flowOf(null) }.collectAsState(null)
     val categories = records?.categories.orEmpty()
+
+    if (addingRule || editingRule != null) {
+        val existing = editingRule
+        RuleForm(existing, categories,
+            onSave = { input ->
+                val now = clock(); val zone = records?.settings?.homeTimeZone ?: zone()
+                scope.launch {
+                    if (existing == null) rulesStore.add(input.type, input.money!!, input.dayOfMonth!!, input.categoryId, input.note.trim(), now, zone)
+                    else rulesStore.save(existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId,
+                        note = input.note.trim(), updatedAt = now))
+                    rulesChanged()
+                }
+                addingRule = false; editingRule = null
+                true
+            },
+            onDelete = { existing?.let { r -> scope.launch { rulesStore.delete(r, clock()); rulesChanged() } }; editingRule = null },
+            onClose = { addingRule = false; editingRule = null },
+        )
+        return
+    }
 
     if (adding || editing != null) {
         val existing = editing
@@ -110,6 +139,13 @@ fun VyayaRoot(
             when (tab) {
                 Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                     onAdd = { adding = true }, onOpen = { editing = it })
+                Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
+                    onOpen = { editingRule = it },
+                    onPause = { r -> scope.launch { rulesStore.pause(r, clock()); rulesChanged() } },
+                    missed = { r -> rulesStore.missedWhilePaused(r, clock(), records?.settings?.homeTimeZone ?: zone()) },
+                    onResume = { r, addMissed ->
+                        scope.launch { rulesStore.resume(r, addMissed, clock(), records?.settings?.homeTimeZone ?: zone()); rulesChanged() }
+                    })
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure)
             }

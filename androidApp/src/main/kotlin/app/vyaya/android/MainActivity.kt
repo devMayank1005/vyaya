@@ -101,6 +101,8 @@ class MainActivity : FragmentActivity() {
                     onUnlock = ::askToUnlock,
                     lockEnabled = lockEnabled.value,
                     deviceSecure = getSystemService(android.app.KeyguardManager::class.java)?.isDeviceSecure == true,
+                    // A rule added, changed or resumed: catch-up makes its due entries now, not at the next open.
+                    onRulesChanged = { lifecycleScope.launch { AppOpen(app.database).run(Clock.System.now()); opened.intValue++ } },
                     onLockEnabled = { on ->
                         // Turning it off is a change to protection too: confirm it's you.
                         AppLock.confirmThen(authenticator, if (on) "Turn on the app lock" else "Turn off the app lock") {
