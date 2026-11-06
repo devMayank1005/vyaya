@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.vyaya.android.ui.Setup
 import app.vyaya.android.ui.VyayaScreen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -46,20 +47,30 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        refresh() // the user may be back from the notification access settings
+        refresh(checkListener = false) // the user may be back from the notification access settings
+        val access = setup.value.notificationAccess
+        // FLAW-005: ask the system to (re)connect the listener whenever the app is opened with access granted, and
+        // look again once it had time to (review 2026-11-06 #6), so the warning doesn't flash while it binds.
+        if (access) NotificationListenerService.requestRebind(CaptureListener.component(this))
+        lifecycleScope.launch {
+            delay(LISTENER_GRACE_MS)
+            refresh(checkListener = true)
+        }
     }
 
-    private fun refresh() {
+    private fun refresh(checkListener: Boolean = true) {
         val access = packageName in NotificationManagerCompat.getEnabledListenerPackages(this)
-        // FLAW-005: ask the system to (re)connect the listener whenever the app is opened with access granted.
-        if (access) NotificationListenerService.requestRebind(CaptureListener.component(this))
         setup.value = Setup(
             notificationAccess = access,
-            listenerStopped = ListenerHealth(this).status(access) == ListenerHealth.Status.STOPPED,
+            listenerStopped = if (checkListener) ListenerHealth(this).status(access) == ListenerHealth.Status.STOPPED else setup.value.listenerStopped,
             smsAvailable = SmsFeature.AVAILABLE,
             smsGranted = SmsFeature.permissions.isNotEmpty() &&
                 SmsFeature.permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },
         )
+    }
+
+    private companion object {
+        const val LISTENER_GRACE_MS = 3_000L
     }
 
     private fun importSms() {

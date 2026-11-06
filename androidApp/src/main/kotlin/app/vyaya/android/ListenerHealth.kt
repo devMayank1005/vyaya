@@ -5,26 +5,30 @@ import android.content.Context
 /**
  * FLAW-005: whether the system has the notification listener connected. Phones that stop background apps (Xiaomi,
  * Oppo, Vivo, some Samsung builds) drop it silently, and payments are then missed with no sign.
- * Kept in the app's own preferences (excluded from backup and transfer).
+ *
+ * Review 2026-11-06 #6: kept in this process's memory only. When the phone kills the app no disconnect callback
+ * runs, so a saved flag would stay "connected" for ever; a new process starts not connected until the system binds
+ * the listener again (the app asks it to when opened, and checks a few seconds later).
  */
-class ListenerHealth(context: Context) {
+class ListenerHealth(@Suppress("UNUSED_PARAMETER") context: Context) {
 
     enum class Status { NO_ACCESS, RUNNING, STOPPED }
 
-    private val prefs = context.applicationContext.getSharedPreferences("listener", Context.MODE_PRIVATE)
+    fun connected() { live = true }
 
-    fun connected() = prefs.edit().putBoolean(KEY, true).apply()
+    fun disconnected() { live = false }
 
-    fun disconnected() = prefs.edit().putBoolean(KEY, false).apply()
-
-    /** Access granted but not connected (dropped, or never bound yet) is [Status.STOPPED]. */
+    /** Access granted but not connected (dropped, or not bound again yet) is [Status.STOPPED]. */
     fun status(accessGranted: Boolean): Status = when {
         !accessGranted -> Status.NO_ACCESS
-        prefs.getBoolean(KEY, false) -> Status.RUNNING
+        live -> Status.RUNNING
         else -> Status.STOPPED
     }
 
-    private companion object {
-        const val KEY = "connected"
+    companion object {
+        @Volatile private var live = false
+
+        /** Tests: what a new process sees after the phone killed the app. */
+        internal fun newProcessForTest() { live = false }
     }
 }
