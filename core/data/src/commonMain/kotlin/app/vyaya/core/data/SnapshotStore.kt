@@ -48,6 +48,10 @@ class SnapshotStore(private val db: VyayaDatabase) {
     /** Everything on the database; the default snapshot when it is empty. */
     suspend fun load(): Snapshot = db.useReaderConnection { transactor -> transactor.deferredTransaction { loadInTransaction() } }
 
+    /** Everything but the entries (few records: settings, categories, accounts, rules…). */
+    suspend fun loadRecords(): Snapshot =
+        db.useReaderConnection { transactor -> transactor.deferredTransaction { loadInTransaction(withEntries = false) } }
+
     /** [load] for a caller already inside a transaction; without the entries when not [withEntries]. */
     internal suspend fun loadInTransaction(withEntries: Boolean = true): Snapshot {
         val byKind = db.records().all().groupBy({ it.kind }, { it.line })
