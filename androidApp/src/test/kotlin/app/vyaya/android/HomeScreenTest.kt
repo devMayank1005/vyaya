@@ -76,7 +76,7 @@ class HomeScreenTest {
         val saved = mutableListOf<EntryInput>()
         compose.setContent { AddEntryScreen(null, categories, LocalDate(2026, 11, 6), onSave = { saved += it; true }, onDelete = {}, onClose = {}) }
         compose.onNodeWithText("Save").performClick()
-        compose.onNodeWithText("Enter an amount").assertIsDisplayed()
+        compose.onNodeWithText("Enter an amount", substring = true).assertIsDisplayed()
         assertEquals(emptyList<EntryInput>(), saved)
         compose.onNodeWithText("Amount").performTextInput("250.50")
         compose.onNodeWithText("Food & dining").performClick()
@@ -94,5 +94,18 @@ class HomeScreenTest {
         compose.onNodeWithText("Salary").performClick()
         compose.onNodeWithText("Save").performClick()
         assertEquals(EntryType.INCOME, saved.single().type)
+    }
+
+    @Test
+    fun a_recurring_entry_shows_where_it_comes_from_and_long_text_stops_at_the_limit() {
+        val k = app.vyaya.core.model.Generation(EntityId.random(), kotlinx.datetime.YearMonth(2026, 11))
+        val rent = Entry(k.entryId, EntryType.EXPENSE, Money(15_000_00), CapturedAt(Instant.parse("2026-11-01T06:30:00Z"), ist), null, null, null, null,
+            "Rent", emptyList(), EntrySource.RECURRING, null, emptyList(), null, t, t, false, k)
+        val saved = mutableListOf<EntryInput>()
+        compose.setContent { AddEntryScreen(rent, categories, LocalDate(2026, 11, 6), onSave = { saved += it; true }, onDelete = {}, onClose = {}) }
+        compose.onNodeWithText("From a recurring rule", substring = true).assertExists()
+        compose.onNodeWithText("Payee").performTextInput("y".repeat(150))
+        compose.onNodeWithText("Save").performClick()
+        assertEquals(100, saved.single().payee.length)
     }
 }

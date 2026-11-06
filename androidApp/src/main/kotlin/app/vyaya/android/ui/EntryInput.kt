@@ -37,8 +37,30 @@ data class EntryInput(
             else -> CapturedAt(date.atTime(LocalTime(12, 0)).toInstant(zone), zone)
         }
         val payee = payee.trim().ifEmpty { null }
+        // MVP DATA-001: an entry a rule made keeps the rule's type, or no backup would be accepted again.
+        val type = if (existing?.generatedBy != null) existing.type else type
         existing?.copy(type = type, amount = money, occurredAt = occurredAt, categoryId = categoryId, payee = payee, note = note.trim(), updatedAt = now)
             ?: Entry(EntityId.random(), type, money, occurredAt, null, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
                 emptyList(), null, now, now, false)
     }.getOrNull()
+
+    /** What would stop [toEntry] from saving, said plainly; null when it saves (FLAW-004, FLAW-005 of the MVP report). */
+    fun problem(existing: Entry?, zone: TimeZone): String? {
+        val money = Money.parse(amount.trim())
+        return when {
+            money == null || money.paise <= 0 -> "Enter an amount (up to 2 decimals, at most ₹100 crore)"
+            payee.trim().length > MAX_PAYEE -> "Payee: at most $MAX_PAYEE characters"
+            note.trim().length > MAX_NOTE -> "Note: at most $MAX_NOTE characters"
+            existing?.generatedBy != null && kotlin.math.abs(monthIndex(date) - existing.generatedBy!!.month.let { it.year * 12 + it.month.ordinal }) > 1 ->
+                "A recurring entry stays in its month or the month either side (${existing.generatedBy!!.month})"
+            else -> null
+        }
+    }
+
+    private fun monthIndex(d: LocalDate) = d.year * 12 + d.month.ordinal
+
+    companion object {
+        const val MAX_PAYEE = 100
+        const val MAX_NOTE = 500
+    }
 }

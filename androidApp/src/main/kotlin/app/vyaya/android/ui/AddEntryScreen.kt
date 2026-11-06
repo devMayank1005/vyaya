@@ -70,15 +70,16 @@ fun AddEntryScreen(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
                 val input = EntryInput(type, amount, categoryId, payee, note, date)
-                val valid = Money.parse(amount.trim())?.let { it.paise > 0 } == true
-                if (!valid) error = "Enter an amount" else if (!onSave(input)) error = "Check the amount and the fields"
+                error = input.problem(existing, TimeZone.currentSystemDefault()) ?: if (onSave(input)) null else "This entry can't be saved"
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
             if (existing != null) TextButton(onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
         }
+        val fromRule = existing?.generatedBy != null
+        if (fromRule) Text("From a recurring rule: its type stays as the rule's", style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(type == EntryType.EXPENSE, { type = EntryType.EXPENSE; categoryId = null }, { Text("Expense") })
-            FilterChip(type == EntryType.INCOME, { type = EntryType.INCOME; categoryId = null }, { Text("Income") })
+            FilterChip(type == EntryType.EXPENSE, { type = EntryType.EXPENSE; categoryId = null }, { Text("Expense") }, enabled = !fromRule)
+            FilterChip(type == EntryType.INCOME, { type = EntryType.INCOME; categoryId = null }, { Text("Income") }, enabled = !fromRule)
         }
         OutlinedTextField(amount, { amount = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Amount") },
             prefix = { Text("₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
@@ -89,8 +90,9 @@ fun AddEntryScreen(
                 FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(c.name) })
             }
         }
-        OutlinedTextField(payee, { payee = it }, Modifier.fillMaxWidth(), label = { Text("Payee") }, singleLine = true)
-        OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("Note") })
+        // FLAW-005: the limits stop the typing, rather than a refusal at Save.
+        OutlinedTextField(payee, { payee = it.take(EntryInput.MAX_PAYEE) }, Modifier.fillMaxWidth(), label = { Text("Payee") }, singleLine = true)
+        OutlinedTextField(note, { note = it.take(EntryInput.MAX_NOTE) }, Modifier.fillMaxWidth(), label = { Text("Note") })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(date == today, { date = today }, { Text("Today") })
             val yesterday = today.minus(1, DateTimeUnit.DAY)

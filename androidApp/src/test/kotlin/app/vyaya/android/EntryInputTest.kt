@@ -58,4 +58,29 @@ class EntryInputTest {
             assertNull(bad, EntryInput(EntryType.EXPENSE, bad, null, "", "", LocalDate(2026, 11, 6)).toEntry(null, now, ist))
         }
     }
+
+    private val rent = app.vyaya.core.model.Generation(EntityId.random(), kotlinx.datetime.YearMonth(2026, 11)).let { k ->
+        app.vyaya.core.model.Entry(k.entryId, EntryType.EXPENSE, Money(15_000_00), app.vyaya.core.model.CapturedAt(Instant.parse("2026-11-01T06:30:00Z"), ist),
+            null, null, null, null, "Rent", emptyList(), EntrySource.RECURRING, null, emptyList(), null, now, now, false, k)
+    }
+
+    @Test
+    fun mvp_data_001_a_recurring_entry_keeps_its_type() {
+        val edited = EntryInput(EntryType.INCOME, "16000", null, "", "Rent", LocalDate(2026, 11, 1)).toEntry(rent, now, ist)!!
+        assertEquals(EntryType.EXPENSE, edited.type)
+        assertEquals(Money(16_000_00), edited.amount)
+    }
+
+    @Test
+    fun mvp_flaw_004_005_what_is_wrong_is_said() {
+        fun problem(i: EntryInput, existing: app.vyaya.core.model.Entry? = null) = i.problem(existing, ist)
+        val ok = EntryInput(EntryType.EXPENSE, "100", null, "Chai", "", LocalDate(2026, 11, 6))
+        assertNull(problem(ok))
+        assertEquals("Enter an amount (up to 2 decimals, at most ₹100 crore)", problem(ok.copy(amount = "12.345")))
+        assertEquals("Payee: at most 100 characters", problem(ok.copy(payee = "x".repeat(101))))
+        assertEquals("Note: at most 500 characters", problem(ok.copy(note = "x".repeat(501))))
+        assertEquals("A recurring entry stays in its month or the month either side (2026-11)",
+            problem(ok.copy(date = LocalDate(2027, 1, 15)), rent))
+        assertNull(problem(ok.copy(date = LocalDate(2026, 12, 2)), rent))
+    }
 }
