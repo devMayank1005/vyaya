@@ -157,4 +157,22 @@ class BackupStoreTest {
         assertEquals(Restore.apply(current, backup, RestoreMode.MERGE), SnapshotStore(db).load())
         db.close()
     }
+
+    @Test
+    fun review_flaw_009_pages_go_on_from_the_last_id_not_by_offset() = runTest {
+        val db = inMemoryDatabase()
+        val s = withEntries(10)
+        SnapshotStore(db).save(s)
+        val ids = s.entries.map { it.id.value }.sorted()
+        val seen = mutableListOf<String>()
+        var after = ""
+        while (true) {
+            val page = db.entries().pageAfter(after, 3)
+            if (page.isEmpty()) break
+            seen += page.map { it.id }
+            after = page.last().id
+        }
+        assertEquals(ids, seen)
+        db.close()
+    }
 }

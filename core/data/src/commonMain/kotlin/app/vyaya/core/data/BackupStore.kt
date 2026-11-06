@@ -50,22 +50,22 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
                     records.count("account"), records.count("category"), db.entries().count(), records.count("recurring"),
                     records.count("person"), records.count("ledger"), records.count("budget"), records.count("merchantRule"),
                 )
-                val settings = records.page(SnapshotStore.SETTINGS, 1, 0).singleOrNull() ?: RecordLines.of(Snapshot.empty()).settings
+                val settings = records.pageAfter(SnapshotStore.SETTINGS, "", 1).singleOrNull()?.line ?: RecordLines.of(Snapshot.empty()).settings
                 val (writer, failure) = StreamingBackup.begin(meta, settings, counts, limits, sink)
                 if (writer == null) return@deferredTransaction failure!!
 
-                suspend fun copy(what: String, page: suspend (limit: Int, offset: Int) -> List<String>): EncodeResult.Failure? {
-                    var offset = 0
+                suspend fun copy(what: String, page: suspend (afterId: String, limit: Int) -> List<IdLine>): EncodeResult.Failure? {
+                    var after = "" // every id sorts after the empty string
                     while (true) {
-                        val lines = page(pageSize, offset)
-                        lines.forEach { line -> writer.record(line, what)?.let { return it } }
-                        if (lines.size < pageSize) return null
-                        offset += lines.size
+                        val rows = page(after, pageSize)
+                        rows.forEach { row -> writer.record(row.line, what)?.let { return it } }
+                        if (rows.size < pageSize) return null
+                        after = rows.last().id
                     }
                 }
                 for ((kind, what) in KINDS) {
-                    val failure = if (kind == ENTRY) copy(what) { l, o -> db.entries().page(l, o) }
-                    else copy(what) { l, o -> records.page(kind, l, o) }
+                    val failure = if (kind == ENTRY) copy(what) { a, l -> db.entries().pageAfter(a, l) }
+                    else copy(what) { a, l -> records.pageAfter(kind, a, l) }
                     failure?.let { return@deferredTransaction it }
                 }
                 writer.finish()

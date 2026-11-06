@@ -53,8 +53,9 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE id IN (:ids)")
     suspend fun byIds(ids: List<String>): List<EntryRow>
 
-    @Query("SELECT line FROM entries ORDER BY id LIMIT :limit OFFSET :offset")
-    suspend fun page(limit: Int, offset: Int): List<String>
+    /** Review 2026-11-06 #9: pages go on from the last id (an index seek), not by OFFSET (which re-walks every row). */
+    @Query("SELECT id, line FROM entries WHERE id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun pageAfter(afterId: String, limit: Int): List<IdLine>
 
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun count(): Int
@@ -128,8 +129,8 @@ interface RecordDao {
     @Query("SELECT * FROM records ORDER BY kind, id")
     suspend fun all(): List<RecordRow>
 
-    @Query("SELECT line FROM records WHERE kind = :kind ORDER BY id LIMIT :limit OFFSET :offset")
-    suspend fun page(kind: String, limit: Int, offset: Int): List<String>
+    @Query("SELECT id, line FROM records WHERE kind = :kind AND id > :afterId ORDER BY id LIMIT :limit")
+    suspend fun pageAfter(kind: String, afterId: String, limit: Int): List<IdLine>
 
     @Query("SELECT COUNT(*) FROM records WHERE kind = :kind")
     suspend fun count(kind: String): Int
@@ -151,3 +152,6 @@ abstract class VyayaDatabase : RoomDatabase() {
 expect object VyayaDatabaseConstructor : RoomDatabaseConstructor<VyayaDatabase> {
     override fun initialize(): VyayaDatabase
 }
+
+/** A row's id and backup line, for paging in id order. */
+data class IdLine(val id: String, val line: String)
