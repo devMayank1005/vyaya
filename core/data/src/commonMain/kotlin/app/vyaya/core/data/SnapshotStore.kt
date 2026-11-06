@@ -20,6 +20,15 @@ class SnapshotStore(private val db: VyayaDatabase) {
         db.useWriterConnection { transactor -> transactor.immediateTransaction { write(records, n) } }
     }
 
+    /**
+     * Saves the records of [s] that aren't settings or entries (rules, categories, accounts…), leaving the settings row
+     * and everything else as it is: for saving one record without passing the whole settings along.
+     */
+    suspend fun saveRecords(s: Snapshot) {
+        val rows = recordRows(s)
+        db.useWriterConnection { transactor -> transactor.immediateTransaction { db.records().upsert(rows) } }
+    }
+
     /** The writes of [save], for a caller already inside a transaction (restore). */
     internal suspend fun saveInTransaction(s: Snapshot) {
         val n = s.normalized()
@@ -31,19 +40,7 @@ class SnapshotStore(private val db: VyayaDatabase) {
         db.entries().upsert(n.entries.map(EntryStore::row))
     }
 
-    private fun rowsOf(n: Snapshot): List<RecordRow> {
-        val lines = RecordLines.of(n)
-        fun rows(kind: String, ids: List<Triple<EntityId, Boolean, Instant>>, lines: List<String>) =
-            ids.zip(lines) { (id, deleted, updatedAt), line -> RecordRow(kind, id.value, line, deleted, updatedAt.toEpochMilliseconds()) }
-        return rows("account", n.accounts.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.accounts) +
-            rows("category", n.categories.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.categories) +
-            rows("recurring", n.recurring.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.recurring) +
-            rows("person", n.people.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.people) +
-            rows("ledger", n.ledger.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.ledger) +
-            rows("budget", n.budgets.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.budgets) +
-            rows("merchantRule", n.merchantRules.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.merchantRules) +
-            RecordRow(SETTINGS, SETTINGS, lines.settings, false, 0)
-    }
+    private fun rowsOf(n: Snapshot): List<RecordRow> = rowsFor(n)
 
     /** Everything on the database; the default snapshot when it is empty. */
     suspend fun load(): Snapshot = db.useReaderConnection { transactor -> transactor.deferredTransaction { loadInTransaction() } }
@@ -68,6 +65,24 @@ class SnapshotStore(private val db: VyayaDatabase) {
     }
 
     internal companion object {
+        /** Rows for [s]'s records other than settings and entries. */
+        fun recordRows(s: Snapshot): List<RecordRow> = rowsFor(s.normalized()).filter { it.kind != SETTINGS }
+
+        /** Every record of [n] and its settings as rows (each its backup line); entries are saved separately. */
+        fun rowsFor(n: Snapshot): List<RecordRow> {
+            val lines = RecordLines.of(n)
+            fun rows(kind: String, ids: List<Triple<EntityId, Boolean, Instant>>, lines: List<String>) =
+                ids.zip(lines) { (id, deleted, updatedAt), line -> RecordRow(kind, id.value, line, deleted, updatedAt.toEpochMilliseconds()) }
+            return rows("account", n.accounts.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.accounts) +
+                rows("category", n.categories.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.categories) +
+                rows("recurring", n.recurring.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.recurring) +
+                rows("person", n.people.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.people) +
+                rows("ledger", n.ledger.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.ledger) +
+                rows("budget", n.budgets.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.budgets) +
+                rows("merchantRule", n.merchantRules.map { Triple(it.id, it.deleted, it.updatedAt) }, lines.merchantRules) +
+                RecordRow(SETTINGS, SETTINGS, lines.settings, false, 0)
+        }
+
         const val SETTINGS = "settings"
     }
 }
