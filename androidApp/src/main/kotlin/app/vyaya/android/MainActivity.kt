@@ -10,12 +10,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaScreen
+import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.core.data.AppOpen
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
@@ -23,6 +25,9 @@ import kotlin.time.Clock
 class MainActivity : ComponentActivity() {
 
     private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = SmsFeature.AVAILABLE, smsGranted = false))
+
+    /** Counts the open routine's runs, so the screens read categories and settings again after it. */
+    private val opened = mutableIntStateOf(0)
 
     private val askSms = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         refresh()
@@ -34,8 +39,8 @@ class MainActivity : ComponentActivity() {
         val app = application as VyayaApp
         setContent {
             MaterialTheme {
-                VyayaScreen(
-                    app.inbox, setup.value, clock = { Clock.System.now() },
+                VyayaRoot(
+                    app.database, setup.value, clock = { Clock.System.now() }, opened = opened.intValue,
                     onNotificationAccess = { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                     onSms = { askSms.launch(SmsFeature.permissions) },
                     onImport = ::importSms,
@@ -47,6 +52,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Each time the app comes to the front: first-open categories, clock repair, recurring catch-up (FLAW-004).
+        val app = application as VyayaApp
+        lifecycleScope.launch {
+            AppOpen(app.database).run(Clock.System.now())
+            opened.intValue++
+        }
         refresh(checkListener = false) // the user may be back from the notification access settings
         val access = setup.value.notificationAccess
         // FLAW-005: ask the system to (re)connect the listener whenever the app is opened with access granted, and

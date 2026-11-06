@@ -46,6 +46,8 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    implementation(project(":core:engine"))
+    implementation(project(":core:backup"))
     implementation(libs.room.runtime)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
@@ -53,7 +55,6 @@ dependencies {
     implementation(libs.androidx.core)
 
     testImplementation(libs.junit)
-    testImplementation(project(":core:backup"))
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)

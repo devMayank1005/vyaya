@@ -1,0 +1,98 @@
+package app.vyaya.android
+
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import app.vyaya.android.ui.AddEntryScreen
+import app.vyaya.android.ui.EntryInput
+import app.vyaya.android.ui.HomeScreen
+import app.vyaya.core.data.MonthView
+import app.vyaya.core.engine.MonthSummary
+import app.vyaya.core.model.CapturedAt
+import app.vyaya.core.model.DefaultCategories
+import app.vyaya.core.model.EntityId
+import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntrySource
+import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Money
+import app.vyaya.core.model.MonthSchedule
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import org.junit.Assert.assertEquals
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import kotlin.time.Instant
+
+/** The home screen and the add form (Compose UI tests). */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class HomeScreenTest {
+
+    @get:Rule val compose = createComposeRule()
+
+    private val ist = TimeZone.of("Asia/Kolkata")
+    private val t = Instant.parse("2026-11-05T06:00:00Z")
+    private val categories = DefaultCategories.create(t)
+    private val food = categories.first { it.name == "Food & dining" }
+    private val month = MonthSchedule.of(1).monthContaining(LocalDate(2026, 11, 6))
+
+    private fun entry(type: EntryType, paise: Long, payee: String?, category: EntityId?) = Entry(EntityId.random(), type, Money(paise),
+        CapturedAt(t, ist), null, null, category, payee, "", emptyList(), EntrySource.MANUAL, null, emptyList(), null, t, t, false)
+
+    private fun view(vararg entries: Entry) = MonthView(month, MonthSummary.of(entries.toList(), MonthSchedule.of(1), month), entries.toList())
+
+    @Test
+    fun the_home_screen_shows_whats_left_in_and_out_and_the_months_entries() {
+        val v = view(entry(EntryType.INCOME, 50_000_00, "Employer", null), entry(EntryType.EXPENSE, 250_50, "Swiggy", food.id))
+        var previous = 0; var next = 0; var added = 0
+        compose.setContent { HomeScreen(v, categories.associate { it.id to it.name }, { previous++ }, { next++ }, { added++ }, {}) }
+        compose.onNodeWithText("November 2026").assertIsDisplayed()
+        compose.onNodeWithText("₹49,749.50").assertIsDisplayed() // left
+        compose.onNodeWithText("In ₹50,000").assertIsDisplayed()
+        compose.onNodeWithText("Out ₹250.50").assertIsDisplayed()
+        compose.onNodeWithText("Swiggy").assertIsDisplayed()
+        compose.onNodeWithText("Food & dining", substring = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription("Previous month").performClick()
+        compose.onNodeWithContentDescription("Next month").performClick()
+        compose.onNodeWithText("Add").performClick()
+        assertEquals(listOf(1, 1, 1), listOf(previous, next, added))
+    }
+
+    @Test
+    fun an_empty_month_says_so() {
+        compose.setContent { HomeScreen(view(), emptyMap(), {}, {}, {}, {}) }
+        compose.onNodeWithText("No entries this month").assertIsDisplayed()
+        compose.onNodeWithText("₹0").assertIsDisplayed()
+    }
+
+    @Test
+    fun the_add_form_saves_what_was_typed_and_refuses_a_missing_amount() {
+        val saved = mutableListOf<EntryInput>()
+        compose.setContent { AddEntryScreen(null, categories, LocalDate(2026, 11, 6), onSave = { saved += it; true }, onDelete = {}, onClose = {}) }
+        compose.onNodeWithText("Save").performClick()
+        compose.onNodeWithText("Enter an amount").assertIsDisplayed()
+        assertEquals(emptyList<EntryInput>(), saved)
+        compose.onNodeWithText("Amount").performTextInput("250.50")
+        compose.onNodeWithText("Food & dining").performClick()
+        compose.onNodeWithText("Payee").performTextInput("Swiggy")
+        compose.onNodeWithText("Save").performClick()
+        assertEquals(EntryInput(EntryType.EXPENSE, "250.50", food.id, "Swiggy", "", LocalDate(2026, 11, 6)), saved.single())
+    }
+
+    @Test
+    fun the_add_form_can_record_income() {
+        val saved = mutableListOf<EntryInput>()
+        compose.setContent { AddEntryScreen(null, categories, LocalDate(2026, 11, 6), onSave = { saved += it; true }, onDelete = {}, onClose = {}) }
+        compose.onNodeWithText("Income").performClick()
+        compose.onNodeWithText("Amount").performTextInput("50000")
+        compose.onNodeWithText("Salary").performClick()
+        compose.onNodeWithText("Save").performClick()
+        assertEquals(EntryType.INCOME, saved.single().type)
+    }
+}
