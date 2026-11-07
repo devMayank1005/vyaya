@@ -75,6 +75,8 @@ fun VyayaRoot(
     val rules by produceState(emptyList<RecurringRule>(), db, opened, rulesVersion) { value = rulesStore.active() }
     var editingRule by remember { mutableStateOf<RecurringRule?>(null) }
     var addingRule by remember { mutableStateOf(false) }
+    /** Recurring report #1: a rule whose amount changed, and this month's entry's old amount. */
+    var askThisMonth by remember { mutableStateOf<Pair<RecurringRule, app.vyaya.core.model.Money>?>(null) }
     fun rulesChanged() { rulesVersion++; onRulesChanged() }
     val scope = rememberCoroutineScope()
 
@@ -96,8 +98,13 @@ fun VyayaRoot(
                 val now = clock(); val zone = records?.settings?.homeTimeZone ?: zone()
                 scope.launch {
                     if (existing == null) rulesStore.add(input.type, input.money!!, input.dayOfMonth!!, input.categoryId, input.note.trim(), now, zone)
-                    else rulesStore.save(existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId,
-                        note = input.note.trim(), updatedAt = now))
+                    else {
+                        val changed = existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId,
+                            note = input.note.trim(), updatedAt = now)
+                        rulesStore.save(changed)
+                        val thisMonth = rulesStore.thisMonthsEntry(changed, now, zone)
+                        if (changed.amount != existing.amount && thisMonth != null && thisMonth.amount != changed.amount) askThisMonth = changed to thisMonth.amount
+                    }
                     rulesChanged()
                 }
                 addingRule = false; editingRule = null
@@ -128,6 +135,21 @@ fun VyayaRoot(
             onClose = { adding = false; editing = null },
         )
         return
+    }
+
+    askThisMonth?.let { (rule, old) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { askThisMonth = null },
+            title = { Text(rule.note) },
+            text = { Text("This month's entry was made with the old amount. Change it too? ${old.format()} → ${rule.amount.format()}") },
+            confirmButton = {
+                androidx.compose.material3.TextButton({
+                    askThisMonth = null
+                    scope.launch { rulesStore.applyToThisMonth(rule, clock(), records?.settings?.homeTimeZone ?: zone()) }
+                }) { Text("Change this month's too") }
+            },
+            dismissButton = { androidx.compose.material3.TextButton({ askThisMonth = null }) { Text("Only from next month") } },
+        )
     }
 
     Scaffold(bottomBar = {

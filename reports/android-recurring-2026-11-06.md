@@ -33,3 +33,12 @@
 ## Decisions needed from you
 - **#1:** offer to change this month's entry too (recommended)?
 - **#2:** a shorter month range in the question (recommended)?
+
+## Resolution (2026-11-07)
+
+Your decision: go with the recommendations.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed | After a rule's amount changes, a dialog offers to change this month's entry too (`RulesStore.applyToThisMonth`); earlier months stay |
+| 2 FLAW-002 | ✅ Fixed | The question says "Oct 2026 and Nov 2026", or a range for a long pause ("Jan 2024 to Feb 2025") |

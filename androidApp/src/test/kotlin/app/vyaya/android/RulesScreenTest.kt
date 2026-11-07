@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
@@ -102,4 +103,39 @@ class RulesScreenTest {
         assertTrue(changed >= 1)
         db.close()
     }
+
+    @Test
+    fun recurring_001_after_a_new_amount_this_months_entry_can_change_too() {
+        val context: Context = ApplicationProvider.getApplicationContext()
+        val db: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+        val nov6 = Instant.parse("2026-11-06T04:30:00Z")
+        runBlocking {
+            RulesStore(db).add(EntryType.EXPENSE, Money(15_000_00), 1, null, "Rent", t, kotlinx.datetime.TimeZone.of("Asia/Kolkata"))
+            app.vyaya.core.data.AppOpen(db).run(nov6)
+        }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { nov6 }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        compose.onNodeWithText("Recurring").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Rent")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Rent").performClick()
+        compose.onNodeWithText("15000").performTextReplacement("16000")
+        compose.onNodeWithText("Save").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Change this month's too")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("₹15,000 → ₹16,000", substring = true).assertExists()
+        compose.onNodeWithText("Change this month's too").performClick()
+        compose.waitUntil(5_000) { runBlocking { app.vyaya.core.data.EntryStore(db).all() }.any { it.amount == Money(16_000_00) } }
+        compose.waitForIdle() // the screen's last reads finish before the database closes
+        db.close()
+    }
+}
+
+class MissedMonthsTextTest {
+    @org.junit.Test
+    fun recurring_002_a_long_pause_is_said_as_a_range() {
+        val few = listOf(YearMonth(2026, 10), YearMonth(2026, 11))
+        org.junit.Assert.assertEquals("2 months were missed while it was paused (Oct 2026 and Nov 2026)", app.vyaya.android.ui.missedText(few))
+        val many = (0 until 14).map { YearMonth(2024, 1).plusMonths(it) }
+        org.junit.Assert.assertEquals("14 months were missed while it was paused (Jan 2024 to Feb 2025)", app.vyaya.android.ui.missedText(many))
+        org.junit.Assert.assertEquals("1 month was missed while it was paused (Nov 2026)", app.vyaya.android.ui.missedText(listOf(YearMonth(2026, 11))))
+    }
+    private fun YearMonth.plusMonths(n: Int): YearMonth = YearMonth(year + (month.ordinal + n) / 12, (month.ordinal + n) % 12 + 1)
 }
