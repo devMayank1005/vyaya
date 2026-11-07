@@ -5,9 +5,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import app.vyaya.android.ui.DetectedScreen
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.SetupCard
+import app.vyaya.ui.DetectedScreen
+import app.vyaya.ui.Setup
+import app.vyaya.ui.SetupCard
 import app.vyaya.core.data.DetectedItem
 import app.vyaya.core.data.DetectedKind
 import app.vyaya.core.model.CapturedAt

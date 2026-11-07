@@ -6,9 +6,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import app.vyaya.android.ui.AddEntryScreen
-import app.vyaya.android.ui.EntryInput
-import app.vyaya.android.ui.HomeScreen
+import app.vyaya.ui.AddEntryScreen
+import app.vyaya.ui.EntryInput
+import app.vyaya.ui.HomeScreen
 import app.vyaya.core.data.MonthView
 import app.vyaya.core.engine.MonthSummary
 import app.vyaya.core.model.CapturedAt

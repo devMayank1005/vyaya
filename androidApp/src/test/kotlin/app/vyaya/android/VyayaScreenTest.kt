@@ -7,8 +7,8 @@ import androidx.compose.ui.test.performClick
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaScreen
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaScreen
 import app.vyaya.core.data.CaptureStore
 import app.vyaya.core.data.DetectedInbox
 import app.vyaya.core.data.EntryStore

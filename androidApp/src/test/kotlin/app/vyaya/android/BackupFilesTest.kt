@@ -10,8 +10,8 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.BackupScreen
-import app.vyaya.android.ui.BackupStatus
+import app.vyaya.ui.BackupScreen
+import app.vyaya.ui.BackupStatus
 import app.vyaya.core.backup.BackupCodec
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.EncodeResult

@@ -51,7 +51,7 @@ jobs:
             17
       - uses: gradle/actions/setup-gradle@v6
       - run: >-
-          ./gradlew :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
+          ./gradlew :shared:testAndroidHostTest :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
           :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
           -Pvyaya.testJdk=21 --console=plain
       - if: always()

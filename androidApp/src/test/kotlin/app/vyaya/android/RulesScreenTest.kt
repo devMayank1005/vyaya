@@ -10,11 +10,11 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.RuleForm
-import app.vyaya.android.ui.RuleInput
-import app.vyaya.android.ui.RulesScreen
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.RuleForm
+import app.vyaya.ui.RuleInput
+import app.vyaya.ui.RulesScreen
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.data.RulesStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.DefaultCategories
@@ -128,14 +128,3 @@ class RulesScreenTest {
     }
 }
 
-class MissedMonthsTextTest {
-    @org.junit.Test
-    fun recurring_002_a_long_pause_is_said_as_a_range() {
-        val few = listOf(YearMonth(2026, 10), YearMonth(2026, 11))
-        org.junit.Assert.assertEquals("2 months were missed while it was paused (Oct 2026 and Nov 2026)", app.vyaya.android.ui.missedText(few))
-        val many = (0 until 14).map { YearMonth(2024, 1).plusMonths(it) }
-        org.junit.Assert.assertEquals("14 months were missed while it was paused (Jan 2024 to Feb 2025)", app.vyaya.android.ui.missedText(many))
-        org.junit.Assert.assertEquals("1 month was missed while it was paused (Nov 2026)", app.vyaya.android.ui.missedText(listOf(YearMonth(2026, 11))))
-    }
-    private fun YearMonth.plusMonths(n: Int): YearMonth = YearMonth(year + (month.ordinal + n) / 12, (month.ordinal + n) % 12 + 1)
-}

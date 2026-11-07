@@ -1,8 +1,7 @@
-package app.vyaya.android
+package app.vyaya.shared
 
-import java.security.SecureRandom
+import app.vyaya.core.model.Sha256
 import kotlin.random.Random
-import kotlin.random.asKotlinRandom
 
 /**
  * Passwords for protected backups (SEC-002 of reports/android-lock-encryption-2026-11-06.md). A stolen .vyaya file
@@ -29,12 +28,11 @@ object PasswordCheck {
     }
 
     /** Five random words from [WORDS] joined by "-": about 45 bits, easy to write down. */
-    fun passphrase(random: Random = SecureRandom().asKotlinRandom()): String = List(5) { WORDS[random.nextInt(WORDS.size)] }.joinToString("-")
+    fun passphrase(random: Random = secureRandom()): String = List(5) { WORDS[random.nextInt(WORDS.size)] }.joinToString("-")
 
     private fun isCommon(s: String): Boolean = sha256(s) in COMMON_SHA256
 
-    private fun sha256(s: String): String =
-        java.security.MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    private fun sha256(s: String): String = Sha256().apply { update(s) }.hexDigest()
 
     private val ROWS = listOf("1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm", "abcdefghijklmnopqrstuvwxyz")
 
