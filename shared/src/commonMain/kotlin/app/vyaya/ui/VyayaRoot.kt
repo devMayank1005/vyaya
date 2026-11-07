@@ -58,6 +58,8 @@ fun VyayaRoot(
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
     onRulesChanged: () -> Unit = {},
+    /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
+    showDetected: Boolean = true,
 ) {
     // SEC-003: while locked, nothing of the money is composed at all.
     if (locked) return LockScreen(onUnlock)
@@ -154,7 +156,7 @@ fun VyayaRoot(
 
     Scaffold(bottomBar = {
         NavigationBar {
-            Tab.entries.forEach { t -> NavigationBarItem(tab == t, { tab = t }, icon = { Text(t.glyph) }, label = { Text(t.label) }) }
+            Tab.entries.filter { showDetected || it != Tab.DETECTED }.forEach { t -> NavigationBarItem(tab == t, { tab = t }, icon = { Text(t.glyph) }, label = { Text(t.label) }) }
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {

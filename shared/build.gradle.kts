@@ -32,8 +32,13 @@ kotlin {
             implementation(libs.cmp.material3)
             implementation(libs.cmp.ui)
         }
+        iosMain.dependencies {
+            implementation(libs.room.runtime)
+            implementation(libs.sqlite.bundled)
+        }
         commonTest.dependencies {
             implementation(kotlin("test"))
+            implementation(libs.kotlinx.coroutines.test)
         }
     }
 }
