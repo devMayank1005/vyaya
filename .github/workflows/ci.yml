@@ -36,6 +36,8 @@ jobs:
       - run: ./gradlew iosSimulatorArm64Test --console=plain
       - if: always()
         run: python3 scripts/test-summary.py iosSimulatorArm64Test
+      # The iOS app's CryptoKit AES-GCM: NIST vectors and the encrypted backup spec's vector.
+      - run: ./scripts/test-ios-crypto.sh
       # The iOS app itself builds (its Xcode build phase builds the shared Kotlin framework).
       - run: >-
           xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug
