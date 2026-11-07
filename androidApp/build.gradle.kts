@@ -45,6 +45,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":shared"))
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
     implementation(project(":core:backup"))

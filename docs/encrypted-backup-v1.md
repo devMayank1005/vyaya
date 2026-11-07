@@ -21,6 +21,7 @@ The 41 bytes above are the **header**. Then the chunks follow, each `AES-256-GCM
 stored as ciphertext followed by the 16-byte tag:
 
 - `key = PBKDF2-HMAC-SHA256(UTF-8(password), salt, iterations, 32 bytes)`
+  (a lone UTF-16 surrogate in the password is encoded as U+FFFD, bytes `EF BF BD`, on every platform)
 - `nonce = prefix (7) || chunk index (4, from 0) || final (1: 0x01 for the last chunk, else 0x00)`
 - Every chunk but the last holds exactly *chunk size* bytes of plaintext. The last holds fewer, possibly none:
   when the plaintext is an exact multiple of the chunk size, an empty last chunk is written.

@@ -6,14 +6,15 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.RuleForm
-import app.vyaya.android.ui.RuleInput
-import app.vyaya.android.ui.RulesScreen
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.RuleForm
+import app.vyaya.ui.RuleInput
+import app.vyaya.ui.RulesScreen
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.data.RulesStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.DefaultCategories
@@ -102,4 +103,28 @@ class RulesScreenTest {
         assertTrue(changed >= 1)
         db.close()
     }
+
+    @Test
+    fun recurring_001_after_a_new_amount_this_months_entry_can_change_too() {
+        val context: Context = ApplicationProvider.getApplicationContext()
+        val db: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+        val nov6 = Instant.parse("2026-11-06T04:30:00Z")
+        runBlocking {
+            RulesStore(db).add(EntryType.EXPENSE, Money(15_000_00), 1, null, "Rent", t, kotlinx.datetime.TimeZone.of("Asia/Kolkata"))
+            app.vyaya.core.data.AppOpen(db).run(nov6)
+        }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { nov6 }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        compose.onNodeWithText("Recurring").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Rent")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("Rent").performClick()
+        compose.onNodeWithText("15000").performTextReplacement("16000")
+        compose.onNodeWithText("Save").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasText("Change this month's too")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("₹15,000 → ₹16,000", substring = true).assertExists()
+        compose.onNodeWithText("Change this month's too").performClick()
+        compose.waitUntil(5_000) { runBlocking { app.vyaya.core.data.EntryStore(db).all() }.any { it.amount == Money(16_000_00) } }
+        compose.waitForIdle() // the screen's last reads finish before the database closes
+        db.close()
+    }
 }
+

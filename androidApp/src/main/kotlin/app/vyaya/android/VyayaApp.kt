@@ -1,5 +1,6 @@
 package app.vyaya.android
 
+import app.vyaya.shared.AppLock
 import android.app.Application
 import android.content.Context
 import androidx.room.Room
@@ -16,7 +17,7 @@ class VyayaApp : Application() {
     val inbox: DetectedInbox by lazy { DetectedInbox(database) }
     val capture: CaptureStore by lazy { CaptureStore(database, inbox) }
     /** FLAW-001 (lock report): one lock for the process, so a re-created screen (rotation) isn't taken for a return. */
-    val appLock: AppLock by lazy { AppLock.of(this) }
+    val appLock: AppLock by lazy { appLockOf(this) }
     val appVerifier: AppVerifier by lazy { AppVerifier(packageManager, UpiApps.default.apps.associateBy { it.packageName }) }
 
     companion object {

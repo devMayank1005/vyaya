@@ -76,4 +76,21 @@ class RulesStoreTest {
         assertEquals(0, EntryStore(db).all().count { it.generatedBy?.ruleId == rent.id && it.occurredAt.instant > later })
         db.close()
     }
+
+    @Test
+    fun recurring_001_a_new_amount_can_go_to_this_months_entry_too() = runTest {
+        val db = inMemoryDatabase()
+        val rules = RulesStore(db)
+        val rent = rules.add(EntryType.EXPENSE, Money(15_000_00), 1, null, "Rent", sep1, ist)
+        val nov6 = Instant.parse("2026-11-06T04:30:00Z")
+        AppOpen(db).run(nov6)
+        val raised = rent.copy(amount = Money(16_000_00), updatedAt = nov6)
+        rules.save(raised)
+        val november = rules.thisMonthsEntry(raised, nov6, ist)!!
+        assertEquals(Money(15_000_00), november.amount, "catch-up made it with the old amount")
+        rules.applyToThisMonth(raised, nov6, ist)
+        assertEquals(Money(16_000_00), rules.thisMonthsEntry(raised, nov6, ist)!!.amount)
+        assertEquals(Money(15_000_00), EntryStore(db).all().single { it.generatedBy?.month == YearMonth(2026, 10) }.amount, "October stays")
+        db.close()
+    }
 }

@@ -1,4 +1,4 @@
-package app.vyaya.android.ui
+package app.vyaya.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

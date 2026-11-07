@@ -1,6 +1,6 @@
-package app.vyaya.android
+package app.vyaya.shared
 
-import app.vyaya.android.ui.EntryInput
+import app.vyaya.ui.EntryInput
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
@@ -8,9 +8,9 @@ import app.vyaya.core.model.Money
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.time.Instant
 
 /** What the add/edit form saves (plain logic). */
@@ -47,7 +47,7 @@ class EntryInputTest {
         val edited = EntryInput(EntryType.EXPENSE, "120", food, "Chai", "with snacks", LocalDate(2026, 11, 6)).toEntry(first, later, ist)!!
         assertEquals(first.id, edited.id)
         assertEquals(first.createdAt, edited.createdAt)
-        assertEquals("same day: the time stays", first.occurredAt, edited.occurredAt)
+        assertEquals(first.occurredAt, edited.occurredAt, "same day: the time stays")
         assertEquals(later, edited.updatedAt)
         assertEquals(Money(120_00), edited.amount)
     }
@@ -55,7 +55,7 @@ class EntryInputTest {
     @Test
     fun an_amount_that_isnt_one_saves_nothing() {
         for (bad in listOf("", "abc", "0", "-5", "12.345", "99999999999")) {
-            assertNull(bad, EntryInput(EntryType.EXPENSE, bad, null, "", "", LocalDate(2026, 11, 6)).toEntry(null, now, ist))
+            assertNull(EntryInput(EntryType.EXPENSE, bad, null, "", "", LocalDate(2026, 11, 6)).toEntry(null, now, ist), bad)
         }
     }
 

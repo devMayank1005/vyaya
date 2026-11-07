@@ -36,6 +36,12 @@ jobs:
       - run: ./gradlew iosSimulatorArm64Test --console=plain
       - if: always()
         run: python3 scripts/test-summary.py iosSimulatorArm64Test
+      # The iOS app's CryptoKit AES-GCM: NIST vectors and the encrypted backup spec's vector.
+      - run: ./scripts/test-ios-crypto.sh
+      # The iOS app itself builds (its Xcode build phase builds the shared Kotlin framework).
+      - run: >-
+          xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
   # The Android app: Robolectric and Compose UI tests for both flavors, and R8 release builds.
   # Robolectric 4.17 needs Java 21+ to run tests; the app compiles with the Java 17 toolchain.
@@ -51,7 +57,7 @@ jobs:
             17
       - uses: gradle/actions/setup-gradle@v6
       - run: >-
-          ./gradlew :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
+          ./gradlew :shared:testAndroidHostTest :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
           :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
           -Pvyaya.testJdk=21 --console=plain
       - if: always()

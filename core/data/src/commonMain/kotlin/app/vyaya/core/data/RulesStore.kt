@@ -58,5 +58,20 @@ class RulesStore(private val db: VyayaDatabase) {
         }
     }
 
+    /** This calendar month's entry [rule] made (not deleted), if catch-up made it already. */
+    suspend fun thisMonthsEntry(rule: RecurringRule, now: Instant, zone: TimeZone): app.vyaya.core.model.Entry? {
+        val month = now.toLocalDateTime(zone).date.let { YearMonth(it.year, it.month) }
+        return entries.generated().firstOrNull { it.generatedBy?.ruleId == rule.id && it.generatedBy?.month == month && !it.deleted }
+    }
+
+    /**
+     * Recurring report #1: after the user changes [rule]'s amount, this month's entry (made with the old one) takes the
+     * new amount too, when they say so. Earlier months stay as they were.
+     */
+    suspend fun applyToThisMonth(rule: RecurringRule, now: Instant, zone: TimeZone) {
+        val entry = thisMonthsEntry(rule, now, zone) ?: return
+        entries.save(listOf(entry.copy(amount = rule.amount, updatedAt = now)))
+    }
+
     private fun snapshotRows(rule: RecurringRule) = SnapshotStore.recordRows(Snapshot.empty().copy(recurring = listOf(rule)))
 }

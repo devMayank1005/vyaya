@@ -11,8 +11,8 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.data.AppOpen
 import app.vyaya.core.data.EntryStore
 import app.vyaya.core.data.VyayaDatabase
