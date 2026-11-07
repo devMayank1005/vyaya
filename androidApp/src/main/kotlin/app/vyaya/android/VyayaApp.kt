@@ -15,6 +15,8 @@ class VyayaApp : Application() {
     val database: VyayaDatabase by lazy { open(this) }
     val inbox: DetectedInbox by lazy { DetectedInbox(database) }
     val capture: CaptureStore by lazy { CaptureStore(database, inbox) }
+    /** FLAW-001 (lock report): one lock for the process, so a re-created screen (rotation) isn't taken for a return. */
+    val appLock: AppLock by lazy { AppLock.of(this) }
     val appVerifier: AppVerifier by lazy { AppVerifier(packageManager, UpiApps.default.apps.associateBy { it.packageName }) }
 
     companion object {

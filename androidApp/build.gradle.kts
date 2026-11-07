@@ -46,14 +46,18 @@ android {
 
 dependencies {
     implementation(project(":core:data"))
+    implementation(project(":core:engine"))
+    implementation(project(":core:backup"))
     implementation(libs.room.runtime)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
     implementation(libs.androidx.core)
+    implementation(libs.biometric)
+    // biometric 1.1.0 brings Fragment 1.2, whose activity results don't reach a FragmentActivity (file pickers).
+    implementation(libs.fragment)
 
     testImplementation(libs.junit)
-    testImplementation(project(":core:backup"))
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.kotlinx.coroutines.test)

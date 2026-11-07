@@ -26,6 +26,7 @@ kotlin {
             api(project(":core:model"))
             api(project(":core:dedup"))
             implementation(project(":core:backup"))
+            implementation(project(":core:engine"))
             implementation(libs.room.runtime)
             api(libs.kotlinx.coroutines.core) // DetectedInbox.changes() is a Flow
         }

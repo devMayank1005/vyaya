@@ -37,6 +37,8 @@ data class EntryRow(
     val month: String?,
     val deleted: Boolean,
     val updatedAtMs: Long,
+    /** For clock repair on open: entries made while the clock was ahead (FLAW-004, core-data report). */
+    val createdAtMs: Long,
 )
 
 @Dao
@@ -52,6 +54,24 @@ interface EntryDao {
 
     @Query("SELECT * FROM entries WHERE id IN (:ids)")
     suspend fun byIds(ids: List<String>): List<EntryRow>
+
+    /** Entries dated in [fromMs, toMs): a month's, with the month function deciding by each entry's zone. */
+    @Query("SELECT * FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
+    suspend fun inRange(fromMs: Long, toMs: Long): List<EntryRow>
+
+    @Query("SELECT * FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
+    fun watchRange(fromMs: Long, toMs: Long): Flow<List<EntryRow>>
+
+    /** Entries a recurring rule made (catch-up and clock repair look at these only). */
+    @Query("SELECT * FROM entries WHERE ruleId IS NOT NULL")
+    suspend fun generated(): List<EntryRow>
+
+    /** Entries made or changed after [ms] (the clock was ahead). */
+    @Query("SELECT * FROM entries WHERE updatedAtMs > :ms OR createdAtMs > :ms")
+    suspend fun changedAfter(ms: Long): List<EntryRow>
+
+    @Query("DELETE FROM entries WHERE id IN (:ids)")
+    suspend fun delete(ids: List<String>)
 
     /** Review 2026-11-06 #9: pages go on from the last id (an index seek), not by OFFSET (which re-walks every row). */
     @Query("SELECT id, line FROM entries WHERE id > :afterId ORDER BY id LIMIT :limit")
