@@ -35,4 +35,11 @@ class IosDatabaseTest {
         IosDatabase.open(folder).close()
         assertTrue(IosDatabase.isExcludedFromBackup(folder))
     }
+
+    @Test
+    fun ios_sec_001_the_folder_asks_for_complete_file_protection() {
+        // The simulator keeps no protection classes (it reads back null), so this checks what is asked of iOS; the
+        // effect itself is checked on a device (reports/ios-app-2026-11-07.md).
+        assertEquals(mapOf<Any?, Any?>(platform.Foundation.NSFileProtectionKey to platform.Foundation.NSFileProtectionComplete), IosDatabase.PROTECTION)
+    }
 }
