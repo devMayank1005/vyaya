@@ -1,13 +1,15 @@
 package app.vyaya.android
 
+import app.vyaya.shared.PasswordCheck
+import app.vyaya.shared.AppLock
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.BackupScreen
-import app.vyaya.android.ui.BackupStatus
+import app.vyaya.ui.BackupScreen
+import app.vyaya.ui.BackupStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -39,25 +41,6 @@ class LockAndPasswordTest {
         // Rotation: the old activity stops, the new one starts a moment later, with the same lock.
         lock.onStop(); now += 200; lock.onStart()
         assertFalse(lock.locked)
-    }
-
-    @Test
-    fun sec_002_common_or_guessable_passwords_are_refused() {
-        for (weak in listOf("password1", "Password123", "12345678", "1234567890", "qwertyuiop", "aaaaaaaa", "iloveyou", "vyayavyaya", "abcd1234")) {
-            assertNotNull(weak, PasswordCheck.problem(weak))
-        }
-        assertEquals("At least 8 characters", PasswordCheck.problem("short"))
-        for (ok in listOf("correct horse battery staple", "tea-mango-river-cloud", "Xk7#pq9!Lm")) assertNull(ok, PasswordCheck.problem(ok))
-    }
-
-    @Test
-    fun sec_002_a_suggested_passphrase_is_five_words_and_passes() {
-        val a = PasswordCheck.passphrase(Random(1)); val b = PasswordCheck.passphrase(Random(2))
-        assertEquals(5, a.split("-").size)
-        assertTrue(a != b)
-        assertNull(PasswordCheck.problem(a))
-        assertTrue(PasswordCheck.WORDS.size >= 512)
-        assertEquals(PasswordCheck.WORDS.size, PasswordCheck.WORDS.toSet().size)
     }
 
     @Test

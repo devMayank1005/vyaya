@@ -5,8 +5,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.SetupCard
+import app.vyaya.ui.Setup
+import app.vyaya.ui.SetupCard
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test

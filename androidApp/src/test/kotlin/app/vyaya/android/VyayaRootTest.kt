@@ -11,8 +11,8 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.data.AppOpen
 import app.vyaya.core.data.EntryStore
 import app.vyaya.core.data.VyayaDatabase
@@ -47,7 +47,7 @@ class VyayaRootTest {
         compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
         waitFor("No entries this month")
 
-        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithText("Add", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Amount").performTextInput("250")
         compose.onNodeWithText("Food & dining").performClick()
         compose.onNodeWithText("Payee").performTextInput("Swiggy")
@@ -78,7 +78,7 @@ class VyayaRootTest {
     fun the_backup_tab_offers_export_and_restore() {
         var exported = 0
         compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}, onExport = { exported++ }) }
-        compose.onNodeWithText("Backup").performClick()
+        compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Export backup").performScrollTo().performClick()
         compose.onNodeWithText("Export without a password").performScrollTo().performClick()
         assertEquals(1, exported)

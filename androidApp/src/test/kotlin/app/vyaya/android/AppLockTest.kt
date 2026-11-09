@@ -1,5 +1,7 @@
 package app.vyaya.android
 
+import app.vyaya.shared.AppLock
+import app.vyaya.shared.Authenticator
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -7,8 +9,8 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.room.Room
 import androidx.sqlite.driver.AndroidSQLiteDriver
 import androidx.test.core.app.ApplicationProvider
-import app.vyaya.android.ui.Setup
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.Setup
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.data.VyayaDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -87,7 +89,7 @@ class AppLockTest {
             VyayaRoot(db, Setup(true, false, false), clock = { Instant.parse("2026-11-06T10:00:00Z") }, opened = 1,
                 onNotificationAccess = {}, onSms = {}, onImport = {}, lockEnabled = false, onLockEnabled = { switched += it })
         }
-        compose.onNodeWithText("Backup").performClick()
+        compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Ask to unlock Vyaya").performScrollTo().performClick()
         assertEquals(listOf(true), switched)
         db.close()

@@ -1,4 +1,4 @@
-package app.vyaya.android.ui
+package app.vyaya.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -82,6 +82,7 @@ fun AddEntryScreen(
             FilterChip(type == EntryType.INCOME, { type = EntryType.INCOME; categoryId = null }, { Text("Income") }, enabled = !fromRule)
         }
         OutlinedTextField(amount, { amount = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Amount") },
+            textStyle = MaterialTheme.typography.headlineMedium,
             prefix = { Text("₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
             isError = error != null, supportingText = error?.let { { Text(it) } })
         val kind = if (type == EntryType.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE

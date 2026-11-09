@@ -1,4 +1,4 @@
-package app.vyaya.android.ui
+package app.vyaya.ui
 
 import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntityId

@@ -1,4 +1,4 @@
-package app.vyaya.android.ui
+package app.vyaya.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -89,11 +89,27 @@ fun RulesScreen(
         AlertDialog(
             onDismissRequest = { asking = null },
             title = { Text("Resume ${rule.note}") },
-            text = { Text("${months.size} month${if (months.size == 1) " was" else "s were"} missed while it was paused (${months.joinToString(", ")}). Add them?") },
+            text = { Text("${missedText(months)}. Add them?") },
             confirmButton = { TextButton({ asking = null; onResume(rule, true) }) { Text("Add them") } },
             dismissButton = { TextButton({ asking = null; onResume(rule, false) }) { Text("Skip them") } },
         )
     }
+}
+
+/**
+ * Recurring report #2: the months missed while paused, said briefly ("Oct 2026 and Nov 2026"; a long pause as a range,
+ * "Jan 2024 to Feb 2025").
+ */
+internal fun missedText(months: List<YearMonth>): String {
+    fun label(m: YearMonth) = "${m.month.name.lowercase().replaceFirstChar { it.uppercase() }.take(3)} ${m.year}"
+    val sorted = months.sorted()
+    val which = when (sorted.size) {
+        1 -> label(sorted[0])
+        2, 3 -> sorted.dropLast(1).joinToString(", ") { label(it) } + " and " + label(sorted.last())
+        else -> "${label(sorted.first())} to ${label(sorted.last())}"
+    }
+    val n = sorted.size
+    return "$n month${if (n == 1) " was" else "s were"} missed while it was paused ($which)"
 }
 
 /** What the rule form holds. */

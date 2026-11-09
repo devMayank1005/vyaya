@@ -1,5 +1,6 @@
 package app.vyaya.android
 
+import app.vyaya.shared.AppLock
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -17,10 +18,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import app.vyaya.android.ui.Setup
+import app.vyaya.ui.Setup
 import android.net.Uri
-import app.vyaya.android.ui.BackupStatus
-import app.vyaya.android.ui.VyayaRoot
+import app.vyaya.ui.BackupStatus
+import app.vyaya.ui.VyayaRoot
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.RestoreMode
