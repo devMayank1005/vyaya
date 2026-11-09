@@ -62,6 +62,10 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
     fun watchRange(fromMs: Long, toMs: Long): Flow<List<EntryRow>>
 
+    /** When the earliest entry not deleted happened; null when there is none. */
+    @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0")
+    suspend fun earliestMs(): Long?
+
     /** Entries a recurring rule made (catch-up and clock repair look at these only). */
     @Query("SELECT * FROM entries WHERE ruleId IS NOT NULL")
     suspend fun generated(): List<EntryRow>

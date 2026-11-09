@@ -35,6 +35,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.vyaya.core.data.MonthView
+import app.vyaya.core.data.SavingsSummary
+import app.vyaya.core.engine.MonthEnd
 import app.vyaya.core.model.BudgetMonth
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -53,6 +55,10 @@ fun HomeScreen(
     onOpen: (Entry) -> Unit,
     modifier: Modifier = Modifier,
     today: LocalDate? = null,
+    /** The month's result once it has ended (MonthEnd.of: calculated, never stored). */
+    monthEnd: MonthEnd? = null,
+    /** Saved so far over the finished months, shown on the current month. */
+    savings: SavingsSummary? = null,
 ) {
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -63,7 +69,7 @@ fun HomeScreen(
             }
             if (view == null) return@Column
             LazyColumn(Modifier.fillMaxSize()) {
-                item { SummaryCard(view) }
+                item { SummaryCard(view, monthEnd, savings) }
                 if (view.entries.isEmpty()) {
                     item { EmptyMonth() }
                 } else {
@@ -82,7 +88,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SummaryCard(view: MonthView) {
+private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSummary?) {
     val s = view.summary
     val money = LocalMoneyColors.current
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -99,6 +105,16 @@ private fun SummaryCard(view: MonthView) {
                     trackColor = MaterialTheme.colorScheme.surface)
                 Text("${(used * 100).toInt()}% of what came in is spent", Modifier.padding(top = 6.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
+            monthEnd?.let { end ->
+                // The month has ended: what it saved, or by how much it went over (plan.md invariant 3).
+                val text = if (end.overspent.paise > 0) "Overspent ${end.overspent.format()}" else "Saved ${end.saved.format()}"
+                Text(text, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleMedium,
+                    color = if (end.overspent.paise > 0) money.overspent else money.income)
+            }
+            if (monthEnd == null && savings != null && savings.months > 0) {
+                Text("Saved so far ${savings.saved.format()} over ${savings.months} month${if (savings.months == 1) "" else "s"}",
+                    Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {

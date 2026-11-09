@@ -108,4 +108,27 @@ class HomeScreenTest {
         compose.onNodeWithText("Save").performClick()
         assertEquals(100, saved.single().payee.length)
     }
+
+    @Test
+    fun a_finished_month_says_what_it_saved_or_overspent() {
+        val saved = view(entry(EntryType.INCOME, 10_000_00, "Employer", null), entry(EntryType.EXPENSE, 4_000_00, "Rent", null))
+        val end = app.vyaya.core.engine.MonthEnd.of(saved.entries, MonthSchedule.of(1), month, LocalDate(2026, 12, 3))
+        compose.setContent { HomeScreen(saved, emptyMap(), {}, {}, {}, {}, monthEnd = end) }
+        compose.onNodeWithText("Saved ₹6,000", substring = true).assertExists()
+    }
+
+    @Test
+    fun an_overspent_month_says_by_how_much() {
+        val over = view(entry(EntryType.INCOME, 5_000_00, "Employer", null), entry(EntryType.EXPENSE, 7_000_00, "Rent", null))
+        val end = app.vyaya.core.engine.MonthEnd.of(over.entries, MonthSchedule.of(1), month, LocalDate(2026, 12, 3))
+        compose.setContent { HomeScreen(over, emptyMap(), {}, {}, {}, {}, monthEnd = end) }
+        compose.onNodeWithText("Overspent ₹2,000", substring = true).assertExists()
+    }
+
+    @Test
+    fun the_current_month_shows_saved_so_far() {
+        val savings = app.vyaya.core.data.SavingsSummary(Money(6_000_00), Money(2_000_00), 2, LocalDate(2026, 9, 1))
+        compose.setContent { HomeScreen(view(), emptyMap(), {}, {}, {}, {}, savings = savings) }
+        compose.onNodeWithText("Saved so far ₹6,000 over 2 months", substring = true).assertExists()
+    }
 }

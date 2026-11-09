@@ -199,8 +199,18 @@ private fun VyayaRootContent(
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
-                Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
-                    onAdd = { adding = true }, onOpen = { editing = it }, today = clock().toLocalDateTime(zone()).date)
+                Tab.HOME -> {
+                    val home = settings?.homeTimeZone ?: zone()
+                    val today = clock().toLocalDateTime(home).date
+                    val v = view
+                    val end = if (v != null && settings != null) app.vyaya.core.engine.MonthEnd.of(v.entries, settings.monthSchedule, v.month, today) else null
+                    // Recounted whenever the shown month changes (an entry added or edited changes it).
+                    val savings by produceState<app.vyaya.core.data.SavingsSummary?>(null, settings, v) {
+                        value = settings?.let { app.vyaya.core.data.SavingsStore(db).summary(it, today) }
+                    }
+                    HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
+                        onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings)
+                }
                 Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
                     onOpen = { editingRule = it },
                     onPause = { r -> scope.launch { rulesStore.pause(r, clock()); rulesChanged() } },
