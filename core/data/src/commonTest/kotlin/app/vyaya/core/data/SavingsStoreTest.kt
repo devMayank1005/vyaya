@@ -60,4 +60,21 @@ class SavingsStoreTest {
         assertEquals(0, SavingsStore(db).summary(settings, LocalDate(2026, 11, 20)).months, "not ended yet")
         db.close()
     }
+
+    @Test
+    fun mvp2_flaw_001_finished_months_are_read_once_until_they_change() = runTest {
+        val db = inMemoryDatabase()
+        EntryStore(db).save(entries)
+        val store = SavingsStore(db)
+        val today = LocalDate(2026, 11, 9)
+        val first = store.summary(Snapshot.empty().settings, today)
+        val reads = store.monthsRead
+        assertEquals(first, store.summary(Snapshot.empty().settings, today))
+        assertEquals(reads, store.monthsRead, "nothing changed: no month read again")
+        // An entry in September changes: only September is read again, and the result follows.
+        EntryStore(db).save(listOf(e(EntryType.EXPENSE, 1_000, "2026-09-20T05:00:00Z")))
+        assertEquals(Money(5_000_00), store.summary(Snapshot.empty().settings, today).saved)
+        assertEquals(reads + 1, store.monthsRead)
+        db.close()
+    }
 }

@@ -83,10 +83,15 @@ fun PeopleScreen(people: List<Person>, balances: Balances, onAddPerson: () -> Un
 fun PersonScreen(
     person: Person, balance: Money, entries: List<LedgerEntry>,
     onLent: () -> Unit, onBorrowed: () -> Unit, onPaidBack: () -> Unit, onSettleAll: () -> Unit, onBack: () -> Unit,
+    onEntry: (LedgerEntry) -> Unit = {}, onRename: () -> Unit = {}, onRemove: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onBack) { Text("‹ People") }
+            Spacer(Modifier.weight(1f))
+            TextButton(onRename) { Text("Rename") }
+            // MVP2 FLAW-005: someone with an open balance is settled first, so no debt disappears with them.
+            if (balance.paise == 0L) TextButton(onRemove) { Text("Remove", color = MaterialTheme.colorScheme.error) }
         }
         Text(person.name, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.headlineSmall)
         Text(
@@ -101,13 +106,17 @@ fun PersonScreen(
             Button(onLent) { Text("I lent") }
             Button(onBorrowed) { Text("I borrowed") }
         }
-        if (balance.paise != 0L) Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onPaidBack) { Text("Paid back") }
-            OutlinedButton(onSettleAll) { Text("Settle all") }
+        if (balance.paise != 0L) {
+            Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onPaidBack) { Text("Paid back") }
+                OutlinedButton(onSettleAll) { Text("Settle all") }
+            }
+            Text("Settle all first to remove ${person.name}", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp)) {
             items(entries, key = { it.id.value }) { e ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Row(Modifier.fillMaxWidth().clickable { onEntry(e) }.padding(horizontal = 16.dp, vertical = 10.dp)) {
                     Column(Modifier.weight(1f)) {
                         Text(e.note.ifEmpty { if (e.direction == LedgerDirection.LENT) "Lent" else "Borrowed" }, style = MaterialTheme.typography.bodyLarge)
                         Text("${e.date}${if (e.settled) " · settled" else ""}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -121,11 +130,11 @@ fun PersonScreen(
 
 /** A person's name. */
 @Composable
-fun PersonForm(onSave: (String) -> Boolean, onClose: () -> Unit) {
-    var name by remember { mutableStateOf("") }
+fun PersonForm(onSave: (String) -> Boolean, onClose: () -> Unit, initialName: String = "") {
+    var name by remember { mutableStateOf(initialName) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Add person", style = MaterialTheme.typography.headlineSmall)
+        Text(if (initialName.isEmpty()) "Add person" else "Rename", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({ error = if (name.isBlank()) "Enter a name" else if (onSave(name)) null else "This name can't be saved" }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
@@ -135,20 +144,31 @@ fun PersonForm(onSave: (String) -> Boolean, onClose: () -> Unit) {
     }
 }
 
-/** An amount and a note: what was lent, borrowed or paid back. */
+/**
+ * An amount and a note: what was lent, borrowed or paid back, or an entry being corrected ([onDelete] then shown).
+ * [max]: the most it may be (a pay-back can't be more than is owed, MVP2 DATA-003), with [maxMessage] when it is.
+ */
 @Composable
-fun LedgerForm(title: String, onSave: (Money, String) -> Unit, onClose: () -> Unit) {
-    var amount by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+fun LedgerForm(
+    title: String, onSave: (Money, String) -> Unit, onClose: () -> Unit,
+    initialAmount: String = "", initialNote: String = "", max: Money? = null, maxMessage: String = "", onDelete: (() -> Unit)? = null,
+) {
+    var amount by remember { mutableStateOf(initialAmount) }
+    var note by remember { mutableStateOf(initialNote) }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(title, style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
                 val m = Money.parse(amount.trim())?.takeIf { it.paise > 0 }
-                if (m == null) error = "Enter an amount (up to 2 decimals, at most ₹100 crore)" else onSave(m, note)
+                error = when {
+                    m == null -> "Enter an amount (up to 2 decimals, at most ₹100 crore)"
+                    max != null && m.paise > max.paise -> maxMessage
+                    else -> { onSave(m, note); null }
+                }
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
+            onDelete?.let { TextButton(it) { Text("Delete", color = MaterialTheme.colorScheme.error) } }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         OutlinedTextField(amount, { amount = it; error = null }, Modifier.fillMaxWidth(), label = { Text("Amount") }, prefix = { Text("₹") },

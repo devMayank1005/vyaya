@@ -130,5 +130,6 @@ class HomeScreenTest {
         val savings = app.vyaya.core.data.SavingsSummary(Money(6_000_00), Money(2_000_00), 2, LocalDate(2026, 9, 1))
         compose.setContent { HomeScreen(view(), emptyMap(), {}, {}, {}, {}, savings = savings) }
         compose.onNodeWithText("Saved so far ₹6,000 over 2 months", substring = true).assertExists()
+        compose.onNodeWithText("overspent ₹2,000", substring = true).assertExists() // MVP2 FLAW-002: both, not a flattering half
     }
 }

@@ -38,12 +38,18 @@ class LedgerStore(private val db: VyayaDatabase) {
 
     /**
      * Part of what [person] owes coming back (or part of what you owe going back, when you owe them): an entry the
-     * other way, so the balance moves by [amount] and the history shows it.
+     * other way, so the balance moves by [amount] and the history shows it. Null, and nothing saved, when nothing is
+     * owed or [amount] is more than is owed (MVP2 DATA-003: an extra zero mustn't turn who owes whom around).
      */
-    suspend fun paidBack(person: EntityId, amount: Money, date: LocalDate, now: Instant): LedgerEntry {
-        val theyOwe = balances().of(person).paise >= 0
-        return add(person, if (theyOwe) LedgerDirection.BORROWED else LedgerDirection.LENT, amount, date, "Paid back", now)
+    suspend fun paidBack(person: EntityId, amount: Money, date: LocalDate, now: Instant): LedgerEntry? {
+        val balance = balances().of(person)
+        val owed = if (balance.paise >= 0) balance else Money(0) - balance
+        if (owed.paise == 0L || amount.paise > owed.paise) return null
+        return add(person, if (balance.paise > 0) LedgerDirection.BORROWED else LedgerDirection.LENT, amount, date, "Paid back", now)
     }
+
+    /** An entry corrected by the user (amount, note, date, direction). */
+    suspend fun update(entry: LedgerEntry, now: Instant) = save(ledger = listOf(entry.copy(updatedAt = now)))
 
     /** Everything open with [person] is settled (kept in the history, marked settled). */
     suspend fun settleAll(person: EntityId, now: Instant) =

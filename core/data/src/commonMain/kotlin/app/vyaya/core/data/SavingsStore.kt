@@ -18,10 +18,18 @@ data class SavingsSummary(val saved: Money, val overspent: Money, val months: In
 /**
  * Saved so far, from the database: each finished budget month's [MonthEnd] (calculated, never stored, rule 8.5), read
  * one month at a time, so years of entries are never all in memory.
+ *
+ * MVP2 FLAW-001: a finished month's result is kept (in memory only, for this store's life) with a fingerprint of its
+ * rows; a month is read again only when an entry in it was added, changed or removed.
  */
 class SavingsStore(private val db: VyayaDatabase) {
 
     private val entries = EntryStore(db)
+    private val known = HashMap<app.vyaya.core.model.BudgetMonth, Pair<RangeFingerprint, MonthEnd?>>()
+
+    /** How many months were read from their rows (tests). */
+    var monthsRead = 0
+        private set
 
     suspend fun summary(settings: Settings, today: LocalDate): SavingsSummary {
         val earliest = db.entries().earliestMs() ?: return SavingsSummary(Money(0), Money(0), 0, null)
@@ -32,7 +40,11 @@ class SavingsStore(private val db: VyayaDatabase) {
         while (today >= month.endExclusive) {
             val from = month.start.minus(1, DateTimeUnit.DAY).atStartOfDayIn(TimeZone.UTC)
             val to = month.endExclusive.plus(1, DateTimeUnit.DAY).atStartOfDayIn(TimeZone.UTC)
-            val end = MonthEnd.of(entries.inRange(from, to).filter { !it.deleted }, schedule, month, today)
+            val print = db.entries().fingerprint(from.toEpochMilliseconds(), to.toEpochMilliseconds())
+            val end = known[month]?.takeIf { it.first == print }?.second ?: run {
+                monthsRead++
+                MonthEnd.of(entries.inRange(from, to).filter { !it.deleted }, schedule, month, today).also { known[month] = print to it }
+            }
             if (end != null && (end.summary.income.paise > 0 || end.summary.spent.paise > 0)) {
                 saved += end.saved; overspent += end.overspent; months++
                 if (since == null) since = month.start

@@ -59,4 +59,31 @@ class LedgerStoreTest {
         assertEquals(emptyList(), ledger.people())
         db.close()
     }
+
+    @Test
+    fun mvp2_data_003_paying_back_more_than_is_owed_is_refused() = runTest {
+        val db = inMemoryDatabase()
+        val ledger = LedgerStore(db)
+        val rahul = ledger.addPerson("Rahul", t)
+        ledger.add(rahul.id, LedgerDirection.LENT, Money(200_00), day, "Tea", t)
+        assertEquals(null, ledger.paidBack(rahul.id, Money(300_00), day, t), "more than the ₹200 owed")
+        assertEquals(Money(200_00), ledger.balances().of(rahul.id), "nothing changed")
+        val nobody = ledger.addPerson("Priya", t)
+        assertEquals(null, ledger.paidBack(nobody.id, Money(1_00), day, t), "nothing is owed")
+        db.close()
+    }
+
+    @Test
+    fun mvp2_flaw_004_005_an_entry_can_be_changed_and_a_person_renamed() = runTest {
+        val db = inMemoryDatabase()
+        val ledger = LedgerStore(db)
+        val rahul = ledger.addPerson("Rahul", t)
+        val tea = ledger.add(rahul.id, LedgerDirection.LENT, Money(200_00), day, "Tea", t)
+        ledger.update(tea.copy(amount = Money(250_00), note = "Tea and snacks"), t)
+        assertEquals(Money(250_00), ledger.balances().of(rahul.id))
+        assertEquals("Tea and snacks", ledger.entries(rahul.id).single().note)
+        ledger.renamePerson(rahul, "Rahul S", t)
+        assertEquals(listOf("Rahul S"), ledger.people().map { it.name })
+        db.close()
+    }
 }

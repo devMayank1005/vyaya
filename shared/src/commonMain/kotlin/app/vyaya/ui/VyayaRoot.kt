@@ -113,6 +113,8 @@ private fun VyayaRootContent(
     var editing by remember { mutableStateOf<Entry?>(null) }
     var adding by remember { mutableStateOf(false) }
     val rulesStore = remember(db) { RulesStore(db) }
+    // MVP2 FLAW-001: one store for the screen's life, so finished months are read once.
+    val savingsStore = remember(db) { app.vyaya.core.data.SavingsStore(db) }
     var rulesVersion by remember { mutableStateOf(0) }
     val rules by produceState(emptyList<RecurringRule>(), db, opened, rulesVersion) { value = rulesStore.active() }
     var editingRule by remember { mutableStateOf<RecurringRule?>(null) }
@@ -124,14 +126,16 @@ private fun VyayaRootContent(
     // Lent and borrowed.
     val ledger = remember(db) { app.vyaya.core.data.LedgerStore(db) }
     var ledgerVersion by remember { mutableStateOf(0) }
-    val people by produceState(emptyList<app.vyaya.core.model.Person>(), db, ledgerVersion) { value = ledger.people() }
-    val balances by produceState(app.vyaya.core.engine.Balances.of(emptyList()), db, ledgerVersion) { value = ledger.balances() }
+    // Kept on screen while the new values load (produceState would blank them on every change: a flicker).
+    var people by remember { mutableStateOf(emptyList<app.vyaya.core.model.Person>()) }
+    var balances by remember { mutableStateOf(app.vyaya.core.engine.Balances.of(emptyList())) }
     var person by remember { mutableStateOf<app.vyaya.core.model.Person?>(null) }
-    val personEntries by produceState(emptyList<app.vyaya.core.model.LedgerEntry>(), person, ledgerVersion) {
-        value = person?.let { ledger.entries(it.id) } ?: emptyList()
-    }
-    /** Which ledger form is open: "person", "lent", "borrowed" or "paidBack". */
+    var personEntries by remember { mutableStateOf(emptyList<app.vyaya.core.model.LedgerEntry>()) }
+    androidx.compose.runtime.LaunchedEffect(db, ledgerVersion) { people = ledger.people(); balances = ledger.balances() }
+    androidx.compose.runtime.LaunchedEffect(person, ledgerVersion) { personEntries = person?.let { ledger.entries(it.id) } ?: emptyList() }
+    /** Which ledger form is open: "person", "rename", "lent", "borrowed", "paidBack" or "edit" ([editingLedger]). */
     var ledgerForm by remember { mutableStateOf<String?>(null) }
+    var editingLedger by remember { mutableStateOf<app.vyaya.core.model.LedgerEntry?>(null) }
     fun ledgerChanged() { ledgerVersion++ }
     val scope = rememberCoroutineScope()
 
@@ -177,6 +181,19 @@ private fun VyayaRootContent(
         when (form) {
             "person" -> PersonForm(onSave = { name -> scope.launch { ledger.addPerson(name, clock()); ledgerChanged() }; ledgerForm = null; true },
                 onClose = { ledgerForm = null })
+            "rename" -> if (who != null) PersonForm(initialName = who.name, onClose = { ledgerForm = null }, onSave = { name ->
+                val renamed = who.copy(name = name.trim())
+                scope.launch { ledger.renamePerson(who, name, clock()); ledgerChanged() }
+                person = renamed; ledgerForm = null; true
+            })
+            "edit" -> editingLedger?.let { entry ->
+                LedgerForm(
+                    title = "Change", initialAmount = plainRupees(entry.amount), initialNote = entry.note,
+                    onSave = { amount, note -> scope.launch { ledger.update(entry.copy(amount = amount, note = note.trim()), clock()); ledgerChanged() }; ledgerForm = null },
+                    onDelete = { scope.launch { ledger.delete(entry, clock()); ledgerChanged() }; ledgerForm = null },
+                    onClose = { ledgerForm = null },
+                )
+            }
             else -> if (who != null) LedgerForm(
                 title = when (form) { "lent" -> "I lent ${who.name}"; "borrowed" -> "I borrowed from ${who.name}"; else -> "Paid back" },
                 onSave = { amount, note ->
@@ -191,6 +208,11 @@ private fun VyayaRootContent(
                     ledgerForm = null
                 },
                 onClose = { ledgerForm = null },
+                max = if (form == "paidBack") balances.of(who.id).let { if (it.paise < 0) app.vyaya.core.model.Money(0) - it else it } else null,
+                maxMessage = balances.of(who.id).let { b ->
+                    if (b.paise >= 0) "${who.name} owes you ${b.format()}; use Settle all to clear it"
+                    else "You owe ${who.name} ${(app.vyaya.core.model.Money(0) - b).format()}; use Settle all to clear it"
+                },
             )
         }
         return
@@ -246,7 +268,7 @@ private fun VyayaRootContent(
                     val end = if (v != null && settings != null) app.vyaya.core.engine.MonthEnd.of(v.entries, settings.monthSchedule, v.month, today) else null
                     // Recounted whenever the shown month changes (an entry added or edited changes it).
                     val savings by produceState<app.vyaya.core.data.SavingsSummary?>(null, settings, v) {
-                        value = settings?.let { app.vyaya.core.data.SavingsStore(db).summary(it, today) }
+                        value = settings?.let { savingsStore.summary(it, today) }
                     }
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings)
@@ -263,7 +285,9 @@ private fun VyayaRootContent(
                     if (who == null) PeopleScreen(people, balances, onAddPerson = { ledgerForm = "person" }, onOpen = { person = it })
                     else PersonScreen(who, balances.of(who.id), personEntries,
                         onLent = { ledgerForm = "lent" }, onBorrowed = { ledgerForm = "borrowed" }, onPaidBack = { ledgerForm = "paidBack" },
-                        onSettleAll = { scope.launch { ledger.settleAll(who.id, clock()); ledgerChanged() } }, onBack = { person = null })
+                        onSettleAll = { scope.launch { ledger.settleAll(who.id, clock()); ledgerChanged() } }, onBack = { person = null },
+                        onEntry = { editingLedger = it; ledgerForm = "edit" }, onRename = { ledgerForm = "rename" },
+                        onRemove = { scope.launch { ledger.deletePerson(who, clock()); ledgerChanged() }; person = null })
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure)
@@ -271,3 +295,7 @@ private fun VyayaRootContent(
         }
     }
 }
+
+/** An amount as the user would type it: `250.5` → "250.50", `120` → "120". */
+internal fun plainRupees(m: app.vyaya.core.model.Money): String =
+    if (m.paise % 100 == 0L) "${m.paise / 100}" else "${m.paise / 100}.${(m.paise % 100).toString().padStart(2, '0')}"

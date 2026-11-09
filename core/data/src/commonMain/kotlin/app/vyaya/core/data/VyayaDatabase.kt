@@ -62,6 +62,10 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
     fun watchRange(fromMs: Long, toMs: Long): Flow<List<EntryRow>>
 
+    /** What changes when any entry in [fromMs, toMs) is added, edited, deleted or removed (MVP2 FLAW-001). */
+    @Query("SELECT COUNT(*) AS n, COALESCE(SUM(updatedAtMs), 0) AS changed, COALESCE(SUM(createdAtMs), 0) AS made FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
+    suspend fun fingerprint(fromMs: Long, toMs: Long): RangeFingerprint
+
     /** When the earliest entry not deleted happened; null when there is none. */
     @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0")
     suspend fun earliestMs(): Long?
@@ -179,3 +183,6 @@ expect object VyayaDatabaseConstructor : RoomDatabaseConstructor<VyayaDatabase> 
 
 /** A row's id and backup line, for paging in id order. */
 data class IdLine(val id: String, val line: String)
+
+/** Count and change times of a range of entries: equal fingerprints mean nothing in the range changed. */
+data class RangeFingerprint(val n: Long, val changed: Long, val made: Long)

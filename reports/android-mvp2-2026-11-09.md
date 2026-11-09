@@ -62,3 +62,15 @@
 - **#2:** show both saved and overspent (recommended), or the net?
 - **#3:** cap "Paid back" at the balance (recommended)?
 - **#4, #5:** edit and delete for ledger entries and people (recommended)?
+
+## Resolution (2026-11-09)
+
+Your decision: go with the recommendations.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed | `SavingsStore` keeps each finished month's result with a fingerprint of its rows (count and change times, one SQL aggregate); a month is read again only when something in it changed. One store per screen |
+| 2 FLAW-002 | ✅ Fixed | "Saved so far ₹6,000 over 2 months, overspent ₹2,000" |
+| 3 DATA-003 | ✅ Fixed | "Paid back" can't exceed the balance; the form says "Rahul owes you ₹200; use Settle all to clear it", and the store refuses it too |
+| 4 FLAW-004 | ✅ Fixed | Tap an entry to correct its amount or note, or delete it |
+| 5 FLAW-005 | ✅ Fixed | Rename a person; remove once settled ("Settle all first to remove …") |

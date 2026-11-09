@@ -113,7 +113,9 @@ private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSu
                     color = if (end.overspent.paise > 0) money.overspent else money.income)
             }
             if (monthEnd == null && savings != null && savings.months > 0) {
-                Text("Saved so far ${savings.saved.format()} over ${savings.months} month${if (savings.months == 1) "" else "s"}",
+                // MVP2 FLAW-002: both what was saved and what was overspent, not a flattering half.
+                val overspent = if (savings.overspent.paise > 0) ", overspent ${savings.overspent.format()}" else ""
+                Text("Saved so far ${savings.saved.format()} over ${savings.months} month${if (savings.months == 1) "" else "s"}$overspent",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(Modifier.height(12.dp))
