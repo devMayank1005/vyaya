@@ -13,7 +13,7 @@ data class DayGroup(val day: LocalDate, val label: String, val entries: List<Ent
 /** Entries grouped by their own day (each in its own zone, as the month function does), newest day first. */
 fun dayGroups(entries: List<Entry>, today: LocalDate): List<DayGroup> =
     entries.groupBy { it.occurredAt.instant.toLocalDateTime(it.occurredAt.timeZone).date }
-        .toSortedMap(compareByDescending { it })
+        .entries.sortedByDescending { it.key } // common code: no toSortedMap outside the JVM
         .map { (day, list) ->
             val sorted = list.sortedByDescending { it.occurredAt.instant }
             DayGroup(
