@@ -55,7 +55,9 @@ fun AddEntryScreen(
     onSave: (EntryInput) -> Boolean,
     onDelete: () -> Unit,
     onClose: () -> Unit,
+    accounts: List<app.vyaya.core.model.Account> = emptyList(),
 ) {
+    var accountId by remember { mutableStateOf(existing?.accountId) }
     var type by remember { mutableStateOf(if (existing?.type == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
     var amount by remember { mutableStateOf(existing?.amount?.let(::plainAmount) ?: "") }
     var categoryId by remember { mutableStateOf(existing?.categoryId) }
@@ -69,7 +71,7 @@ fun AddEntryScreen(
         Text(if (existing == null) "Add entry" else "Edit entry", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
-                val input = EntryInput(type, amount, categoryId, payee, note, date)
+                val input = EntryInput(type, amount, categoryId, payee, note, date, accountId)
                 error = input.problem(existing, TimeZone.currentSystemDefault()) ?: if (onSave(input)) null else "This entry can't be saved"
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
@@ -92,6 +94,11 @@ fun AddEntryScreen(
             }
         }
         // FLAW-005: the limits stop the typing, rather than a refusal at Save.
+        if (accounts.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            accounts.filter { !it.deleted || it.id == accountId }.forEach { a ->
+                FilterChip(accountId == a.id, { accountId = if (accountId == a.id) null else a.id }, { Text(accountLabel(a)) })
+            }
+        }
         OutlinedTextField(payee, { payee = it.take(EntryInput.MAX_PAYEE) }, Modifier.fillMaxWidth(), label = { Text("Payee") }, singleLine = true)
         OutlinedTextField(note, { note = it.take(EntryInput.MAX_NOTE) }, Modifier.fillMaxWidth(), label = { Text("Note") })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

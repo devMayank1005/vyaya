@@ -110,6 +110,7 @@ class PeopleScreenTest {
     fun mvp2_flaw_004_an_entry_can_be_corrected_or_deleted() {
         withRahul(200)
         openRahul()
+        waitFor("Tea") // the person's entries load after the balance
         compose.onNodeWithText("Tea").performClick()
         compose.onNodeWithText("200").performTextReplacement("250")
         compose.onNodeWithText("Save").performClick()

@@ -57,6 +57,8 @@ fun BackupScreen(
     lockEnabled: Boolean = false,
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
+    onCategories: () -> Unit = {},
+    onAccounts: () -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -118,6 +120,11 @@ fun BackupScreen(
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
+        Text("Your lists", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onCategories) { Text("Categories") }
+            OutlinedButton(onAccounts) { Text("Accounts") }
+        }
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().toggleable(lockEnabled, role = Role.Switch, onValueChange = onLockEnabled), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

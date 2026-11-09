@@ -107,7 +107,12 @@ private fun VyayaRootContent(
     val months = remember(db) { MonthStore(db) }
     val entries = remember(db) { EntryStore(db) }
     val inbox = remember(db) { DetectedInbox(db) }
-    val records by produceState<app.vyaya.core.backup.Snapshot?>(null, db, opened) { value = SnapshotStore(db).loadRecords() }
+    var catalogVersion by remember { mutableStateOf(0) }
+    val records by produceState<app.vyaya.core.backup.Snapshot?>(null, db, opened, catalogVersion) { value = SnapshotStore(db).loadRecords() }
+    val catalog = remember(db) { app.vyaya.core.data.CatalogStore(db) }
+    /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
+    var catalogView by remember { mutableStateOf<String?>(null) }
+    var catalogItem by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf(Tab.HOME) }
     var monthOffset by remember { mutableStateOf(0) }
     var editing by remember { mutableStateOf<Entry?>(null) }
@@ -149,6 +154,37 @@ private fun VyayaRootContent(
     }
     val view by remember(month, settings) { if (month != null && settings != null) months.watch(month, settings) else flowOf(null) }.collectAsState(null)
     val categories = records?.categories.orEmpty()
+
+    catalogView?.let { view ->
+        val cats = records?.categories.orEmpty().filter { !it.deleted }.sortedWith(compareBy<app.vyaya.core.model.Category> { it.kind }.thenBy { it.name.lowercase() })
+        val accs = records?.accounts.orEmpty().filter { !it.deleted }.sortedBy { it.name.lowercase() }
+        fun changed() { catalogVersion++; catalogItem = null }
+        val item = catalogItem
+        when {
+            item != null && view == "categories" -> {
+                val c = cats.firstOrNull { it.id.value == item }
+                CategoryForm(c, onSave = { name, kind ->
+                    val taken = cats.any { it.id != c?.id && it.kind == kind && it.name.equals(name.trim(), ignoreCase = true) }
+                    if (!taken) scope.launch { if (c == null) catalog.addCategory(name, kind, clock()) else catalog.renameCategory(c, name, clock()); changed() }
+                    !taken
+                }, onDelete = { c?.let { scope.launch { catalog.deleteCategory(it, clock()); changed() } } }, onClose = { catalogItem = null })
+            }
+            item != null -> {
+                val a = accs.firstOrNull { it.id.value == item }
+                AccountForm(a, onSave = { name, kind, mask ->
+                    val taken = accs.any { it.id != a?.id && it.name.equals(name.trim(), ignoreCase = true) }
+                    if (!taken) scope.launch { if (a == null) catalog.addAccount(name, kind, mask, clock()) else catalog.renameAccount(a, name, clock()); changed() }
+                    !taken
+                }, onDelete = { a?.let { scope.launch { catalog.deleteAccount(it, clock()); changed() } } }, onClose = { catalogItem = null })
+            }
+            view == "categories" -> CatalogList("Categories",
+                cats.map { CatalogRow(it.id.value, it.name, if (it.kind == app.vyaya.core.model.CategoryKind.INCOME) "Income" else "Spending") },
+                "Add category", onAdd = { catalogItem = "new" }, onOpen = { catalogItem = it }, onBack = { catalogView = null })
+            else -> CatalogList("Accounts", accs.map { CatalogRow(it.id.value, accountLabel(it), it.kind.name.lowercase().replaceFirstChar { c -> c.uppercase() }) },
+                "Add account", onAdd = { catalogItem = "new" }, onOpen = { catalogItem = it }, onBack = { catalogView = null })
+        }
+        return
+    }
 
     if (addingRule || editingRule != null) {
         val existing = editingRule
@@ -235,6 +271,7 @@ private fun VyayaRootContent(
                 editing = null
             },
             onClose = { adding = false; editing = null },
+            accounts = records?.accounts.orEmpty(),
         )
         return
     }
@@ -290,7 +327,8 @@ private fun VyayaRootContent(
                         onRemove = { scope.launch { ledger.deletePerson(who, clock()); ledgerChanged() }; person = null })
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
-                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure)
+                Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
+                    onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" })
             }
         }
     }

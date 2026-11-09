@@ -22,6 +22,7 @@ data class EntryInput(
     val payee: String,
     val note: String,
     val date: LocalDate,
+    val accountId: EntityId? = null,
 ) {
     /**
      * The entry to save, or null when the amount isn't one (empty, zero, more than 2 decimals, too large) or a field is
@@ -39,8 +40,8 @@ data class EntryInput(
         val payee = payee.trim().ifEmpty { null }
         // MVP DATA-001: an entry a rule made keeps the rule's type, or no backup would be accepted again.
         val type = if (existing?.generatedBy != null) existing.type else type
-        existing?.copy(type = type, amount = money, occurredAt = occurredAt, categoryId = categoryId, payee = payee, note = note.trim(), updatedAt = now)
-            ?: Entry(EntityId.random(), type, money, occurredAt, null, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
+        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.trim(), updatedAt = now)
+            ?: Entry(EntityId.random(), type, money, occurredAt, accountId, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
                 emptyList(), null, now, now, false)
     }.getOrNull()
 
