@@ -67,7 +67,7 @@ fun BackupScreen(
     var shown by remember { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Backup", style = MaterialTheme.typography.headlineSmall)
+        Text("Backup and privacy", style = MaterialTheme.typography.headlineSmall)
         // The result first, where it is seen without scrolling.
         when (status) {
             BackupStatus.Idle -> {}

@@ -89,7 +89,7 @@ class AppLockTest {
             VyayaRoot(db, Setup(true, false, false), clock = { Instant.parse("2026-11-06T10:00:00Z") }, opened = 1,
                 onNotificationAccess = {}, onSms = {}, onImport = {}, lockEnabled = false, onLockEnabled = { switched += it })
         }
-        compose.onNodeWithText("Backup").performClick()
+        compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Ask to unlock Vyaya").performScrollTo().performClick()
         assertEquals(listOf(true), switched)
         db.close()

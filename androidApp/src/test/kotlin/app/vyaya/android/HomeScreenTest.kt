@@ -60,7 +60,7 @@ class HomeScreenTest {
         compose.onNodeWithText("Food & dining", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Previous month").performClick()
         compose.onNodeWithContentDescription("Next month").performClick()
-        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithText("Add", useUnmergedTree = true).performClick()
         assertEquals(listOf(1, 1, 1), listOf(previous, next, added))
     }
 

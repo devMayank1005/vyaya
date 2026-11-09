@@ -63,7 +63,7 @@ class DetectedScreenTest {
         compose.onNodeWithText("+₹5,000").assertIsDisplayed()
         compose.onNodeWithText("From a saved contact, not a bank").assertIsDisplayed()
         compose.onNodeWithText("May be a payment you already have").assertIsDisplayed()
-        compose.onNodeWithText("Add").performClick()
+        compose.onNodeWithText("Add", useUnmergedTree = true).performClick()
         compose.onNodeWithText("Not mine").performClick()
         assertEquals(listOf("r"), added)
         assertEquals(listOf("r"), dismissed)

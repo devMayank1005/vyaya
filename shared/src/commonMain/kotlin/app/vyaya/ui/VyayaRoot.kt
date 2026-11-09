@@ -16,6 +16,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import app.vyaya.core.data.DetectedInbox
 import app.vyaya.core.data.EntryStore
 import app.vyaya.core.data.MonthStore
@@ -30,7 +37,10 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
-private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹"), RECURRING("Recurring", "↻"), DETECTED("Detected", "✓"), BACKUP("Backup", "⇅") }
+private enum class Tab(val label: String, val icon: ImageVector) {
+    HOME("Home", Icons.Filled.Home), RECURRING("Recurring", Icons.Filled.Refresh), DETECTED("Detected", Icons.Filled.Notifications),
+    BACKUP("Settings", Icons.Filled.Settings),
+}
 
 /**
  * The app: Home (this month, add and edit by hand) and Detected (capture's inbox), over the database. [opened] changes
@@ -38,6 +48,34 @@ private enum class Tab(val label: String, val glyph: String) { HOME("Home", "₹
  */
 @Composable
 fun VyayaRoot(
+    db: VyayaDatabase,
+    setup: Setup,
+    clock: () -> Instant,
+    opened: Int,
+    onNotificationAccess: () -> Unit,
+    onSms: () -> Unit,
+    onImport: () -> Unit,
+    onBattery: () -> Unit = {},
+    zone: () -> TimeZone = { TimeZone.currentSystemDefault() },
+    backupStatus: BackupStatus = BackupStatus.Idle,
+    onExport: (CharArray?) -> Unit = {},
+    onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
+    onRestoreAnyway: () -> Unit = {},
+    onPassword: (CharArray) -> Unit = {},
+    locked: Boolean = false,
+    onUnlock: () -> Unit = {},
+    lockEnabled: Boolean = false,
+    onLockEnabled: (Boolean) -> Unit = {},
+    deviceSecure: Boolean = true,
+    onRulesChanged: () -> Unit = {},
+    /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
+    showDetected: Boolean = true,
+) = VyayaTheme {
+    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected)
+}
+
+@Composable
+private fun VyayaRootContent(
     db: VyayaDatabase,
     setup: Setup,
     clock: () -> Instant,
@@ -156,13 +194,13 @@ fun VyayaRoot(
 
     Scaffold(bottomBar = {
         NavigationBar {
-            Tab.entries.filter { showDetected || it != Tab.DETECTED }.forEach { t -> NavigationBarItem(tab == t, { tab = t }, icon = { Text(t.glyph) }, label = { Text(t.label) }) }
+            Tab.entries.filter { showDetected || it != Tab.DETECTED }.forEach { t -> NavigationBarItem(tab == t, { tab = t }, icon = { Icon(t.icon, contentDescription = null) }, label = { Text(t.label) }) }
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (tab) {
                 Tab.HOME -> HomeScreen(view, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
-                    onAdd = { adding = true }, onOpen = { editing = it })
+                    onAdd = { adding = true }, onOpen = { editing = it }, today = clock().toLocalDateTime(zone()).date)
                 Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
                     onOpen = { editingRule = it },
                     onPause = { r -> scope.launch { rulesStore.pause(r, clock()); rulesChanged() } },

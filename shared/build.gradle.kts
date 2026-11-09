@@ -31,6 +31,7 @@ kotlin {
             implementation(libs.cmp.foundation)
             implementation(libs.cmp.material3)
             implementation(libs.cmp.ui)
+            implementation(libs.cmp.icons.core)
         }
         iosMain.dependencies {
             implementation(libs.room.runtime)
