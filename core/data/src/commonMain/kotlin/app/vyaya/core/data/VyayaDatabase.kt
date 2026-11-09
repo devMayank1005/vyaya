@@ -39,6 +39,10 @@ data class EntryRow(
     val updatedAtMs: Long,
     /** For clock repair on open: entries made while the clock was ahead (FLAW-004, core-data report). */
     val createdAtMs: Long,
+    /** To count what uses a category or an account before it's deleted (catalog report #5). */
+    val categoryId: String? = null,
+    val accountId: String? = null,
+    val toAccountId: String? = null,
 )
 
 @Dao
@@ -87,6 +91,12 @@ interface EntryDao {
 
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun count(): Int
+
+    @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND categoryId = :id")
+    suspend fun countWithCategory(id: String): Int
+
+    @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND (accountId = :id OR toAccountId = :id)")
+    suspend fun countWithAccount(id: String): Int
 
     @Query("DELETE FROM entries")
     suspend fun clear()
@@ -159,6 +169,9 @@ interface RecordDao {
 
     @Query("SELECT id, line FROM records WHERE kind = :kind AND id > :afterId ORDER BY id LIMIT :limit")
     suspend fun pageAfter(kind: String, afterId: String, limit: Int): List<IdLine>
+
+    @Query("SELECT * FROM records WHERE kind = :kind")
+    suspend fun ofKind(kind: String): List<RecordRow>
 
     @Query("SELECT COUNT(*) FROM records WHERE kind = :kind")
     suspend fun count(kind: String): Int

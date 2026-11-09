@@ -155,6 +155,12 @@ private fun VyayaRootContent(
     val view by remember(month, settings) { if (month != null && settings != null) months.watch(month, settings) else flowOf(null) }.collectAsState(null)
     val categories = records?.categories.orEmpty()
 
+    /** The form's message: none when [r] saved (then [onSaved]), else why the store refused. */
+    fun <T> answer(r: app.vyaya.core.data.CatalogResult<T>, onSaved: () -> Unit): String? = when (r) {
+        is app.vyaya.core.data.CatalogResult.Saved -> { onSaved(); null }
+        is app.vyaya.core.data.CatalogResult.Refused -> r.reason
+    }
+
     catalogView?.let { view ->
         val cats = records?.categories.orEmpty().filter { !it.deleted }.sortedWith(compareBy<app.vyaya.core.model.Category> { it.kind }.thenBy { it.name.lowercase() })
         val accs = records?.accounts.orEmpty().filter { !it.deleted }.sortedBy { it.name.lowercase() }
@@ -162,20 +168,18 @@ private fun VyayaRootContent(
         val item = catalogItem
         when {
             item != null && view == "categories" -> {
-                val c = cats.firstOrNull { it.id.value == item }
+                val c = records?.categories.orEmpty().firstOrNull { it.id.value == item } // kept if deleted meanwhile: Save says so
                 CategoryForm(c, onSave = { name, kind ->
-                    val taken = cats.any { it.id != c?.id && it.kind == kind && it.name.equals(name.trim(), ignoreCase = true) }
-                    if (!taken) scope.launch { if (c == null) catalog.addCategory(name, kind, clock()) else catalog.renameCategory(c, name, clock()); changed() }
-                    !taken
-                }, onDelete = { c?.let { scope.launch { catalog.deleteCategory(it, clock()); changed() } } }, onClose = { catalogItem = null })
+                    answer(if (c == null) catalog.addCategory(name, kind, clock()) else catalog.renameCategory(c, name, clock())) { changed() }
+                }, deleteNote = { c?.let { deleteNote(catalog.uses(it)) } ?: "" },
+                    onDelete = { c?.let { scope.launch { catalog.deleteCategory(it, clock()); changed() } } }, onClose = { catalogItem = null })
             }
             item != null -> {
-                val a = accs.firstOrNull { it.id.value == item }
+                val a = records?.accounts.orEmpty().firstOrNull { it.id.value == item }
                 AccountForm(a, onSave = { name, kind, mask ->
-                    val taken = accs.any { it.id != a?.id && it.name.equals(name.trim(), ignoreCase = true) }
-                    if (!taken) scope.launch { if (a == null) catalog.addAccount(name, kind, mask, clock()) else catalog.renameAccount(a, name, clock()); changed() }
-                    !taken
-                }, onDelete = { a?.let { scope.launch { catalog.deleteAccount(it, clock()); changed() } } }, onClose = { catalogItem = null })
+                    answer(if (a == null) catalog.addAccount(name, kind, mask, clock()) else catalog.updateAccount(a, name, kind, mask, clock())) { changed() }
+                }, deleteNote = { a?.let { deleteNote(catalog.uses(it)) } ?: "" },
+                    onDelete = { a?.let { scope.launch { catalog.deleteAccount(it, clock()); changed() } } }, onClose = { catalogItem = null })
             }
             view == "categories" -> CatalogList("Categories",
                 cats.map { CatalogRow(it.id.value, it.name, if (it.kind == app.vyaya.core.model.CategoryKind.INCOME) "Income" else "Spending") },
@@ -192,9 +196,9 @@ private fun VyayaRootContent(
             onSave = { input ->
                 val now = clock(); val zone = records?.settings?.homeTimeZone ?: zone()
                 scope.launch {
-                    if (existing == null) rulesStore.add(input.type, input.money!!, input.dayOfMonth!!, input.categoryId, input.note.trim(), now, zone)
+                    if (existing == null) rulesStore.add(input.type, input.money!!, input.dayOfMonth!!, input.categoryId, input.note.trim(), now, zone, input.accountId)
                     else {
-                        val changed = existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId,
+                        val changed = existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId, accountId = input.accountId,
                             note = input.note.trim(), updatedAt = now)
                         rulesStore.save(changed)
                         val thisMonth = rulesStore.thisMonthsEntry(changed, now, zone)
@@ -207,6 +211,7 @@ private fun VyayaRootContent(
             },
             onDelete = { existing?.let { r -> scope.launch { rulesStore.delete(r, clock()); rulesChanged() } }; editingRule = null },
             onClose = { addingRule = false; editingRule = null },
+            accounts = records?.accounts.orEmpty(),
         )
         return
     }

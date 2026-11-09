@@ -133,4 +133,16 @@ class StoresTest {
         assertEquals(40, EntryStore(db).all().size)
         db.close()
     }
+
+    @Test
+    fun catalog_flaw_004_captured_payments_are_saved_on_the_account_with_those_last_digits() = runTest {
+        val db = inMemoryDatabase()
+        val account = (CatalogStore(db).addAccount("HDFC", app.vyaya.core.model.AccountKind.BANK, "1234", t0) as CatalogResult.Saved).item
+        val capture = CaptureStore(db)
+        val added = assertIs<Outcome.Added>(capture.process(phonepe, t0).single()).entry
+        assertEquals(null, EntryStore(db).byId(added.id)?.accountId, "the app's notification has no digits")
+        assertIs<Outcome.Duplicate>(capture.process(hdfc, t0).single())
+        assertEquals(account.id, EntryStore(db).byId(added.id)?.accountId, "the bank's SMS fills it in")
+        db.close()
+    }
 }

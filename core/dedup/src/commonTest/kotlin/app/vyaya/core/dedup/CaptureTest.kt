@@ -2,6 +2,8 @@ package app.vyaya.core.dedup
 
 import app.vyaya.core.filters.IgnoreReason
 import app.vyaya.core.filters.ReviewReason
+import app.vyaya.core.model.Account
+import app.vyaya.core.model.AccountKind
 import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -16,6 +18,7 @@ import kotlinx.datetime.YearMonth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -205,5 +208,32 @@ class CaptureTest {
         assertEquals(1, entries.size, outcomes.toString())
         // Two real spends of the same amount at the same shop, minutes apart, stay two.
         assertEquals(2, captureAll(listOf(axisCard(t0), axisCard(t0 + 10.minutes))).first.size)
+    }
+
+    @Test
+    fun catalog_flaw_004_a_captured_payment_goes_to_the_account_with_those_last_digits() {
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val sbi = Account(EntityId.random(), "SBI", AccountKind.BANK, "9876", now, false)
+        fun accountOf(accounts: List<Account>) =
+            assertIs<Outcome.Added>(Capture.process(hdfcSms("250.00", "429112345678"), emptyList(), now, accounts)).entry.accountId
+        assertEquals(hdfc.id, accountOf(listOf(hdfc, sbi)))
+        assertEquals(hdfc.id, accountOf(listOf(hdfc.copy(mask = "001234"), sbi)), "the user typed more digits than the bank shows")
+        assertEquals(hdfc.id, accountOf(listOf(hdfc.copy(mask = "234"), sbi)), "or fewer")
+        assertNull(accountOf(listOf(hdfc, sbi.copy(mask = "1234"))), "two accounts end in 1234: don't guess")
+        assertNull(accountOf(listOf(hdfc.copy(deleted = true))), "a deleted account")
+        assertNull(accountOf(listOf(hdfc.copy(mask = null))), "an account without last digits")
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, listOf(hdfc))).entry.accountId, "no digits in it")
+    }
+
+    @Test
+    fun catalog_flaw_004_the_bank_sms_after_the_app_notification_fills_in_the_account() {
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val fromApp = assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, listOf(hdfc))).entry
+        val dup = assertIs<Outcome.Duplicate>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(fromApp), now, listOf(hdfc)))
+        assertEquals(fromApp.id, dup.of)
+        assertEquals(fromApp.copy(accountId = hdfc.id, updatedAt = now), dup.update)
+        val typed = fromApp.copy(source = EntrySource.MANUAL)
+        assertIs<Outcome.Review>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(typed), now, listOf(hdfc)),
+            "an entry the user typed is only a possible duplicate, and is left as they made it")
     }
 }

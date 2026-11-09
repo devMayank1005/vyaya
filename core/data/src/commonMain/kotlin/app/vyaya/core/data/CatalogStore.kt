@@ -1,6 +1,9 @@
 package app.vyaya.core.data
 
+import app.vyaya.core.backup.BackupLimits
 import app.vyaya.core.backup.Snapshot
+import app.vyaya.core.data.CatalogResult.Refused
+import app.vyaya.core.data.CatalogResult.Saved
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.AccountKind
 import app.vyaya.core.model.Category
@@ -8,13 +11,23 @@ import app.vyaya.core.model.CategoryKind
 import app.vyaya.core.model.EntityId
 import kotlin.time.Instant
 
+/** What a change to a category or account did: saved (as [Saved.item]), or refused with a message for the form. */
+sealed interface CatalogResult<out T> {
+    data class Saved<T>(val item: T) : CatalogResult<T>
+    data class Refused(val reason: String) : CatalogResult<Nothing>
+}
+
 /**
  * The user's categories and accounts (records; soft delete, rule 8.2): a deleted one is no longer offered, but entries
- * that used it keep its name. A category's type (spending or income) is set when it's made.
+ * that used it keep its name. A category's type (spending or income) is set when it's made. Every check is made here,
+ * and its message is what the form shows (catalog report #9).
  */
-class CatalogStore(private val db: VyayaDatabase) {
+class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimits = BackupLimits()) {
 
     private val snapshots = SnapshotStore(db)
+
+    /** How many entries (not deleted) and recurring rules (not deleted) use a category or account. */
+    data class Uses(val entries: Int, val rules: Int)
 
     /** Categories offered: not deleted, spending first, by name. */
     suspend fun categories(): List<Category> = allCategories().filter { !it.deleted }
@@ -23,38 +36,103 @@ class CatalogStore(private val db: VyayaDatabase) {
     suspend fun allCategories(): List<Category> =
         snapshots.loadRecords().categories.sortedWith(compareBy<Category> { it.kind }.thenBy { it.name.lowercase() })
 
-    /** Null when a category of that type already has the name (any case) or the name isn't valid. */
-    suspend fun addCategory(name: String, kind: CategoryKind, now: Instant): Category? {
+    /**
+     * A new category; or, when a deleted one of that type had the name, that one back (catalog report #3), so old and
+     * new entries stay in one category.
+     */
+    suspend fun addCategory(name: String, kind: CategoryKind, now: Instant): CatalogResult<Category> {
         val n = name.trim()
-        if (categories().any { it.kind == kind && it.name.equals(n, ignoreCase = true) }) return null
-        return runCatching { Category(EntityId.random(), n, kind, now, false) }.getOrNull()?.also { save(categories = listOf(it)) }
+        nameProblem(n)?.let { return Refused(it) }
+        val all = allCategories()
+        val same = all.filter { it.kind == kind && it.name.equals(n, ignoreCase = true) }
+        if (same.any { !it.deleted }) return Refused(CATEGORY_TAKEN)
+        same.firstOrNull()?.let { return save { it.copy(name = n, deleted = false, updatedAt = now) } }
+        if (all.size >= limits.maxRecordsPerType) return Refused(overLimit("categories")) // catalog report #2
+        return save { Category(EntityId.random(), n, kind, now, false) }
     }
 
     // Each change applies to the record as it is now (by id), so an older copy can't undo an earlier change.
-    suspend fun renameCategory(c: Category, name: String, now: Instant) = currentCategory(c)?.let { save(categories = listOf(it.copy(name = name.trim(), updatedAt = now))) }
+    suspend fun renameCategory(c: Category, name: String, now: Instant): CatalogResult<Category> {
+        val current = categories().firstOrNull { it.id == c.id } ?: return Refused(GONE)
+        val n = name.trim()
+        nameProblem(n)?.let { return Refused(it) }
+        if (categories().any { it.id != c.id && it.kind == current.kind && it.name.equals(n, ignoreCase = true) }) return Refused(CATEGORY_TAKEN)
+        return save { current.copy(name = n, updatedAt = now) }
+    }
 
-    suspend fun deleteCategory(c: Category, now: Instant) = currentCategory(c)?.let { save(categories = listOf(it.copy(deleted = true, updatedAt = now))) }
-
-    private suspend fun currentCategory(c: Category) = allCategories().firstOrNull { it.id == c.id }
+    suspend fun deleteCategory(c: Category, now: Instant) {
+        allCategories().firstOrNull { it.id == c.id }?.let { c -> save { c.copy(deleted = true, updatedAt = now) } }
+    }
 
     /** Accounts offered: not deleted, by name. */
     suspend fun accounts(): List<Account> = allAccounts().filter { !it.deleted }
 
     suspend fun allAccounts(): List<Account> = snapshots.loadRecords().accounts.sortedBy { it.name.lowercase() }
 
-    /** Null when an account already has the name (any case), or the name or last digits ([mask], 3–6) aren't valid. */
-    suspend fun addAccount(name: String, kind: AccountKind, mask: String?, now: Instant): Account? {
+    /** A new account; or a deleted one with the name back, with this type and these last digits ([mask], 3–6). */
+    suspend fun addAccount(name: String, kind: AccountKind, mask: String?, now: Instant): CatalogResult<Account> {
         val n = name.trim()
-        if (accounts().any { it.name.equals(n, ignoreCase = true) }) return null
-        return runCatching { Account(EntityId.random(), n, kind, mask?.trim()?.ifEmpty { null }, now, false) }.getOrNull()?.also { save(accounts = listOf(it)) }
+        val m = mask?.trim()?.ifEmpty { null }
+        (nameProblem(n) ?: maskProblem(m))?.let { return Refused(it) }
+        val all = allAccounts()
+        val same = all.filter { it.name.equals(n, ignoreCase = true) }
+        if (same.any { !it.deleted }) return Refused(ACCOUNT_TAKEN)
+        same.firstOrNull()?.let { return save { it.copy(name = n, kind = kind, mask = m, deleted = false, updatedAt = now) } }
+        if (all.size >= limits.maxRecordsPerType) return Refused(overLimit("accounts"))
+        return save { Account(EntityId.random(), n, kind, m, now, false) }
     }
 
-    suspend fun renameAccount(a: Account, name: String, now: Instant) = currentAccount(a)?.let { save(accounts = listOf(it.copy(name = name.trim(), updatedAt = now))) }
+    /** Changes an account's name, type and last digits together (catalog report #1). */
+    suspend fun updateAccount(a: Account, name: String, kind: AccountKind, mask: String?, now: Instant): CatalogResult<Account> {
+        val current = accounts().firstOrNull { it.id == a.id } ?: return Refused(GONE)
+        val n = name.trim()
+        val m = mask?.trim()?.ifEmpty { null }
+        (nameProblem(n) ?: maskProblem(m))?.let { return Refused(it) }
+        if (accounts().any { it.id != a.id && it.name.equals(n, ignoreCase = true) }) return Refused(ACCOUNT_TAKEN)
+        return save { current.copy(name = n, kind = kind, mask = m, updatedAt = now) }
+    }
 
-    suspend fun deleteAccount(a: Account, now: Instant) = currentAccount(a)?.let { save(accounts = listOf(it.copy(deleted = true, updatedAt = now))) }
+    suspend fun deleteAccount(a: Account, now: Instant) {
+        allAccounts().firstOrNull { it.id == a.id }?.let { a -> save { a.copy(deleted = true, updatedAt = now) } }
+    }
 
-    private suspend fun currentAccount(a: Account) = allAccounts().firstOrNull { it.id == a.id }
+    /** What deleting [c] would leave pointing at it (catalog report #5, #7). A split's own category isn't counted. */
+    suspend fun uses(c: Category): Uses =
+        Uses(db.entries().countWithCategory(c.id.value), RulesStore(db).active().count { it.categoryId == c.id })
 
-    private suspend fun save(categories: List<Category> = emptyList(), accounts: List<Account> = emptyList()) =
-        snapshots.saveRecords(Snapshot.empty().copy(categories = categories, accounts = accounts))
+    /** As [uses] for a category; an entry counts when money left or reached [a]. */
+    suspend fun uses(a: Account): Uses =
+        Uses(db.entries().countWithAccount(a.id.value), RulesStore(db).active().count { it.accountId == a.id })
+
+    private fun nameProblem(n: String): String? = when {
+        n.isBlank() -> "Enter a name"
+        n.length > MAX_NAME -> "A name can be up to $MAX_NAME characters"
+        else -> null
+    }
+
+    private fun maskProblem(m: String?): String? =
+        if (m != null && (m.length !in 3..6 || !m.all { it in '0'..'9' })) "Last digits: 3 to 6 digits" else null
+
+    private fun overLimit(what: String) = "Vyaya can keep up to ${limits.maxRecordsPerType} $what, deleted ones included"
+
+    // The checks above match the model's; a record it still refuses is refused here rather than thrown (report #8).
+    private suspend fun <T> save(make: () -> T): CatalogResult<T> {
+        val item = runCatching(make).getOrElse { return Refused(INVALID) }
+        snapshots.saveRecords(
+            when (item) {
+                is Category -> Snapshot.empty().copy(categories = listOf(item))
+                is Account -> Snapshot.empty().copy(accounts = listOf(item))
+                else -> error("not a catalog record")
+            },
+        )
+        return Saved(item)
+    }
+
+    private companion object {
+        const val MAX_NAME = 100
+        const val CATEGORY_TAKEN = "A category of this type already has that name"
+        const val ACCOUNT_TAKEN = "An account already has that name"
+        const val GONE = "This was deleted meanwhile"
+        const val INVALID = "That can't be saved"
+    }
 }

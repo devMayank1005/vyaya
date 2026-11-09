@@ -89,13 +89,14 @@ fun AddEntryScreen(
             isError = error != null, supportingText = error?.let { { Text(it) } })
         val kind = if (type == EntryType.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            categories.filter { it.kind == kind && !it.deleted }.forEach { c ->
-                FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(c.name) })
+            // Catalog report #6: an entry's own deleted category stays visible, so what's saved is what's shown.
+            categories.filter { it.kind == kind && (!it.deleted || it.id == existing?.categoryId) }.forEach { c ->
+                FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(if (c.deleted) "${c.name} (deleted)" else c.name) })
             }
         }
         // FLAW-005: the limits stop the typing, rather than a refusal at Save.
         if (accounts.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            accounts.filter { !it.deleted || it.id == accountId }.forEach { a ->
+            accounts.filter { !it.deleted || it.id == existing?.accountId }.forEach { a ->
                 FilterChip(accountId == a.id, { accountId = if (accountId == a.id) null else a.id }, { Text(accountLabel(a)) })
             }
         }

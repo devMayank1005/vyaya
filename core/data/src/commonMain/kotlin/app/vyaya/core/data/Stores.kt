@@ -62,6 +62,9 @@ class EntryStore(private val db: VyayaDatabase) {
             deleted = e.deleted,
             updatedAtMs = e.updatedAt.toEpochMilliseconds(),
             createdAtMs = e.createdAt.toEpochMilliseconds(),
+            categoryId = e.categoryId?.value,
+            accountId = e.accountId?.value,
+            toAccountId = e.toAccountId?.value,
         )
     }
 }
@@ -86,14 +89,16 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
     suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
+                val accounts = SnapshotStore(db).accountsInTransaction()
                 MessageSplitter.split(raw).map { part ->
                     val parsed = MessageParser.parse(part)
                     val refs = listOfNotNull((parsed as? ParseResult.Transaction)?.txn?.upiRef)
                     val time = part.receivedAt.instant
-                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now)
+                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, accounts)
                     when (outcome) {
                         is Outcome.Added -> entries.save(listOf(outcome.entry))
                         is Outcome.Transfer -> entries.save(listOf(outcome.entry))
+                        is Outcome.Duplicate -> outcome.update?.let { entries.save(listOf(it)) }
                         else -> {}
                     }
                     inbox.record(part, outcome)

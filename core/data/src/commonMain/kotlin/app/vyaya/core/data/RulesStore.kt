@@ -27,9 +27,12 @@ class RulesStore(private val db: VyayaDatabase) {
     suspend fun active(): List<RecurringRule> = all().filter { !it.deleted }
 
     /** A new rule; it starts on its next due day from today (this month's, if that hasn't passed). */
-    suspend fun add(type: EntryType, amount: Money, dayOfMonth: Int, categoryId: EntityId?, note: String, now: Instant, zone: TimeZone): RecurringRule {
+    suspend fun add(
+        type: EntryType, amount: Money, dayOfMonth: Int, categoryId: EntityId?, note: String, now: Instant, zone: TimeZone,
+        accountId: EntityId? = null,
+    ): RecurringRule {
         val today = now.toLocalDateTime(zone).date
-        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, null, note, false, Recurring.startsOnFor(today, dayOfMonth), now, false)
+        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, accountId, note, false, Recurring.startsOnFor(today, dayOfMonth), now, false)
         save(rule)
         return rule
     }

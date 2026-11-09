@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "b8c73fce61c894ed403501cbc52e3564",
+    "identityHash": "995dfd01e8bbd8d107270b061d44722a",
     "entities": [
       {
         "tableName": "entries",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `line` TEXT NOT NULL, `occurredAtMs` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, `type` TEXT NOT NULL, `upiRef` TEXT, `payeeKey` TEXT, `ruleId` TEXT, `month` TEXT, `deleted` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `line` TEXT NOT NULL, `occurredAtMs` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, `type` TEXT NOT NULL, `upiRef` TEXT, `payeeKey` TEXT, `ruleId` TEXT, `month` TEXT, `deleted` INTEGER NOT NULL, `updatedAtMs` INTEGER NOT NULL, `createdAtMs` INTEGER NOT NULL, `categoryId` TEXT, `accountId` TEXT, `toAccountId` TEXT, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -75,6 +75,21 @@
             "columnName": "createdAtMs",
             "affinity": "INTEGER",
             "notNull": true
+          },
+          {
+            "fieldPath": "categoryId",
+            "columnName": "categoryId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "accountId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "toAccountId",
+            "columnName": "toAccountId",
+            "affinity": "TEXT"
           }
         ],
         "primaryKey": {
@@ -237,7 +252,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'b8c73fce61c894ed403501cbc52e3564')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '995dfd01e8bbd8d107270b061d44722a')"
     ]
   }
 }

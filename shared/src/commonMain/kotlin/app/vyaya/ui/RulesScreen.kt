@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import app.vyaya.core.model.Account
 import app.vyaya.core.model.Category
 import app.vyaya.core.model.CategoryKind
 import app.vyaya.core.model.EntityId
@@ -113,7 +114,9 @@ internal fun missedText(months: List<YearMonth>): String {
 }
 
 /** What the rule form holds. */
-data class RuleInput(val type: EntryType, val amount: String, val day: String, val categoryId: EntityId?, val note: String) {
+data class RuleInput(
+    val type: EntryType, val amount: String, val day: String, val categoryId: EntityId?, val note: String, val accountId: EntityId? = null,
+) {
     val money: Money? get() = Money.parse(amount.trim())?.takeIf { it.paise > 0 }
     val dayOfMonth: Int? get() = day.trim().toIntOrNull()?.takeIf { it in 1..31 }
 
@@ -129,18 +132,22 @@ data class RuleInput(val type: EntryType, val amount: String, val day: String, v
 /** Add or change a recurring rule. An existing rule keeps its type: its past entries must keep matching it. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun RuleForm(existing: RecurringRule?, categories: List<Category>, onSave: (RuleInput) -> Boolean, onDelete: () -> Unit, onClose: () -> Unit) {
+fun RuleForm(
+    existing: RecurringRule?, categories: List<Category>, onSave: (RuleInput) -> Boolean, onDelete: () -> Unit, onClose: () -> Unit,
+    accounts: List<Account> = emptyList(),
+) {
     var type by remember { mutableStateOf(existing?.type ?: EntryType.EXPENSE) }
     var amount by remember { mutableStateOf(existing?.amount?.let { if (it.paise % 100 == 0L) "${it.paise / 100}" else "${it.paise / 100}.${(it.paise % 100).toString().padStart(2, '0')}" } ?: "") }
     var day by remember { mutableStateOf(existing?.dayOfMonth?.toString() ?: "") }
     var categoryId by remember { mutableStateOf(existing?.categoryId) }
+    var accountId by remember { mutableStateOf(existing?.accountId) }
     var note by remember { mutableStateOf(existing?.note ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add recurring" else "Change recurring", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
-                val input = RuleInput(type, amount, day, categoryId, note)
+                val input = RuleInput(type, amount, day, categoryId, note, accountId)
                 error = input.problem() ?: if (onSave(input)) null else "This rule can't be saved"
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
@@ -161,6 +168,12 @@ fun RuleForm(existing: RecurringRule?, categories: List<Category>, onSave: (Rule
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             categories.filter { it.kind == kind && !it.deleted }.forEach { c ->
                 FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(c.name) })
+            }
+        }
+        // Catalog report #4: the account its entries come from.
+        if (accounts.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            accounts.filter { !it.deleted || it.id == existing?.accountId }.forEach { a ->
+                FilterChip(accountId == a.id, { accountId = if (accountId == a.id) null else a.id }, { Text(accountLabel(a)) })
             }
         }
     }
