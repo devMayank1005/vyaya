@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -38,7 +39,8 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
 private enum class Tab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Filled.Home), RECURRING("Recurring", Icons.Filled.Refresh), DETECTED("Detected", Icons.Filled.Notifications),
+    HOME("Home", Icons.Filled.Home), RECURRING("Recurring", Icons.Filled.Refresh), PEOPLE("People", Icons.Filled.Person),
+    DETECTED("Detected", Icons.Filled.Notifications),
     BACKUP("Settings", Icons.Filled.Settings),
 }
 
@@ -118,6 +120,19 @@ private fun VyayaRootContent(
     /** Recurring report #1: a rule whose amount changed, and this month's entry's old amount. */
     var askThisMonth by remember { mutableStateOf<Pair<RecurringRule, app.vyaya.core.model.Money>?>(null) }
     fun rulesChanged() { rulesVersion++; onRulesChanged() }
+
+    // Lent and borrowed.
+    val ledger = remember(db) { app.vyaya.core.data.LedgerStore(db) }
+    var ledgerVersion by remember { mutableStateOf(0) }
+    val people by produceState(emptyList<app.vyaya.core.model.Person>(), db, ledgerVersion) { value = ledger.people() }
+    val balances by produceState(app.vyaya.core.engine.Balances.of(emptyList()), db, ledgerVersion) { value = ledger.balances() }
+    var person by remember { mutableStateOf<app.vyaya.core.model.Person?>(null) }
+    val personEntries by produceState(emptyList<app.vyaya.core.model.LedgerEntry>(), person, ledgerVersion) {
+        value = person?.let { ledger.entries(it.id) } ?: emptyList()
+    }
+    /** Which ledger form is open: "person", "lent", "borrowed" or "paidBack". */
+    var ledgerForm by remember { mutableStateOf<String?>(null) }
+    fun ledgerChanged() { ledgerVersion++ }
     val scope = rememberCoroutineScope()
 
     val settings = records?.settings
@@ -153,6 +168,31 @@ private fun VyayaRootContent(
             onDelete = { existing?.let { r -> scope.launch { rulesStore.delete(r, clock()); rulesChanged() } }; editingRule = null },
             onClose = { addingRule = false; editingRule = null },
         )
+        return
+    }
+
+    ledgerForm?.let { form ->
+        val today = clock().toLocalDateTime(settings?.homeTimeZone ?: zone()).date
+        val who = person
+        when (form) {
+            "person" -> PersonForm(onSave = { name -> scope.launch { ledger.addPerson(name, clock()); ledgerChanged() }; ledgerForm = null; true },
+                onClose = { ledgerForm = null })
+            else -> if (who != null) LedgerForm(
+                title = when (form) { "lent" -> "I lent ${who.name}"; "borrowed" -> "I borrowed from ${who.name}"; else -> "Paid back" },
+                onSave = { amount, note ->
+                    scope.launch {
+                        when (form) {
+                            "lent" -> ledger.add(who.id, app.vyaya.core.model.LedgerDirection.LENT, amount, today, note, clock())
+                            "borrowed" -> ledger.add(who.id, app.vyaya.core.model.LedgerDirection.BORROWED, amount, today, note, clock())
+                            else -> ledger.paidBack(who.id, amount, today, clock())
+                        }
+                        ledgerChanged()
+                    }
+                    ledgerForm = null
+                },
+                onClose = { ledgerForm = null },
+            )
+        }
         return
     }
 
@@ -218,6 +258,13 @@ private fun VyayaRootContent(
                     onResume = { r, addMissed ->
                         scope.launch { rulesStore.resume(r, addMissed, clock(), records?.settings?.homeTimeZone ?: zone()); rulesChanged() }
                     })
+                Tab.PEOPLE -> {
+                    val who = person
+                    if (who == null) PeopleScreen(people, balances, onAddPerson = { ledgerForm = "person" }, onOpen = { person = it })
+                    else PersonScreen(who, balances.of(who.id), personEntries,
+                        onLent = { ledgerForm = "lent" }, onBorrowed = { ledgerForm = "borrowed" }, onPaidBack = { ledgerForm = "paidBack" },
+                        onSettleAll = { scope.launch { ledger.settleAll(who.id, clock()); ledgerChanged() } }, onBack = { person = null })
+                }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure)
             }
