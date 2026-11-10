@@ -3,11 +3,13 @@ package app.vyaya.core.simulation
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import app.vyaya.core.backup.BackupCodec
+import app.vyaya.core.backup.CsvExport
 import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.Restore
 import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.data.BackupStore
+import app.vyaya.core.data.CsvStore
 import app.vyaya.core.data.RestoreResult
 import app.vyaya.core.data.SnapshotStore
 import app.vyaya.core.data.VyayaDatabase
@@ -30,7 +32,7 @@ class DatabaseBackupSimulationRunTest {
     fun run_database_backup_simulation(): Unit = runBlocking {
         val users = System.getProperty("sim.backup.users")?.toIntOrNull() ?: 100
         val random = Random(11)
-        var exportSame = 0; var exportDiffers = 0
+        var exportSame = 0; var exportDiffers = 0; var csvSame = 0; var csvDiffers = 0
         var mergeSame = 0; var mergeDiffers = 0; var replaceSame = 0; var replaceDiffers = 0
         var fuzz = 0; var refusedUnchanged = 0; var refusedChanged = 0; var acceptedAsReader = 0; var acceptedOtherwise = 0; var crashed = 0
         val notes = mutableListOf<String>()
@@ -43,6 +45,9 @@ class DatabaseBackupSimulationRunTest {
                 SnapshotStore(db).save(a)
                 val text = export(db)
                 if (text == BackupCodec.encode(a, META)) exportSame++ else { exportDiffers++; if (notes.size < 5) notes += "user $u: export differs" }
+                // The spreadsheet from the database, page by page, is the one made from the snapshot.
+                val csv = StringBuilder().also { out -> CsvStore(db, pageSize = 37).export { out.append(it) } }.toString()
+                if (csv == CsvExport.export(a)) csvSame++ else { csvDiffers++; if (notes.size < 5) notes += "user $u: spreadsheet differs" }
 
                 // A second phone: part of A's data edited later, plus its own records; merged into A, and replacing A.
                 val b = personaSnapshot(persona, random, entryCap = 100).let { own ->
@@ -93,6 +98,7 @@ class DatabaseBackupSimulationRunTest {
         val report = buildString {
             appendLine("Database backup simulation: $users users (${"%.1f".format(seconds)} s)")
             appendLine("export from the database = codec's file: $exportSame same, $exportDiffers differ")
+            appendLine("spreadsheet from the database = CsvExport's: $csvSame same, $csvDiffers differ")
             appendLine("merge restore = Restore.apply: $mergeSame same, $mergeDiffers differ")
             appendLine("replace restore = Restore.apply: $replaceSame same, $replaceDiffers differ")
             appendLine("damaged files: $fuzz; refused with the database unchanged $refusedUnchanged, refused but changed $refusedChanged, " +

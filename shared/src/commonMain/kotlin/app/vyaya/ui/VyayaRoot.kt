@@ -61,6 +61,7 @@ fun VyayaRoot(
     zone: () -> TimeZone = { TimeZone.currentSystemDefault() },
     backupStatus: BackupStatus = BackupStatus.Idle,
     onExport: (CharArray?) -> Unit = {},
+    onExportCsv: () -> Unit = {},
     onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
     onRestoreAnyway: () -> Unit = {},
     onPassword: (CharArray) -> Unit = {},
@@ -73,7 +74,7 @@ fun VyayaRoot(
     /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
     showDetected: Boolean = true,
 ) = VyayaTheme {
-    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected)
+    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected)
 }
 
 @Composable
@@ -89,6 +90,7 @@ private fun VyayaRootContent(
     zone: () -> TimeZone = { TimeZone.currentSystemDefault() },
     backupStatus: BackupStatus = BackupStatus.Idle,
     onExport: (CharArray?) -> Unit = {},
+    onExportCsv: () -> Unit = {},
     onRestore: (app.vyaya.core.backup.RestoreMode) -> Unit = {},
     onRestoreAnyway: () -> Unit = {},
     onPassword: (CharArray) -> Unit = {},
@@ -333,7 +335,7 @@ private fun VyayaRootContent(
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
-                    onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" })
+                    onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv)
             }
         }
     }

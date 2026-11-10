@@ -92,6 +92,13 @@ interface EntryDao {
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun count(): Int
 
+    /** Entries not deleted, by time then id, after the last one read (keyset pages for the spreadsheet export). */
+    @Query(
+        "SELECT * FROM entries WHERE deleted = 0 AND (occurredAtMs > :afterMs OR (occurredAtMs = :afterMs AND id > :afterId)) " +
+            "ORDER BY occurredAtMs, id LIMIT :limit",
+    )
+    suspend fun pageByTime(afterMs: Long, afterId: String, limit: Int): List<EntryRow>
+
     @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND categoryId = :id")
     suspend fun countWithCategory(id: String): Int
 

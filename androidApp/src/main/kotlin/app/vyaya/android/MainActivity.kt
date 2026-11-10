@@ -68,6 +68,16 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val exportCsvTo = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri ?: return@registerForActivityResult
+        backupStatus.value = BackupStatus.Working("Writing the spreadsheet…")
+        lifecycleScope.launch {
+            val rows = contentResolver.openOutputStream(uri)?.use { backupFiles().exportCsv(it) }
+            backupStatus.value = if (rows != null) BackupStatus.Done("Spreadsheet saved: $rows ${if (rows == 1) "entry" else "entries"}")
+            else BackupStatus.Refused(DecodeResult.Failure(listOf("The spreadsheet couldn't be written")))
+        }
+    }
+
     private val restoreFrom: ActivityResultLauncher<Array<String>> = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         showRestore { restoreFlow.picked(uri) }
@@ -95,6 +105,12 @@ class MainActivity : FragmentActivity() {
                             exportPassword = password
                             // Protected: the .vyaya file (docs/encrypted-backup-v1.md); plain: readable JSON lines.
                             exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.${if (password != null) "vyaya" else "json"}")
+                        }
+                    },
+                    // The spreadsheet has no password, so it leaves the app only after the phone's own check (SEC-003).
+                    onExportCsv = {
+                        AppLock.confirmThen(authenticator, "Export your entries as a spreadsheet") {
+                            exportCsvTo.launch("vyaya-entries-${java.time.LocalDate.now()}.csv")
                         }
                     },
                     onPassword = { pw -> showRestore { restoreFlow.withPassword(pw) } },

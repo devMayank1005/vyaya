@@ -59,6 +59,7 @@ fun BackupScreen(
     deviceSecure: Boolean = true,
     onCategories: () -> Unit = {},
     onAccounts: () -> Unit = {},
+    onExportCsv: () -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -120,6 +121,10 @@ fun BackupScreen(
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
+        Text("Spreadsheet", style = MaterialTheme.typography.titleMedium)
+        Text("All your entries as a CSV file for Excel or Google Sheets. No password: anyone with the file can read it. " +
+            "It can't be restored; use a backup for that.", style = MaterialTheme.typography.bodySmall)
+        OutlinedButton(onExportCsv, enabled = !busy) { Text("Export spreadsheet (CSV)") }
         Text("Your lists", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onCategories) { Text("Categories") }

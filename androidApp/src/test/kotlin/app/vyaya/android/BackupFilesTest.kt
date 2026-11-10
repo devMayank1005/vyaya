@@ -194,4 +194,22 @@ class BackupFilesTest {
         compose.onNodeWithText("Restore with this password").performClick()
         assertEquals(listOf("a good long password"), given)
     }
+
+    @Test
+    fun csv_the_spreadsheet_is_written_from_the_database() = runTest {
+        SnapshotStore(db).save(data(1_203))
+        val out = ByteArrayOutputStream()
+        val rows = BackupFiles(db, context.cacheDir, "0.1.0").exportCsv(out)
+        assertEquals(1_203, rows)
+        assertEquals(app.vyaya.core.backup.CsvExport.export(SnapshotStore(db).load()), out.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun csv_settings_has_a_spreadsheet_export_that_says_it_has_no_password() {
+        var asked = 0
+        compose.setContent { BackupScreen(BackupStatus.Idle, onExport = {}, onRestore = {}, onRestoreAnyway = {}, onExportCsv = { asked++ }) }
+        compose.onNodeWithText("No password: anyone with the file can read it", substring = true).performScrollTo()
+        compose.onNodeWithText("Export spreadsheet (CSV)").performScrollTo().performClick()
+        assertEquals(1, asked)
+    }
 }

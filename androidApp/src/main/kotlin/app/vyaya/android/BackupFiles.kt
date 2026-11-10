@@ -6,6 +6,7 @@ import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.ExportMeta
 import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.data.BackupStore
+import app.vyaya.core.data.CsvStore
 import app.vyaya.core.data.RestoreResult
 import app.vyaya.core.data.VyayaDatabase
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,19 @@ class BackupFiles(
             EncodeResult.Failure("The backup couldn't be written: ${e.message ?: "storage error"}")
         } finally {
             temp.delete()
+        }
+    }
+
+    /**
+     * The spreadsheet of every entry ([CsvStore], page by page), written to [out] (left open for the caller to close).
+     * Returns how many entries it holds, or null when the file couldn't be written.
+     */
+    suspend fun exportCsv(out: OutputStream): Int? = withContext(Dispatchers.IO) {
+        try {
+            val w = out.bufferedWriter(Charsets.UTF_8)
+            CsvStore(db).export { w.write(it) }.also { w.flush() }
+        } catch (e: IOException) {
+            null
         }
     }
 

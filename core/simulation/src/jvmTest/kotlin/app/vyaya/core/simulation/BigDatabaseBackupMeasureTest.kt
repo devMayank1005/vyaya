@@ -6,6 +6,7 @@ import app.vyaya.core.data.RestoreResult
 import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.data.BackupStore
+import app.vyaya.core.data.CsvStore
 import app.vyaya.core.data.SnapshotStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.EntityId
@@ -71,9 +72,15 @@ class BigDatabaseBackupMeasureTest {
                     val restorePeak = peak / 1024 / 1024
                     again.bufferedWriter().use { w -> BackupStore(b).export(META) { w.write(it); w.write("\n") } }
                     val same = sha(file) == sha(again)
+                    System.gc(); peak = 0
+                    val csvFile = File(dir, "entries-$n.csv")
+                    t = System.nanoTime()
+                    val csvRows = csvFile.bufferedWriter().use { w -> CsvStore(a).export { w.write(it); sample() } }
+                    val csvMs = (System.nanoTime() - t) / 1_000_000
+                    val csvPeak = peak / 1024 / 1024
                     val ok = exported is EncodeResult.Success && restored is RestoreResult.Restored && same
                     lines += "entries~$n file=${file.length() / 1024 / 1024}MB export=${exportMs}ms (heap peak~${exportPeak}MB) " +
-                        "restore=${restoreMs}ms (heap peak~${restorePeak}MB) fidelity=${if (ok) "ok" else "BROKEN export=$exported restore=$restored same=$same"}"
+                        "restore=${restoreMs}ms (heap peak~${restorePeak}MB) csv=${csvMs}ms ${csvRows} rows ${csvFile.length() / 1024 / 1024}MB (heap peak~${csvPeak}MB) fidelity=${if (ok) "ok" else "BROKEN export=$exported restore=$restored same=$same"}"
                 } catch (e: OutOfMemoryError) {
                     lines += "entries~$n OUT OF MEMORY"
                     break
