@@ -199,8 +199,8 @@ class BackupFilesTest {
     fun csv_the_spreadsheet_is_written_from_the_database() = runTest {
         SnapshotStore(db).save(data(1_203))
         val out = ByteArrayOutputStream()
-        val rows = BackupFiles(db, context.cacheDir, "0.1.0").exportCsv(out)
-        assertEquals(1_203, rows)
+        val written = BackupFiles(db, context.cacheDir, "0.1.0").exportCsv(out)
+        assertEquals(app.vyaya.core.data.CsvStore.Written(1_203, 0), written)
         assertEquals(app.vyaya.core.backup.CsvExport.export(SnapshotStore(db).load()), out.toString(Charsets.UTF_8))
     }
 
@@ -210,6 +210,38 @@ class BackupFilesTest {
         compose.setContent { BackupScreen(BackupStatus.Idle, onExport = {}, onRestore = {}, onRestoreAnyway = {}, onExportCsv = { asked++ }) }
         compose.onNodeWithText("No password: anyone with the file can read it", substring = true).performScrollTo()
         compose.onNodeWithText("Export spreadsheet (CSV)").performScrollTo().performClick()
+        assertEquals(1, asked)
+    }
+
+    @Test
+    fun csv_data_002_a_failed_export_writes_nothing_to_the_picked_file() = runTest {
+        SnapshotStore(db).save(data(10))
+        db.close() // the database fails mid-export (any error, not only a storage one)
+        val out = ByteArrayOutputStream()
+        assertEquals(null, BackupFiles(db, context.cacheDir, "0.1.0").exportCsv(out))
+        assertEquals("nothing reaches the user's file until the whole spreadsheet is written", 0, out.size())
+        assertTrue("the temporary file is gone", context.cacheDir.listFiles().orEmpty().none { it.name.startsWith("csv") })
+    }
+
+    @Test
+    fun csv_pen_003_the_message_says_how_many_rows_were_left_out() {
+        assertEquals("Spreadsheet saved: 1 entry", csvSavedMessage(app.vyaya.core.data.CsvStore.Written(1, 0)))
+        assertEquals("Spreadsheet saved: 12 entries. 2 couldn't be read and were left out.",
+            csvSavedMessage(app.vyaya.core.data.CsvStore.Written(12, 2)))
+    }
+
+    @Test
+    fun csv_sec_004_without_a_screen_lock_the_export_asks_first() {
+        var asked = 0
+        compose.setContent {
+            BackupScreen(BackupStatus.Idle, onExport = {}, onRestore = {}, onRestoreAnyway = {}, deviceSecure = false, onExportCsv = { asked++ })
+        }
+        compose.onNodeWithText("Export spreadsheet (CSV)").performScrollTo().performClick()
+        compose.onNodeWithText("Export without a check?").assertExists()
+        compose.onNodeWithText("Cancel").performClick()
+        assertEquals(0, asked)
+        compose.onNodeWithText("Export spreadsheet (CSV)").performScrollTo().performClick()
+        compose.onNodeWithText("Export anyway").performClick()
         assertEquals(1, asked)
     }
 }

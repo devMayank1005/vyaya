@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -124,7 +125,19 @@ fun BackupScreen(
         Text("Spreadsheet", style = MaterialTheme.typography.titleMedium)
         Text("All your entries as a CSV file for Excel or Google Sheets. No password: anyone with the file can read it. " +
             "It can't be restored; use a backup for that.", style = MaterialTheme.typography.bodySmall)
-        OutlinedButton(onExportCsv, enabled = !busy) { Text("Export spreadsheet (CSV)") }
+        var csvAsk by remember { mutableStateOf(false) }
+        // csv report #4: with no screen lock the phone can't confirm it's you, so say plainly what leaves.
+        OutlinedButton({ if (deviceSecure) onExportCsv() else csvAsk = true }, enabled = !busy) { Text("Export spreadsheet (CSV)") }
+        if (csvAsk) AlertDialog(
+            onDismissRequest = { csvAsk = false },
+            title = { Text("Export without a check?") },
+            text = {
+                Text("This phone has no screen lock, so anyone holding it can make this file. It lists every payee, amount and " +
+                    "UPI reference in plain text, with no password.")
+            },
+            confirmButton = { TextButton({ csvAsk = false; onExportCsv() }) { Text("Export anyway") } },
+            dismissButton = { TextButton({ csvAsk = false }) { Text("Cancel") } },
+        )
         Text("Your lists", style = MaterialTheme.typography.titleMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onCategories) { Text("Categories") }

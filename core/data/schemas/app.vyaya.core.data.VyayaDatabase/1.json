@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "995dfd01e8bbd8d107270b061d44722a",
+    "identityHash": "67163bcb740070fe7860a582f328fe42",
     "entities": [
       {
         "tableName": "entries",
@@ -100,13 +100,14 @@
         },
         "indices": [
           {
-            "name": "index_entries_occurredAtMs",
+            "name": "index_entries_occurredAtMs_id",
             "unique": false,
             "columnNames": [
-              "occurredAtMs"
+              "occurredAtMs",
+              "id"
             ],
             "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_entries_occurredAtMs` ON `${TABLE_NAME}` (`occurredAtMs`)"
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_entries_occurredAtMs_id` ON `${TABLE_NAME}` (`occurredAtMs`, `id`)"
           },
           {
             "name": "index_entries_upiRef",
@@ -252,7 +253,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '995dfd01e8bbd8d107270b061d44722a')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '67163bcb740070fe7860a582f328fe42')"
     ]
   }
 }

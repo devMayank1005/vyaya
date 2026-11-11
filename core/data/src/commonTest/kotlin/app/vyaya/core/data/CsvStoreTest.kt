@@ -14,6 +14,7 @@ import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Money
 import app.vyaya.core.model.Split
 import app.vyaya.core.model.SystemCategories
+import androidx.room.useReaderConnection
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.TimeZone
 import kotlin.random.Random
@@ -31,8 +32,9 @@ class CsvStoreTest {
 
     private suspend fun export(db: VyayaDatabase, pageSize: Int = 500): Pair<String, Int> {
         val out = StringBuilder()
-        val rows = CsvStore(db, pageSize).export { out.append(it) }
-        return out.toString() to rows
+        val written = CsvStore(db, pageSize).export { out.append(it) }
+        assertEquals(0, written.skipped)
+        return out.toString() to written.rows
     }
 
     @Test
@@ -80,7 +82,32 @@ class CsvStoreTest {
             emptyList(), EntrySource.MANUAL, null, emptyList(), null, t, t, false)
         SnapshotStore(db).save(Snapshot.empty().copy(categories = listOf(evil), accounts = listOf(card), entries = listOf(e)))
         val row = export(db).first.split("\r\n")[1]
-        assertTrue(row.contains(",\"'=HYPERLINK(\"\"http://x\"\",\"\"Food\"\")\",'@SUM(A1),'+91 Shop,'-tip,"), row)
+        assertTrue(row.contains(",\"'=HYPERLINK(\"\"http://x\"\",\"\"Food\"\")\",'@SUM(A1),,'+91 Shop,'-tip,"), row)
+        db.close()
+    }
+
+    @Test
+    fun csv_sim_001_each_page_comes_from_an_index_without_sorting() = runTest {
+        val db = inMemoryDatabase()
+        val plan = db.useReaderConnection { c ->
+            c.usePrepared("EXPLAIN QUERY PLAN $PAGE_BY_TIME") { st -> buildList { while (st.step()) add(st.getText(3)) } }
+        }
+        assertTrue(plan.none { "TEMP B-TREE" in it }, "a page must not sort the rest of the table: $plan")
+        db.close()
+    }
+
+    @Test
+    fun csv_pen_003_a_damaged_row_is_left_out_and_counted_not_a_crash() = runTest {
+        val db = inMemoryDatabase()
+        val good = Entry(EntityId.random(), EntryType.EXPENSE, Money(100_00), CapturedAt(t, ist), null, null, null, "Shop", "",
+            emptyList(), EntrySource.MANUAL, null, emptyList(), null, t, t, false)
+        SnapshotStore(db).save(Snapshot.empty().copy(entries = listOf(good)))
+        val expected = CsvExport.export(SnapshotStore(db).load())
+        db.entries().upsert(listOf(EntryRow(id = "00000000-0000-4000-8000-000000000009", line = """{"t":"entry"}""", occurredAtMs = 5,
+            amountPaise = 1, type = "EXPENSE", upiRef = null, payeeKey = null, ruleId = null, month = null, deleted = false, updatedAtMs = 1, createdAtMs = 1)))
+        val out = StringBuilder()
+        assertEquals(CsvStore.Written(rows = 1, skipped = 1), CsvStore(db).export { out.append(it) })
+        assertEquals(expected, out.toString())
         db.close()
     }
 }

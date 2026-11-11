@@ -21,7 +21,7 @@ import androidx.room.Upsert
  */
 @Entity(
     tableName = "entries",
-    indices = [Index("occurredAtMs"), Index("upiRef"), Index("ruleId", "month"), Index("updatedAtMs")],
+    indices = [Index("occurredAtMs", "id"), Index("upiRef"), Index("ruleId", "month"), Index("updatedAtMs")],
 )
 data class EntryRow(
     @PrimaryKey val id: String,
@@ -44,6 +44,14 @@ data class EntryRow(
     val accountId: String? = null,
     val toAccountId: String? = null,
 )
+
+/**
+ * Entries not deleted, by time then id, after the last one read: keyset pages for the spreadsheet export. The row-value
+ * condition reads straight from the (occurredAtMs, id) index; an OR of the two columns sorted the rest of the table for
+ * every page, so the export took time growing with the square of the entries (csv report #1).
+ */
+internal const val PAGE_BY_TIME =
+    "SELECT * FROM entries WHERE (occurredAtMs, id) > (:afterMs, :afterId) AND deleted = 0 ORDER BY occurredAtMs, id LIMIT :limit"
 
 @Dao
 interface EntryDao {
@@ -93,10 +101,7 @@ interface EntryDao {
     suspend fun count(): Int
 
     /** Entries not deleted, by time then id, after the last one read (keyset pages for the spreadsheet export). */
-    @Query(
-        "SELECT * FROM entries WHERE deleted = 0 AND (occurredAtMs > :afterMs OR (occurredAtMs = :afterMs AND id > :afterId)) " +
-            "ORDER BY occurredAtMs, id LIMIT :limit",
-    )
+    @Query(PAGE_BY_TIME)
     suspend fun pageByTime(afterMs: Long, afterId: String, limit: Int): List<EntryRow>
 
     @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND categoryId = :id")

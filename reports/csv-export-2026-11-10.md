@@ -114,3 +114,25 @@
 - **#5:** signed amount column, or separate spent and received columns (recommended: keep `amount` positive and add a
   `signed_amount` column)?
 - **#7:** add `to_account` now (recommended); ledger as a second file later?
+
+## Resolution (2026-11-11)
+
+Your decision: go with the recommendations. Each fix began with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 SIM-001 | ✅ Fixed | Index `(occurredAtMs, id)` (replaces the `occurredAtMs` one) and pages by `(occurredAtMs, id) > (:ms, :id)`. Test `csv_sim_001_*` checks the query plan has no temp B-tree. Measure (256 MB heap): 100,000 entries 12.5 s → **1.3 s**, 200,000 entries 48.0 s → **4.1 s**, heap peak ~51 MB |
+| 2 DATA-002 | ✅ Fixed | The spreadsheet is written to a temporary file and copied to the picked file only when complete. On any failure the picked document is deleted and the screen says "Nothing was saved". Test `csv_data_002_*` |
+| 3 PEN-003 | ✅ Fixed | A row that doesn't read back is left out and counted (`CsvStore.Written(rows, skipped)`); the message says how many. Test `csv_pen_003_*` (store and message) |
+| 4 SEC-004 | ✅ Fixed | With no screen lock, Export asks first ("Export without a check?"), saying what the file holds. Test `csv_sec_004_*` |
+| 5 FLAW-005 | ✅ Fixed | New `signed_amount` column: spending negative, income positive, transfers and money put aside blank, so SUM is what's left. It is a number, never neutralised. `amount` stays positive |
+| 6 FLAW-006 | ✅ Fixed by #1 and #2 | The read transaction is short and writes only to a local file |
+| 7 FLAW-007 | ✅ Fixed (to_account) | New `to_account` column. The People ledger as a second file is left for later |
+
+Columns now: `date,time,type,amount,signed_amount,category,account,to_account,payee,note,tags,source,upi_ref,id`.
+
+Note from the measure: restoring 200,000 entries went from 5.1 s to 6.1 s. The new index is wider, so each write costs a
+little more. Backup export is unchanged (3.0 s).
+
+TDD note: the database tests (#1, #3) and the CSV format tests (#5, #7) were seen failing before the fix. For the
+Android tests (#2, #4), the red was a compile failure; their test-level red wasn't observed separately.

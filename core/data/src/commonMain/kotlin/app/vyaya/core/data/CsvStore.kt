@@ -12,8 +12,11 @@ import app.vyaya.core.backup.CsvExport
  */
 class CsvStore(private val db: VyayaDatabase, private val pageSize: Int = 500) {
 
-    /** Writes the file to [sink] in pieces; returns how many entries it holds. */
-    suspend fun export(sink: (String) -> Unit): Int = db.useReaderConnection { transactor ->
+    /** What the file holds: [rows] entries; [skipped] rows that didn't read back (a damaged database) were left out. */
+    data class Written(val rows: Int, val skipped: Int)
+
+    /** Writes the file to [sink] in pieces. */
+    suspend fun export(sink: (String) -> Unit): Written = db.useReaderConnection { transactor ->
         transactor.deferredTransaction {
             val records = SnapshotStore(db).loadInTransaction(withEntries = false)
             val names = CsvExport.Names(records.categories, records.accounts)
@@ -22,14 +25,18 @@ class CsvStore(private val db: VyayaDatabase, private val pageSize: Int = 500) {
             var afterMs = Long.MIN_VALUE
             var afterId = ""
             var rows = 0
+            var skipped = 0
             while (true) {
                 val page = db.entries().pageByTime(afterMs, afterId, pageSize)
-                page.forEach { sink(CsvExport.row(entries.entryOf(it), names)) }
-                rows += page.size
+                // csv report #3: a row that doesn't read back (a damaged database) is left out and counted, not a crash.
+                page.forEach { row ->
+                    val entry = runCatching { entries.entryOf(row) }.getOrNull()
+                    if (entry == null) skipped++ else { sink(CsvExport.row(entry, names)); rows++ }
+                }
                 if (page.size < pageSize) break
                 page.last().let { afterMs = it.occurredAtMs; afterId = it.id }
             }
-            rows
+            Written(rows, skipped)
         }
     }
 }

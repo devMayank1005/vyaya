@@ -20,7 +20,12 @@ import kotlinx.datetime.toLocalDateTime
  */
 object CsvExport {
 
-    private val HEADER = listOf("date", "time", "type", "amount", "category", "account", "payee", "note", "tags", "source", "upi_ref", "id")
+    private val HEADER = listOf(
+        "date", "time", "type", "amount", "signed_amount", "category", "account", "to_account", "payee", "note", "tags", "source", "upi_ref", "id",
+    )
+
+    /** The `signed_amount` column: a number, never neutralised (its minus sign is not a formula). */
+    private const val SIGNED = 4
 
     private val TYPE = mapOf(EntryType.EXPENSE to "Expense", EntryType.INCOME to "Income", EntryType.TRANSFER to "Transfer", EntryType.SAVED to "Saved")
     private val SOURCE = mapOf(
@@ -64,8 +69,16 @@ object CsvExport {
                 "${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
                 TYPE.getValue(e.type),
                 plain(e.amount),
+                // csv report #5: spending negative, income positive, so SUM is what's left; transfers and money put
+                // aside move nothing in or out, as the engine counts them.
+                when (e.type) {
+                    EntryType.EXPENSE -> "-" + plain(e.amount)
+                    EntryType.INCOME -> plain(e.amount)
+                    EntryType.TRANSFER, EntryType.SAVED -> ""
+                },
                 category,
                 e.accountId?.let { names.accounts[it] }.orEmpty(),
+                e.toAccountId?.let { names.accounts[it] }.orEmpty(), // csv report #7
                 e.payee.orEmpty(),
                 e.note,
                 e.tags.joinToString("; "),
@@ -80,7 +93,8 @@ object CsvExport {
     fun cell(value: String): String =
         if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) "\"" + value.replace("\"", "\"\"") + "\"" else value
 
-    private fun line(values: List<String>): String = values.joinToString(",") { cell(neutralise(it)) } + "\r\n"
+    private fun line(values: List<String>): String =
+        values.withIndex().joinToString(",") { (i, v) -> cell(if (i == SIGNED) v else neutralise(v)) } + "\r\n"
 
     private fun neutralise(value: String): String = if (value.isNotEmpty() && value[0] in FORMULA_START) "'$value" else value
 

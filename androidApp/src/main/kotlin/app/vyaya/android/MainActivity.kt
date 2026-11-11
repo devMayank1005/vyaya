@@ -72,9 +72,13 @@ class MainActivity : FragmentActivity() {
         uri ?: return@registerForActivityResult
         backupStatus.value = BackupStatus.Working("Writing the spreadsheet…")
         lifecycleScope.launch {
-            val rows = contentResolver.openOutputStream(uri)?.use { backupFiles().exportCsv(it) }
-            backupStatus.value = if (rows != null) BackupStatus.Done("Spreadsheet saved: $rows ${if (rows == 1) "entry" else "entries"}")
-            else BackupStatus.Refused(DecodeResult.Failure(listOf("The spreadsheet couldn't be written")))
+            val written = runCatching { contentResolver.openOutputStream(uri)?.use { backupFiles().exportCsv(it) } }.getOrNull()
+            backupStatus.value = if (written != null) BackupStatus.Done(csvSavedMessage(written))
+            else {
+                // csv report #2: no cut-off spreadsheet is left in the user's folder looking complete.
+                runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+                BackupStatus.Refused(DecodeResult.Failure(listOf("The spreadsheet couldn't be written. Nothing was saved.")))
+            }
         }
     }
 
