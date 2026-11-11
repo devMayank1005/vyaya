@@ -112,6 +112,7 @@ private fun VyayaRootContent(
     var catalogVersion by remember { mutableStateOf(0) }
     val records by produceState<app.vyaya.core.backup.Snapshot?>(null, db, opened, catalogVersion) { value = SnapshotStore(db).loadRecords() }
     val catalog = remember(db) { app.vyaya.core.data.CatalogStore(db) }
+    val merchants = remember(db) { app.vyaya.core.data.MerchantStore(db) }
     /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
     var catalogView by remember { mutableStateOf<String?>(null) }
     var catalogItem by remember { mutableStateOf<String?>(null) }
@@ -169,6 +170,16 @@ private fun VyayaRootContent(
         fun changed() { catalogVersion++; catalogItem = null }
         val item = catalogItem
         when {
+            view == "payees" -> {
+                val names = records?.categories.orEmpty().associate { it.id to it.name }
+                val rules = records?.merchantRules.orEmpty().filter { !it.deleted }.sortedBy { it.payee }
+                val rule = item?.let { i -> rules.firstOrNull { it.id.value == i } }
+                if (rule != null) RememberedPayeeForm(payeeLabel(rule.payee), names[rule.categoryId].orEmpty(),
+                    onForget = { scope.launch { merchants.forget(rule, clock()); changed() } }, onClose = { catalogItem = null })
+                else CatalogList("Remembered payees", rules.map { CatalogRow(it.id.value, payeeLabel(it.payee), "→ " + names[it.categoryId].orEmpty()) },
+                    addLabel = null, onAdd = {}, onOpen = { catalogItem = it }, onBack = { catalogView = null },
+                    empty = "None yet. When you put a detected payment in a category, tick \"Always put…\" and its payee's later payments go there too.")
+            }
             item != null && view == "categories" -> {
                 val c = records?.categories.orEmpty().firstOrNull { it.id.value == item } // kept if deleted meanwhile: Save says so
                 CategoryForm(c, onSave = { name, kind ->
@@ -268,7 +279,15 @@ private fun VyayaRootContent(
             onSave = { input ->
                 val entry = input.toEntry(existing, clock(), zone())
                 if (entry != null) {
-                    scope.launch { entries.save(listOf(entry)) }
+                    val now = clock()
+                    scope.launch {
+                        entries.save(listOf(entry))
+                        // Merchant memory: later detected payments to this payee go in this category.
+                        if (input.alwaysForPayee && entry.payee != null && entry.categoryId != null) {
+                            merchants.remember(entry.payee!!, entry.categoryId!!, now)
+                            catalogVersion++
+                        }
+                    }
                     adding = false; editing = null
                 }
                 entry != null
@@ -335,7 +354,8 @@ private fun VyayaRootContent(
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
-                    onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv)
+                    onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
+                    onPayees = { catalogView = "payees" })
             }
         }
     }

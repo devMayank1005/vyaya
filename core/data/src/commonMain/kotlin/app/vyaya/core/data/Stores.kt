@@ -2,6 +2,7 @@ package app.vyaya.core.data
 
 import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.dedup.Capture
+import app.vyaya.core.dedup.MerchantMemory
 import app.vyaya.core.dedup.Outcome
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -89,12 +90,13 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
     suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
-                val accounts = SnapshotStore(db).accountsInTransaction()
+                val records = SnapshotStore(db).captureRecordsInTransaction()
+                val merchants = MerchantMemory(records.merchantRules, records.categories)
                 MessageSplitter.split(raw).map { part ->
                     val parsed = MessageParser.parse(part)
                     val refs = listOfNotNull((parsed as? ParseResult.Transaction)?.txn?.upiRef)
                     val time = part.receivedAt.instant
-                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, accounts)
+                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, records.accounts, merchants)
                     when (outcome) {
                         is Outcome.Added -> entries.save(listOf(outcome.entry))
                         is Outcome.Transfer -> entries.save(listOf(outcome.entry))

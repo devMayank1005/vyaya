@@ -77,18 +77,24 @@ object Capture {
      * Captures every payment in [raw]: one, or several when the message lists several (a card summary SMS, see
      * [MessageSplitter]). Each later part is checked against the entries the earlier parts added.
      */
-    fun processAll(raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList()): List<Outcome> {
+    fun processAll(
+        raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(), merchants: MerchantMemory = MerchantMemory.NONE,
+    ): List<Outcome> {
         var entries = existing
         return MessageSplitter.split(raw).map { part ->
-            process(part, entries, now, accounts).also { if (it is Outcome.Added) entries = entries + it.entry }
+            process(part, entries, now, accounts, merchants).also { if (it is Outcome.Added) entries = entries + it.entry }
         }
     }
 
-    fun process(raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList()): Outcome =
-        process(raw, MessageParser.parse(raw), existing, now, accounts)
+    fun process(
+        raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(), merchants: MerchantMemory = MerchantMemory.NONE,
+    ): Outcome = process(raw, MessageParser.parse(raw), existing, now, accounts, merchants)
 
     /** As [process], for a message already parsed (the database store parses once, to look up by reference). */
-    fun process(raw: RawMessage, parsed: ParseResult, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList()): Outcome {
+    fun process(
+        raw: RawMessage, parsed: ParseResult, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(),
+        merchants: MerchantMemory = MerchantMemory.NONE,
+    ): Outcome {
         val verdict = Filters.judge(raw, parsed)
         val txn = when (verdict) {
             is Verdict.Ignore -> return Outcome.Ignored(verdict.reason)
@@ -96,6 +102,7 @@ object Capture {
             is Verdict.Review -> verdict.txn
         }
         val entry = toEntry(txn, raw.source, now)?.copy(accountId = accountFor(txn.accountMask, accounts))
+            ?.let { it.copy(categoryId = merchants.categoryFor(it)) }
             ?: return Outcome.Ignored(IgnoreReason.NOT_A_TRANSACTION)
         if (verdict is Verdict.Accept) {
             otherSideOf(entry, existing)?.let { return Outcome.Transfer(it.copy(type = EntryType.TRANSFER, updatedAt = now)) }

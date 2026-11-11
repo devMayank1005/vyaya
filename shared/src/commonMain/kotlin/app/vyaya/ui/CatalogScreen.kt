@@ -47,11 +47,16 @@ data class CatalogRow(val key: String, val title: String, val subtitle: String)
 
 /** The user's categories or accounts, to add, rename or delete. */
 @Composable
-fun CatalogList(title: String, rows: List<CatalogRow>, addLabel: String, onAdd: () -> Unit, onOpen: (String) -> Unit, onBack: () -> Unit) {
+fun CatalogList(
+    title: String, rows: List<CatalogRow>, addLabel: String?, onAdd: () -> Unit, onOpen: (String) -> Unit, onBack: () -> Unit, empty: String = "",
+) {
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             TextButton(onBack, Modifier.padding(8.dp)) { Text("‹ Settings") }
             Text(title, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.headlineSmall)
+            if (rows.isEmpty() && empty.isNotEmpty()) {
+                Text(empty, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             LazyColumn(Modifier.fillMaxSize()) {
                 items(rows, key = { it.key }) { r ->
                     Column(Modifier.fillMaxWidth().clickable { onOpen(r.key) }.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -62,7 +67,7 @@ fun CatalogList(title: String, rows: List<CatalogRow>, addLabel: String, onAdd: 
                 item { Spacer(Modifier.height(88.dp)) }
             }
         }
-        ExtendedFloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+        if (addLabel != null) ExtendedFloatingActionButton(onClick = onAdd, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
             icon = { Icon(Icons.Filled.Add, contentDescription = null) }, text = { Text(addLabel) })
     }
 }
@@ -150,6 +155,22 @@ fun deleteNote(uses: CatalogStore.Uses): String {
     }
     return "It won't be offered any more. $entries$rules"
 }
+
+/** One remembered payee (merchant memory): where its detected payments go, and Forget. */
+@Composable
+fun RememberedPayeeForm(payee: String, category: String, onForget: () -> Unit, onClose: () -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(payee, style = MaterialTheme.typography.headlineSmall)
+        Text("Payments Vyaya detects for $payee go in $category. Forgetting it leaves the entries already saved as they are.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClose) { Text("Cancel") }
+            TextButton(onForget) { Text("Forget", color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+/** A payee as remembered (stored lowercase): "swiggy" → "Swiggy". */
+fun payeeLabel(payee: String): String = payee.replaceFirstChar { it.uppercase() }
 
 /** "HDFC ·1234": an account as a chip or a line. */
 fun accountLabel(a: Account): String = a.name + (a.mask?.let { " ·$it" } ?: "")

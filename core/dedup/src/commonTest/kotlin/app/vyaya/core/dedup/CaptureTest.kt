@@ -5,6 +5,9 @@ import app.vyaya.core.filters.ReviewReason
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.AccountKind
 import app.vyaya.core.model.CapturedAt
+import app.vyaya.core.model.Category
+import app.vyaya.core.model.CategoryKind
+import app.vyaya.core.model.MerchantRule
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
@@ -235,5 +238,28 @@ class CaptureTest {
         val typed = fromApp.copy(source = EntrySource.MANUAL)
         assertIs<Outcome.Review>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(typed), now, listOf(hdfc)),
             "an entry the user typed is only a possible duplicate, and is left as they made it")
+    }
+
+    @Test
+    fun merchant_memory_a_remembered_payee_gets_its_category() {
+        val food = Category(EntityId.random(), "Food", CategoryKind.EXPENSE, now, false)
+        val refunds = Category(EntityId.random(), "Refunds", CategoryKind.INCOME, now, false)
+        fun rule(payee: String, c: Category, at: Instant = now, deleted: Boolean = false) = MerchantRule(EntityId.random(), payee, c.id, at, deleted)
+        fun categoryOf(raw: RawMessage, memory: MerchantMemory) =
+            assertIs<Outcome.Added>(Capture.process(raw, emptyList(), now, merchants = memory)).entry.categoryId
+        val memory = MerchantMemory(listOf(rule("swiggy@axl", food)), listOf(food, refunds))
+        assertEquals(food.id, categoryOf(phonepe("250"), memory), "the app's 'Swiggy' is the rule's swiggy@axl")
+        assertEquals(food.id, categoryOf(hdfcSms("250.00", "429112345678"), memory), "the bank SMS too")
+        assertNull(categoryOf(phonepe("250", to = "Zomato"), memory), "another payee")
+        val refund = RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹250 from Swiggy", at(t0))
+        assertNull(categoryOf(refund, memory), "money from Swiggy is not spending on food")
+        assertEquals(refunds.id, categoryOf(refund, MerchantMemory(listOf(rule("Swiggy", refunds)), listOf(refunds))), "unless remembered as income")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food, deleted = true)), listOf(food))), "a forgotten rule")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food)), listOf(food.copy(deleted = true)))), "a deleted category")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food)), emptyList())), "an unknown category")
+        val newer = MerchantMemory(listOf(rule("Swiggy", food, now - 1.hours), rule("SWIGGY", refunds.copy(kind = CategoryKind.EXPENSE), now)),
+            listOf(food, refunds.copy(kind = CategoryKind.EXPENSE)))
+        assertEquals(refunds.id, categoryOf(phonepe("250"), newer), "the latest change wins")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory.NONE))
     }
 }

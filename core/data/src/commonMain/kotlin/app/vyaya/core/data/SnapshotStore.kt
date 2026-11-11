@@ -7,7 +7,6 @@ import androidx.room.useWriterConnection
 import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.backup.SnapshotLines
-import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import kotlin.time.Instant
 
@@ -65,12 +64,14 @@ class SnapshotStore(private val db: VyayaDatabase) {
         return RecordLines.snapshotOf(lines) ?: error("the database holds a record that is not valid")
     }
 
-    /** The accounts alone, for capture to match a message's last digits (catalog report #4); inside a transaction. */
-    internal suspend fun accountsInTransaction(): List<Account> {
-        val lines = db.records().ofKind("account").map { it.line }
-        if (lines.isEmpty()) return emptyList()
-        val only = RecordLines.of(Snapshot.empty()).copy(accounts = lines)
-        return (RecordLines.snapshotOf(only) ?: error("the database holds an account that is not valid")).accounts
+    /**
+     * What capture needs besides entries, inside its transaction: accounts (to match a message's last digits, catalog
+     * report #4), and categories and merchant rules (merchant memory). Read by kind, not the whole snapshot.
+     */
+    internal suspend fun captureRecordsInTransaction(): Snapshot {
+        suspend fun lines(kind: String) = db.records().ofKind(kind).map { it.line }
+        val only = RecordLines.of(Snapshot.empty()).copy(accounts = lines("account"), categories = lines("category"), merchantRules = lines("merchantRule"))
+        return RecordLines.snapshotOf(only) ?: error("the database holds a record that is not valid")
     }
 
     internal companion object {

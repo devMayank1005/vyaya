@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,12 +27,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.vyaya.core.model.Category
 import app.vyaya.core.model.CategoryKind
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Money
 import kotlinx.datetime.DateTimeUnit
@@ -66,12 +71,18 @@ fun AddEntryScreen(
     var date by remember { mutableStateOf(existing?.occurredAt?.let { it.instant.toLocalDateTime(it.timeZone).date } ?: today) }
     var error by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
+    var always by remember { mutableStateOf(false) }
+    // Merchant memory is offered for a payment Vyaya detected: those are the ones capture will see again.
+    val detected = existing?.source in setOf(EntrySource.SMS, EntrySource.NOTIFICATION, EntrySource.SCREENSHOT)
+    val kindNow = if (type == EntryType.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+    val chosen = categories.firstOrNull { it.id == categoryId && !it.deleted && it.kind == kindNow }
+    val canRemember = detected && payee.isNotBlank() && chosen != null
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add entry" else "Edit entry", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
-                val input = EntryInput(type, amount, categoryId, payee, note, date, accountId)
+                val input = EntryInput(type, amount, categoryId, payee, note, date, accountId, alwaysForPayee = always && canRemember)
                 error = input.problem(existing, TimeZone.currentSystemDefault()) ?: if (onSave(input)) null else "This entry can't be saved"
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
@@ -93,6 +104,13 @@ fun AddEntryScreen(
             categories.filter { it.kind == kind && (!it.deleted || it.id == existing?.categoryId) }.forEach { c ->
                 FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(if (c.deleted) "${c.name} (deleted)" else c.name) })
             }
+        }
+        if (canRemember) Row(
+            Modifier.fillMaxWidth().toggleable(always, role = Role.Checkbox, onValueChange = { always = it }),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(always, onCheckedChange = null)
+            Text("Always put ${payee.trim()} in ${chosen!!.name}")
         }
         // FLAW-005: the limits stop the typing, rather than a refusal at Save.
         if (accounts.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
