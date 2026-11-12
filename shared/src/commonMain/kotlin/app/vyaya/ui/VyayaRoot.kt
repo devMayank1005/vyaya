@@ -113,6 +113,7 @@ private fun VyayaRootContent(
     val records by produceState<app.vyaya.core.backup.Snapshot?>(null, db, opened, catalogVersion) { value = SnapshotStore(db).loadRecords() }
     val catalog = remember(db) { app.vyaya.core.data.CatalogStore(db) }
     val merchants = remember(db) { app.vyaya.core.data.MerchantStore(db) }
+    val budgetStore = remember(db) { app.vyaya.core.data.BudgetStore(db) }
     /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
     var catalogView by remember { mutableStateOf<String?>(null) }
     var catalogItem by remember { mutableStateOf<String?>(null) }
@@ -170,6 +171,30 @@ private fun VyayaRootContent(
         fun changed() { catalogVersion++; catalogItem = null }
         val item = catalogItem
         when {
+            view == "budgets" -> {
+                val names = records?.categories.orEmpty().associate { it.id to it.name }
+                val live = app.vyaya.core.engine.Budgets.live(records?.budgets.orEmpty(), records?.categories.orEmpty())
+                    .sortedBy { names[it.categoryId].orEmpty().lowercase() }
+                val budget = item?.let { i -> live.firstOrNull { it.id.value == i } }
+                if (item != null && (item == "new" || budget != null)) {
+                    val open = cats.filter { c -> c.kind == app.vyaya.core.model.CategoryKind.EXPENSE && live.none { it.categoryId == c.id } }
+                    BudgetForm(budget, budget?.let { names[it.categoryId] }, open,
+                        suggestion = { id -> records?.settings?.let { s -> budgetStore.suggestion(id, s, clock().toLocalDateTime(s.homeTimeZone).date) } },
+                        onSave = { categoryId, amount ->
+                            val limit = app.vyaya.core.model.Money.parse(amount.trim())?.takeIf { it.paise > 0 }
+                            val category = (categoryId ?: budget?.categoryId)?.let { id -> records?.categories.orEmpty().firstOrNull { it.id == id } }
+                            when {
+                                category == null -> "Choose a category"
+                                limit == null -> "Enter a monthly limit (up to 2 decimals, at most ₹100 crore)"
+                                else -> answer(budgetStore.set(category, limit, clock())) { changed() }
+                            }
+                        },
+                        onRemove = { budget?.let { b -> scope.launch { budgetStore.remove(b, clock()); changed() } } },
+                        onClose = { catalogItem = null })
+                } else CatalogList("Budgets", live.map { CatalogRow(it.id.value, names[it.categoryId].orEmpty(), "${it.limit.format()} a month") },
+                    addLabel = "Add budget", onAdd = { catalogItem = "new" }, onOpen = { catalogItem = it }, onBack = { catalogView = null },
+                    empty = "No budgets yet. Give a spending category a monthly limit, and Home shows how much of it is left.")
+            }
             view == "payees" -> {
                 val names = records?.categories.orEmpty().associate { it.id to it.name }
                 val rules = records?.merchantRules.orEmpty().filter { !it.deleted }.sortedBy { it.payee.lowercase() }
@@ -338,7 +363,8 @@ private fun VyayaRootContent(
                         value = settings?.let { savingsStore.summary(it, today) }
                     }
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
-                        onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings)
+                        onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings,
+                        budgets = v?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
                 }
                 Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
                     onOpen = { editingRule = it },
@@ -359,7 +385,7 @@ private fun VyayaRootContent(
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
-                    onPayees = { catalogView = "payees" })
+                    onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" })
             }
         }
     }

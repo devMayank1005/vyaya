@@ -299,4 +299,16 @@ class CaptureTest {
         val own = first.copy(accountId = EntityId.random())
         assertNull(assertIs<Outcome.Duplicate>(Capture.process(sms, listOf(own), now, listOf(hdfc))).update)
     }
+
+    @Test
+    fun merchant_two_rules_changed_at_the_same_moment_resolve_the_same_way_in_any_order() {
+        val food = Category(EntityId.random(), "Food", CategoryKind.EXPENSE, now, false)
+        val treats = Category(EntityId.random(), "Treats", CategoryKind.EXPENSE, now, false)
+        val a = MerchantRule(EntityId.parse("00000000-0000-4000-8000-00000000000a")!!, "Swiggy", food.id, now, false)
+        val b = MerchantRule(EntityId.parse("00000000-0000-4000-8000-00000000000b")!!, "swiggy", treats.id, now, false)
+        for (rules in listOf(listOf(a, b), listOf(b, a))) {
+            val e = assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, merchants = MerchantMemory(rules, listOf(food, treats)))).entry
+            assertEquals(treats.id, e.categoryId, "the larger id wins a tie, whatever the order")
+        }
+    }
 }

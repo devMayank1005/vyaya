@@ -12,7 +12,7 @@ import app.vyaya.core.model.MerchantRule
  * - Payees match by [Capture.payeeKey], as de-dup does: "Swiggy", "SWIGGY" and "swiggy@axl" are one payee.
  * - A forgotten rule, or one whose category is deleted or unknown, does nothing (catalog report #7).
  * - The category must suit the payment: a Swiggy refund is income, so a spending category isn't put on it.
- * - Two rules for one payee (merged from two phones): the latest change wins.
+ * - Two rules for one payee (merged from two phones): the latest change wins; at the same moment, the larger id.
  */
 class MerchantMemory(rules: List<MerchantRule>, categories: List<Category>) {
 
@@ -21,7 +21,7 @@ class MerchantMemory(rules: List<MerchantRule>, categories: List<Category>) {
         rules.filter { !it.deleted }
             .groupBy { Capture.payeeKey(it.payee) }
             .filterKeys { it.isNotEmpty() }
-            .mapNotNull { (key, same) -> usable[same.maxBy { it.updatedAt }.categoryId]?.let { key to it } }
+            .mapNotNull { (key, same) -> usable[same.maxWith(compareBy({ it.updatedAt }, { it.id.value })).categoryId]?.let { key to it } }
             .toMap()
     }
 

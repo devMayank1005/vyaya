@@ -62,6 +62,7 @@ fun BackupScreen(
     onAccounts: () -> Unit = {},
     onExportCsv: () -> Unit = {},
     onPayees: () -> Unit = {},
+    onBudgets: () -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -144,7 +145,10 @@ fun BackupScreen(
             OutlinedButton(onCategories) { Text("Categories") }
             OutlinedButton(onAccounts) { Text("Accounts") }
         }
-        OutlinedButton(onPayees) { Text("Remembered payees") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onBudgets) { Text("Budgets") }
+            OutlinedButton(onPayees) { Text("Remembered payees") }
+        }
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().toggleable(lockEnabled, role = Role.Switch, onValueChange = onLockEnabled), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

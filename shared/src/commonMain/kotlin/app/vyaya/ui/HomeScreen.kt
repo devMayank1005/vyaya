@@ -59,6 +59,8 @@ fun HomeScreen(
     monthEnd: MonthEnd? = null,
     /** Saved so far over the finished months, shown on the current month. */
     savings: SavingsSummary? = null,
+    /** This month's budgets against its spending (Phase 3), fullest first. */
+    budgets: List<app.vyaya.core.engine.BudgetProgress> = emptyList(),
 ) {
     Box(modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -70,6 +72,7 @@ fun HomeScreen(
             if (view == null) return@Column
             LazyColumn(Modifier.fillMaxSize()) {
                 item { SummaryCard(view, monthEnd, savings) }
+                if (budgets.isNotEmpty()) item(key = "budgets") { BudgetsCard(budgets, categoryNames) }
                 if (view.entries.isEmpty()) {
                     item { EmptyMonth() }
                 } else {
