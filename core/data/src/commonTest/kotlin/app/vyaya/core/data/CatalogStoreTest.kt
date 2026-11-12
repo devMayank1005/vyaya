@@ -144,4 +144,28 @@ class CatalogStoreTest {
     }
 
     private fun <T> saved(r: CatalogResult<T>): T = assertIs<Saved<T>>(r).item
+
+    @Test
+    fun catalog_edges_last_digits_blanks_unknown_records_and_other_uses() = runTest {
+        val db = inMemoryDatabase()
+        val catalog = CatalogStore(db)
+        assertEquals(null, saved(catalog.addAccount("Cash", AccountKind.CASH, "  ", t)).mask, "blank last digits are none")
+        assertEquals(Refused("Last digits: 3 to 6 digits"), catalog.addAccount("Card", AccountKind.CARD, "12a4", t))
+        assertEquals(Refused("Last digits: 3 to 6 digits"), catalog.addAccount("Card", AccountKind.CARD, "1234567", t))
+        val card = saved(catalog.addAccount("Card", AccountKind.CARD, " 4321 ", t))
+        assertEquals("4321", card.mask)
+        assertEquals(null, saved(catalog.updateAccount(card, "Card", AccountKind.CARD, null, t)).mask)
+        // Deleting what isn't there does nothing.
+        val stranger = Category(EntityId.random(), "Nowhere", CategoryKind.EXPENSE, t, false)
+        catalog.deleteCategory(stranger, t)
+        catalog.deleteAccount(Account(EntityId.random(), "Nowhere", AccountKind.CASH, null, t, false), t)
+        assertEquals(listOf("Card", "Cash"), catalog.accounts().map { it.name })
+        assertEquals(Refused("This was deleted meanwhile"), catalog.renameCategory(stranger, "x", t))
+        // Uses count only what points at this category or account.
+        val pets = saved(catalog.addCategory("Pets", CategoryKind.EXPENSE, t))
+        RulesStore(db).add(EntryType.EXPENSE, Money(100_00), 1, EntityId.random(), "Other", t, TimeZone.UTC, accountId = EntityId.random())
+        assertEquals(CatalogStore.Uses(0, 0), catalog.uses(pets))
+        assertEquals(CatalogStore.Uses(0, 0), catalog.uses(card))
+        db.close()
+    }
 }

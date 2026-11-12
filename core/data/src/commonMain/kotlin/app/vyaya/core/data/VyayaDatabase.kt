@@ -104,6 +104,16 @@ interface EntryDao {
     @Query(PAGE_BY_TIME)
     suspend fun pageByTime(afterMs: Long, afterId: String, limit: Int): List<EntryRow>
 
+    /** Entries (not deleted) of [type] to one payee (by its key): how many, and how many have no category. */
+    @Query(
+        "SELECT COUNT(*) AS total, COALESCE(SUM(categoryId IS NULL), 0) AS uncategorised FROM entries " +
+            "WHERE payeeKey = :key AND type = :type AND deleted = 0",
+    )
+    suspend fun payeeCounts(key: String, type: String): PayeeCounts
+
+    @Query("SELECT * FROM entries WHERE payeeKey = :key AND type = :type AND categoryId IS NULL AND deleted = 0")
+    suspend fun uncategorisedFor(key: String, type: String): List<EntryRow>
+
     @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND categoryId = :id")
     suspend fun countWithCategory(id: String): Int
 
@@ -162,6 +172,10 @@ interface DetectedDao {
     /** The item about [entryId] now shows [line] as [kind] (an added payment that became a transfer). */
     @Query("UPDATE detected SET kind = :kind, entryLine = :line WHERE entryId = :entryId")
     suspend fun updateEntry(entryId: String, kind: String, line: String)
+
+    /** The item's entry as it is now, its kind unchanged (a later message filled in the payee or account). */
+    @Query("UPDATE detected SET entryLine = :line WHERE entryId = :entryId")
+    suspend fun updateLine(entryId: String, line: String)
 }
 
 /**
@@ -184,6 +198,16 @@ interface RecordDao {
 
     @Query("SELECT * FROM records WHERE kind = :kind")
     suspend fun ofKind(kind: String): List<RecordRow>
+
+    /**
+     * A cheap check of what capture reads (accounts, categories, merchant rules): how many, the sum of their change
+     * times, and the sum of their lengths. Any add, edit, delete or restore changes it (merchant memory report #5).
+     */
+    @Query(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(updatedAtMs), 0) AS changed, COALESCE(SUM(LENGTH(line)), 0) AS made " +
+            "FROM records WHERE kind IN ('account', 'category', 'merchantRule')",
+    )
+    suspend fun captureFingerprint(): RangeFingerprint
 
     @Query("SELECT COUNT(*) FROM records WHERE kind = :kind")
     suspend fun count(kind: String): Int
@@ -210,4 +234,6 @@ expect object VyayaDatabaseConstructor : RoomDatabaseConstructor<VyayaDatabase> 
 data class IdLine(val id: String, val line: String)
 
 /** Count and change times of a range of entries: equal fingerprints mean nothing in the range changed. */
+data class PayeeCounts(val total: Int, val uncategorised: Int)
+
 data class RangeFingerprint(val n: Long, val changed: Long, val made: Long)

@@ -169,8 +169,8 @@ fun RememberedPayeeForm(payee: String, category: String, onForget: () -> Unit, o
     }
 }
 
-/** A payee as remembered (stored lowercase): "swiggy" → "Swiggy". */
-fun payeeLabel(payee: String): String = payee.replaceFirstChar { it.uppercase() }
+/** A payee as remembered. Rules from before report #6 were stored lowercase: "swiggy" → "Swiggy"; others as written. */
+fun payeeLabel(payee: String): String = if (payee == payee.lowercase()) payee.replaceFirstChar { it.uppercase() } else payee
 
 /** "HDFC ·1234": an account as a chip or a line. */
 fun accountLabel(a: Account): String = a.name + (a.mask?.let { " ·$it" } ?: "")

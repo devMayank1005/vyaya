@@ -106,7 +106,7 @@ object Capture {
             ?: return Outcome.Ignored(IgnoreReason.NOT_A_TRANSACTION)
         if (verdict is Verdict.Accept) {
             otherSideOf(entry, existing)?.let { return Outcome.Transfer(it.copy(type = EntryType.TRANSFER, updatedAt = now)) }
-            duplicateOf(entry, existing)?.let { id -> return Outcome.Duplicate(id, withAccountFrom(entry, existing.first { it.id == id }, now)) }
+            duplicateOf(entry, existing)?.let { id -> return Outcome.Duplicate(id, filledFrom(entry, existing.first { it.id == id }, now, merchants)) }
         }
         // DATA-003: a review item for a payment already captured points at it, so confirming can't log it twice.
         val possible = (if (verdict is Verdict.Review) duplicateOf(entry, existing) else null) ?: possibleDuplicateOf(entry, existing)
@@ -126,11 +126,18 @@ object Capture {
         return accounts.filter { a -> !a.deleted && a.mask?.let { it.endsWith(mask) || mask.endsWith(it) } == true }.singleOrNull()?.id
     }
 
-    /** [existing], captured without an account, takes the one [entry] found (only captured entries are duplicates). */
-    private fun withAccountFrom(entry: Entry, existing: Entry, now: Instant): Entry? =
-        if (entry.accountId != null && existing.accountId == null) {
-            existing.copy(accountId = entry.accountId, updatedAt = now)
-        } else null
+    /**
+     * What a later message for the same payment adds to [existing] (only captured entries are duplicates): the account
+     * (catalog report #4) and the payee when it had none; then, with no category yet, the payee's remembered one
+     * (merchant memory report #1). Null when it adds nothing.
+     */
+    private fun filledFrom(entry: Entry, existing: Entry, now: Instant, merchants: MerchantMemory): Entry? {
+        var filled = existing
+        if (filled.accountId == null && entry.accountId != null) filled = filled.copy(accountId = entry.accountId)
+        if (filled.payee == null && entry.payee != null) filled = filled.copy(payee = entry.payee)
+        if (filled.categoryId == null) merchants.categoryFor(filled)?.let { filled = filled.copy(categoryId = it) }
+        return if (filled == existing) null else filled.copy(updatedAt = now)
+    }
 
     /** The entry a parsed payment becomes; null if it can't be a valid entry. */
     internal fun toEntry(txn: ParsedTxn, source: Source, now: Instant): Entry? = runCatching {

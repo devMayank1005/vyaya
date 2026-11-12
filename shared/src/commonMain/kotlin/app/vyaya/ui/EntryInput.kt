@@ -25,6 +25,8 @@ data class EntryInput(
     val accountId: EntityId? = null,
     /** Merchant memory: also put this payee's later detected payments in [categoryId]. */
     val alwaysForPayee: Boolean = false,
+    /** Merchant memory report #3: also put the payee's earlier payments that have no category in [categoryId]. */
+    val alsoEarlier: Boolean = false,
 ) {
     /**
      * The entry to save, or null when the amount isn't one (empty, zero, more than 2 decimals, too large) or a field is

@@ -172,7 +172,7 @@ private fun VyayaRootContent(
         when {
             view == "payees" -> {
                 val names = records?.categories.orEmpty().associate { it.id to it.name }
-                val rules = records?.merchantRules.orEmpty().filter { !it.deleted }.sortedBy { it.payee }
+                val rules = records?.merchantRules.orEmpty().filter { !it.deleted }.sortedBy { it.payee.lowercase() }
                 val rule = item?.let { i -> rules.firstOrNull { it.id.value == i } }
                 if (rule != null) RememberedPayeeForm(payeeLabel(rule.payee), names[rule.categoryId].orEmpty(),
                     onForget = { scope.launch { merchants.forget(rule, clock()); changed() } }, onClose = { catalogItem = null })
@@ -285,6 +285,7 @@ private fun VyayaRootContent(
                         // Merchant memory: later detected payments to this payee go in this category.
                         if (input.alwaysForPayee && entry.payee != null && entry.categoryId != null) {
                             merchants.remember(entry.payee!!, entry.categoryId!!, now)
+                            if (input.alsoEarlier) merchants.applyToEarlier(entry.payee!!, entry.categoryId!!, entry.type, now)
                             catalogVersion++
                         }
                     }
@@ -298,6 +299,9 @@ private fun VyayaRootContent(
             },
             onClose = { adding = false; editing = null },
             accounts = records?.accounts.orEmpty(),
+            rules = records?.merchantRules.orEmpty(),
+            matches = { payee, type -> merchants.matches(payee, type) },
+            keyOf = merchants::keyOf,
         )
         return
     }

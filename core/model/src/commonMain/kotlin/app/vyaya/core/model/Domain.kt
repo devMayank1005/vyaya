@@ -232,8 +232,11 @@ class MerchantRule(
     val updatedAt: Instant,
     val deleted: Boolean,
 ) {
-    /** Stored trimmed and lowercase so "SWIGGY" and "Swiggy" are one rule. */
-    val payee: String = payee.trim().lowercase()
+    /**
+     * Stored trimmed, as the user wrote it (merchant memory report #6). Capture matches payees by key (case and a UPI
+     * handle don't matter), so "SWIGGY" and "Swiggy" still find the same rule.
+     */
+    val payee: String = payee.trim()
 
     init { requireName(this.payee, "Merchant payee") }
 

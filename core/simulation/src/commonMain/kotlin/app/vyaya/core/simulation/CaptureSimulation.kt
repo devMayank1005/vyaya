@@ -50,11 +50,13 @@ class CaptureSimulationResult(
     val categorised: Int = 0,
     /** Entries put in a category they shouldn't be in (must be 0). */
     val wrongCategory: Int = 0,
+    /** Of the remembered payments left uncategorised: those whose messages never named the payee (nothing to match). */
+    val unnamed: Int = 0,
 ) {
     fun render() = buildString {
         appendLine("users=$users payments=$payments messages=$messages noise=$noise")
         appendLine("DOUBLED=$doubled MISSED=$missed NOISE-ACCEPTED=$noiseAccepted review=$review FALSE-TRANSFERS=$falseTransfers")
-        appendLine("merchant memory: remembered=$remembered categorised=$categorised WRONG-CATEGORY=$wrongCategory")
+        appendLine("merchant memory: remembered=$remembered categorised=$categorised WRONG-CATEGORY=$wrongCategory (left: $unnamed never named the payee)")
         appendLine("capture p95=${p95Micros}µs per message (existing entries grow to the user's total)")
     }
 }
@@ -72,7 +74,7 @@ object CaptureSimulation {
         val random = Random(seed)
         var payments = 0; var messagesTotal = 0; var noiseTotal = 0
         var doubled = 0; var missed = 0; var noiseAccepted = 0; var review = 0; var falseTransfers = 0
-        var remembered = 0; var categorised = 0; var wrongCategory = 0
+        var remembered = 0; var categorised = 0; var wrongCategory = 0; var unnamed = 0
         val spending = Category(EntityId.random(), "Remembered spending", CategoryKind.EXPENSE, START, false)
         val income = Category(EntityId.random(), "Remembered income", CategoryKind.INCOME, START, false)
         val micros = mutableListOf<Long>()
@@ -113,7 +115,11 @@ object CaptureSimulation {
                 micros += mark.elapsedNow().inWholeMicroseconds
                 when (outcome) {
                     is Outcome.Added -> { entries = entries + outcome.entry; entryPayment.getOrPut(outcome.entry.id.value) { mutableSetOf() } += m.payment }
-                    is Outcome.Duplicate -> entryPayment.getOrPut(outcome.of.value) { mutableSetOf() } += m.payment
+                    is Outcome.Duplicate -> {
+                        entryPayment.getOrPut(outcome.of.value) { mutableSetOf() } += m.payment
+                        // What the later message filled in is saved, as CaptureStore does.
+                        outcome.update?.let { u -> entries = entries.map { if (it.id == u.id) u else it } }
+                    }
                     is Outcome.Review -> review++
                     is Outcome.Transfer -> { falseTransfers++; entries = entries.map { if (it.id == outcome.entry.id) outcome.entry else it } }
                     is Outcome.Ignored -> {}
@@ -131,7 +137,7 @@ object CaptureSimulation {
                 val (party, flow) = paymentParty[p]
                 val rule = rules.firstOrNull { !it.deleted && Capture.payeeKey(it.payee) == Capture.payeeKey(party) }
                 val expected = rule?.categoryId?.takeIf { (it == spending.id) == (flow == Flow.DEBIT) }
-                if (expected != null) { remembered++; if (e.categoryId == expected) categorised++ }
+                if (expected != null) { remembered++; if (e.categoryId == expected) categorised++ else if (e.payee == null) unnamed++ }
                 if (e.categoryId != null && e.categoryId != expected) wrongCategory++
             }
             doubled += perPayment.count { it > 1 }
@@ -140,6 +146,6 @@ object CaptureSimulation {
         }
         micros.sort()
         return CaptureSimulationResult(users, payments, messagesTotal, noiseTotal, doubled, missed, noiseAccepted, review, micros.getOrElse(micros.size * 95 / 100) { 0 }, falseTransfers,
-            remembered, categorised, wrongCategory)
+            remembered, categorised, wrongCategory, unnamed)
     }
 }

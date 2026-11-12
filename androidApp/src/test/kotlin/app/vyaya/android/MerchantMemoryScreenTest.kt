@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -25,7 +26,6 @@ import app.vyaya.core.model.Money
 import app.vyaya.ui.Setup
 import app.vyaya.ui.VyayaRoot
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -39,15 +39,19 @@ import kotlin.time.Instant
 @Config(sdk = [35])
 class MerchantMemoryScreenTest {
 
-    @get:Rule val compose = createComposeRule()
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val db: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+
+    // The database closes after the screen is gone (outer rule): a reload still running after the last check (these
+    // tests save, then the lists reload) is cancelled with the screen instead of reading a closed database.
+    @get:Rule(order = 0) val closeDb = object : org.junit.rules.ExternalResource() { override fun after() = db.close() }
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val now = Instant.parse("2026-11-11T06:00:00Z")
 
-    @After fun close() { compose.waitForIdle(); db.close() }
 
+    // 10 s: these tests reload lists after each save, and the full gate runs them under heavy load.
     private fun waitFor(text: String) =
-        compose.waitUntil(5_000) { compose.onAllNodes(hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+        compose.waitUntil(10_000) { compose.onAllNodes(hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
 
     private fun app(payee: String, source: EntrySource) {
         runBlocking {
@@ -71,7 +75,7 @@ class MerchantMemoryScreenTest {
         compose.waitUntil(5_000) { runBlocking { MerchantStore(db).rules() }.isNotEmpty() }
         waitFor("Food & dining") // Home shows the entry in its category once the lists have reloaded
         compose.waitForIdle()
-        assertEquals(listOf("swiggy" to food().id), runBlocking { MerchantStore(db).rules() }.map { it.payee to it.categoryId })
+        assertEquals(listOf("Swiggy" to food().id), runBlocking { MerchantStore(db).rules() }.map { it.payee to it.categoryId })
     }
 
     @Test
@@ -94,5 +98,60 @@ class MerchantMemoryScreenTest {
         compose.onNodeWithText("Swiggy").performClick()
         compose.onNodeWithText("Forget").performClick()
         compose.waitUntil(5_000) { runBlocking { MerchantStore(db).rules() }.isEmpty() }
+    }
+
+    private fun captured(payee: String, category: EntityId? = null) = Entry(EntityId.random(), EntryType.EXPENSE, Money(99_00),
+        CapturedAt(now, kotlinx.datetime.TimeZone.UTC), null, null, category, payee, "", emptyList(), EntrySource.NOTIFICATION, null, emptyList(), null, now, now, false)
+
+    private fun shopping() = runBlocking { CatalogStore(db).categories() }.first { it.name == "Shopping" }
+
+    @Test
+    fun merchant_flaw_007_an_entry_says_its_category_was_remembered() {
+        runBlocking { AppOpen(db).run(now); MerchantStore(db).remember("Swiggy", food().id, now); EntryStore(db).save(listOf(captured("Swiggy", food().id))) }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        waitFor("Swiggy")
+        compose.onNodeWithText("Swiggy").performClick()
+        compose.onNodeWithText("Food & dining: remembered for Swiggy").performScrollTo()
+        compose.onNodeWithText("Always put", substring = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun merchant_flaw_002_choosing_another_category_says_what_is_remembered() {
+        runBlocking { AppOpen(db).run(now); MerchantStore(db).remember("Swiggy", food().id, now) }
+        app("Swiggy", EntrySource.NOTIFICATION)
+        waitFor("Swiggy")
+        compose.onNodeWithText("Swiggy").performClick()
+        compose.onNodeWithText("Shopping").performScrollTo().performClick()
+        compose.onNodeWithText("Swiggy goes in Food & dining. Always put it in Shopping instead").performScrollTo().performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(5_000) { runBlocking { MerchantStore(db).rules() }.singleOrNull()?.categoryId == shopping().id }
+        waitFor("Shopping"); compose.waitForIdle()
+    }
+
+    @Test
+    fun merchant_flaw_003_004_the_form_counts_payments_and_can_bring_earlier_ones_along() {
+        val earlier = listOf(captured("Swiggy"), captured("SWIGGY@axl"))
+        runBlocking { AppOpen(db).run(now); EntryStore(db).save(earlier) }
+        app("Swiggy", EntrySource.NOTIFICATION)
+        waitFor("Out ₹448") // all three payments loaded (₹99 + ₹99 + ₹250)
+        // On a small screen the summary fills the list's view, so scroll to a row before tapping it.
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Swiggy"))
+        compose.onAllNodes(hasText("Swiggy")).onFirst().performClick()
+        compose.onNodeWithText("Food & dining").performScrollTo().performClick()
+        waitFor("3 payments to Swiggy so far")
+        compose.onNodeWithText("Always put Swiggy in Food & dining").performScrollTo().performClick()
+        compose.onNodeWithText("Also put the 2 other Swiggy payments with no category in Food & dining").performScrollTo().performClick()
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(5_000) { runBlocking { EntryStore(db).all() }.all { it.categoryId == food().id } }
+        waitFor("Food & dining"); compose.waitForIdle()
+    }
+
+    @Test
+    fun merchant_flaw_004_a_very_short_name_is_flagged() {
+        app("AK", EntrySource.NOTIFICATION)
+        waitFor("AK")
+        compose.onNodeWithText("AK").performClick()
+        compose.onNodeWithText("Food & dining").performScrollTo().performClick()
+        waitFor("Short name: other payees may match")
     }
 }

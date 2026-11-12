@@ -90,4 +90,13 @@ class CsvExportTest {
         assertEquals(listOf("-120.50", "120.50", ""), lines.drop(1).map { it.split(",")[4] })
         assertEquals(listOf("HDFC", "Cash"), lines[3].split(",").subList(6, 8))
     }
+
+    @Test
+    fun csv_edges_money_put_aside_unknown_split_categories_and_carriage_returns() {
+        val aside = Entry(EntityId.random(), EntryType.SAVED, Money(500), CapturedAt(T, IST), null, null, null, "Pot", "a\rb", emptyList(),
+            EntrySource.MANUAL, null, listOf(app.vyaya.core.model.Split(EntityId.random(), Money(500))), null, T, T, false)
+        val cells = rows(Snapshot.empty().copy(entries = listOf(aside)))[1]
+        assertTrue(cells.contains(",Saved,5.00,, 5.00,"), cells) // blank signed amount; a split with an unknown category
+        assertTrue(cells.contains(",\"a\rb\","), cells)
+    }
 }

@@ -145,4 +145,39 @@ class StoresTest {
         assertEquals(account.id, EntryStore(db).byId(added.id)?.accountId, "the bank's SMS fills it in")
         db.close()
     }
+
+    @Test
+    fun merchant_flaw_001_the_inbox_shows_what_a_later_message_filled_in() = runTest {
+        val db = inMemoryDatabase()
+        val refunds = (CatalogStore(db).addCategory("Refunds", app.vyaya.core.model.CategoryKind.INCOME, t0) as CatalogResult.Saved).item
+        MerchantStore(db).remember("Swiggy", refunds.id, t0)
+        val capture = CaptureStore(db)
+        val sbi = sms("Dear SBI UPI User, ur A/cX1234 credited by Rs250.00 on 26Oct26 by (Ref no 429100000009)", sender = "JD-SBIUPI-S")
+        val added = assertIs<Outcome.Added>(capture.process(sbi, t0).single()).entry
+        assertIs<Outcome.Duplicate>(capture.process(notification("com.phonepe.app", "Received ₹250 from Swiggy", t0 + 1.minutes), t0).single())
+        val saved = EntryStore(db).byId(added.id)!!
+        assertEquals("Swiggy" to refunds.id, saved.payee to saved.categoryId)
+        assertEquals(saved, DetectedInbox(db).items().single().entry, "the inbox item is the entry as it is now")
+        db.close()
+    }
+
+    @Test
+    fun merchant_sim_005_capture_reads_the_records_again_only_when_they_change() = runTest {
+        val db = inMemoryDatabase()
+        val food = (CatalogStore(db).addCategory("Food", app.vyaya.core.model.CategoryKind.EXPENSE, t0) as CatalogResult.Saved).item
+        val capture = CaptureStore(db)
+        fun paid(rupees: Int, to: String, minutes: Int) = notification("com.phonepe.app", "₹$rupees paid to $to", t0 + minutes.minutes)
+        capture.process(paid(10, "Zomato", 0), t0)
+        capture.process(paid(11, "Zomato", 30), t0)
+        assertEquals(1, capture.recordReads, "nothing changed: read once")
+        MerchantStore(db).remember("Swiggy", food.id, t0)
+        val e = assertIs<Outcome.Added>(capture.process(paid(12, "Swiggy", 60), t0).single()).entry
+        assertEquals(food.id, e.categoryId, "a payee remembered meanwhile is seen")
+        assertEquals(2, capture.recordReads)
+        // A restore that replaces everything is seen too.
+        BackupStore(db).restore(app.vyaya.core.backup.BackupCodec.encode(app.vyaya.core.backup.Snapshot.empty(),
+            app.vyaya.core.backup.ExportMeta("1.0.0", "android", t0)).lineSequence(), app.vyaya.core.backup.RestoreMode.REPLACE, t0)
+        assertEquals(null, assertIs<Outcome.Added>(capture.process(paid(13, "Swiggy", 90), t0).single()).entry.categoryId)
+        db.close()
+    }
 }

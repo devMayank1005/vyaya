@@ -4,6 +4,7 @@ import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.dedup.Capture
 import app.vyaya.core.dedup.MerchantMemory
 import app.vyaya.core.dedup.Outcome
+import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.parser.MessageParser
@@ -90,13 +91,12 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
     suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
-                val records = SnapshotStore(db).captureRecordsInTransaction()
-                val merchants = MerchantMemory(records.merchantRules, records.categories)
+                val (accounts, merchants) = captureContext()
                 MessageSplitter.split(raw).map { part ->
                     val parsed = MessageParser.parse(part)
                     val refs = listOfNotNull((parsed as? ParseResult.Transaction)?.txn?.upiRef)
                     val time = part.receivedAt.instant
-                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, records.accounts, merchants)
+                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, accounts, merchants)
                     when (outcome) {
                         is Outcome.Added -> entries.save(listOf(outcome.entry))
                         is Outcome.Transfer -> entries.save(listOf(outcome.entry))
@@ -108,6 +108,24 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
                 }
             }
         }
+    }
+
+    /** How many times capture decoded the records (a test checks the cache). */
+    internal var recordReads = 0
+        private set
+
+    private var cached: Pair<RangeFingerprint, Pair<List<Account>, MerchantMemory>>? = null
+
+    /**
+     * Accounts and merchant memory, decoded again only when the records changed (merchant memory report #5: with
+     * thousands of them, decoding for every message made an SMS import slow). Called under [lock], in the transaction.
+     */
+    private suspend fun captureContext(): Pair<List<Account>, MerchantMemory> {
+        val fingerprint = db.records().captureFingerprint()
+        cached?.takeIf { it.first == fingerprint }?.let { return it.second }
+        val records = SnapshotStore(db).captureRecordsInTransaction()
+        recordReads++
+        return (records.accounts to MerchantMemory(records.merchantRules, records.categories)).also { cached = fingerprint to it }
     }
 
     private companion object {

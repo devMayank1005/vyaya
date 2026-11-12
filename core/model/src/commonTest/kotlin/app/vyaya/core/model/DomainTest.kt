@@ -209,12 +209,14 @@ class DomainTest {
     @Test
     fun merchant_rules_compare_by_value() {
         val a = MerchantRule(id(), "Swiggy", id(), now, false)
-        val same = MerchantRule(a.id, " SWIGGY", a.categoryId, now, false)
+        val same = MerchantRule(a.id, " Swiggy ", a.categoryId, now, false)
         assertEquals(a, same)
         assertEquals(a.hashCode(), same.hashCode())
+        // Merchant memory report #6: kept as written; "SWIGGY" is the same payee to capture (by key), not the same text.
+        assertNotEquals(a, MerchantRule(a.id, "SWIGGY", a.categoryId, now, false))
         assertNotEquals(a, MerchantRule(a.id, "Swiggy", a.categoryId, now, true))
         assertNotEquals<Any>(a, "swiggy")
-        assertTrue(a.toString().contains("payee=swiggy"))
+        assertTrue(a.toString().contains("payee=Swiggy"))
     }
 
     @Test
@@ -239,7 +241,7 @@ class DomainTest {
             LedgerEntry(id(), p, LedgerDirection.BORROWED, Money(0), LocalDate(2026, 10, 1), "", false, now, false)
         }
         assertFailsWith<IllegalArgumentException> { Budget(id(), id(), Money(0), now, false) }
-        assertEquals("swiggy", MerchantRule(id(), "  SWIGGY ", id(), now, false).payee)
+        assertEquals("SWIGGY", MerchantRule(id(), "  SWIGGY ", id(), now, false).payee)
         assertFailsWith<IllegalArgumentException> { MerchantRule(id(), " ", id(), now, false) }
     }
 

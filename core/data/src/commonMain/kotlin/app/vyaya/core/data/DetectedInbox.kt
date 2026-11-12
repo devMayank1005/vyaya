@@ -37,6 +37,8 @@ class DetectedInbox(private val db: VyayaDatabase) {
             is Outcome.Review -> Quad(DetectedKind.REVIEW, outcome.draft, outcome.reason?.name, outcome.possibleDuplicateOf?.value)
             // DATA-005: the first side's item now shows the transfer.
             is Outcome.Transfer -> return db.detected().updateEntry(outcome.entry.id.value, DetectedKind.TRANSFER.name, RecordLines.entry(outcome.entry))
+            // Merchant memory report #1: the item shows what a later message for the same payment filled in.
+            is Outcome.Duplicate -> return outcome.update?.let { db.detected().updateLine(it.id.value, RecordLines.entry(it)) } ?: Unit
             else -> return
         }
         db.detected().add(DetectedRow(idOf(message), kind.name, "OPEN", RecordLines.entry(entry), reason, duplicate,

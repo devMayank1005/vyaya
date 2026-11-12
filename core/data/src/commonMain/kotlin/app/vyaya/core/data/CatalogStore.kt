@@ -46,9 +46,9 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
         val all = allCategories()
         val same = all.filter { it.kind == kind && it.name.equals(n, ignoreCase = true) }
         if (same.any { !it.deleted }) return Refused(CATEGORY_TAKEN)
-        same.firstOrNull()?.let { return save { it.copy(name = n, deleted = false, updatedAt = now) } }
+        same.firstOrNull()?.let { return saveCategory(it.copy(name = n, deleted = false, updatedAt = now)) }
         if (all.size >= limits.maxRecordsPerType) return Refused(overLimit("categories")) // catalog report #2
-        return save { Category(EntityId.random(), n, kind, now, false) }
+        return saveCategory(Category(EntityId.random(), n, kind, now, false))
     }
 
     // Each change applies to the record as it is now (by id), so an older copy can't undo an earlier change.
@@ -57,11 +57,11 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
         val n = name.trim()
         nameProblem(n)?.let { return Refused(it) }
         if (categories().any { it.id != c.id && it.kind == current.kind && it.name.equals(n, ignoreCase = true) }) return Refused(CATEGORY_TAKEN)
-        return save { current.copy(name = n, updatedAt = now) }
+        return saveCategory(current.copy(name = n, updatedAt = now))
     }
 
     suspend fun deleteCategory(c: Category, now: Instant) {
-        allCategories().firstOrNull { it.id == c.id }?.let { c -> save { c.copy(deleted = true, updatedAt = now) } }
+        allCategories().firstOrNull { it.id == c.id }?.let { saveCategory(it.copy(deleted = true, updatedAt = now)) }
     }
 
     /** Accounts offered: not deleted, by name. */
@@ -77,9 +77,9 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
         val all = allAccounts()
         val same = all.filter { it.name.equals(n, ignoreCase = true) }
         if (same.any { !it.deleted }) return Refused(ACCOUNT_TAKEN)
-        same.firstOrNull()?.let { return save { it.copy(name = n, kind = kind, mask = m, deleted = false, updatedAt = now) } }
+        same.firstOrNull()?.let { return saveAccount(it.copy(name = n, kind = kind, mask = m, deleted = false, updatedAt = now)) }
         if (all.size >= limits.maxRecordsPerType) return Refused(overLimit("accounts"))
-        return save { Account(EntityId.random(), n, kind, m, now, false) }
+        return saveAccount(Account(EntityId.random(), n, kind, m, now, false))
     }
 
     /** Changes an account's name, type and last digits together (catalog report #1). */
@@ -89,11 +89,11 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
         val m = mask?.trim()?.ifEmpty { null }
         (nameProblem(n) ?: maskProblem(m))?.let { return Refused(it) }
         if (accounts().any { it.id != a.id && it.name.equals(n, ignoreCase = true) }) return Refused(ACCOUNT_TAKEN)
-        return save { current.copy(name = n, kind = kind, mask = m, updatedAt = now) }
+        return saveAccount(current.copy(name = n, kind = kind, mask = m, updatedAt = now))
     }
 
     suspend fun deleteAccount(a: Account, now: Instant) {
-        allAccounts().firstOrNull { it.id == a.id }?.let { a -> save { a.copy(deleted = true, updatedAt = now) } }
+        allAccounts().firstOrNull { it.id == a.id }?.let { saveAccount(it.copy(deleted = true, updatedAt = now)) }
     }
 
     /** What deleting [c] would leave pointing at it (catalog report #5, #7). A split's own category isn't counted. */
@@ -115,24 +115,18 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
 
     private fun overLimit(what: String) = "Vyaya can keep up to ${limits.maxRecordsPerType} $what, deleted ones included"
 
-    // The checks above match the model's; a record it still refuses is refused here rather than thrown (report #8).
-    private suspend fun <T> save(make: () -> T): CatalogResult<T> {
-        val item = runCatching(make).getOrElse { return Refused(INVALID) }
-        snapshots.saveRecords(
-            when (item) {
-                is Category -> Snapshot.empty().copy(categories = listOf(item))
-                is Account -> Snapshot.empty().copy(accounts = listOf(item))
-                else -> error("not a catalog record")
-            },
-        )
-        return Saved(item)
-    }
+    // The checks above are the model's own (name 1–100 characters, last digits 3–6), made first so a bad value is a
+    // message for the form rather than an exception (report #8).
+    private suspend fun saveCategory(c: Category): CatalogResult<Category> =
+        Saved(c).also { snapshots.saveRecords(Snapshot.empty().copy(categories = listOf(c))) }
+
+    private suspend fun saveAccount(a: Account): CatalogResult<Account> =
+        Saved(a).also { snapshots.saveRecords(Snapshot.empty().copy(accounts = listOf(a))) }
 
     private companion object {
         const val MAX_NAME = 100
         const val CATEGORY_TAKEN = "A category of this type already has that name"
         const val ACCOUNT_TAKEN = "An account already has that name"
         const val GONE = "This was deleted meanwhile"
-        const val INVALID = "That can't be saved"
     }
 }

@@ -79,7 +79,7 @@ val GOLDEN_SNAPSHOT = Snapshot(
     people = listOf(Person(RAHUL, "Rahul", T, false)),
     ledger = listOf(LedgerEntry(L1, RAHUL, LedgerDirection.LENT, Money(30000), LocalDate(2026, 10, 20), "Dinner", false, T, false)),
     budgets = listOf(Budget(B1, FOOD, Money(500000), T, false)),
-    merchantRules = listOf(MerchantRule(M1, "Swiggy", FOOD, T, false)),
+    merchantRules = listOf(MerchantRule(M1, "swiggy", FOOD, T, false)), // as earlier versions stored it (golden files)
 )
 
 val GOLDEN_JSON = """

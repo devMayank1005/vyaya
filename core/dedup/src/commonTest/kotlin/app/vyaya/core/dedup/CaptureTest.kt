@@ -262,4 +262,41 @@ class CaptureTest {
         assertEquals(refunds.id, categoryOf(phonepe("250"), newer), "the latest change wins")
         assertNull(categoryOf(phonepe("250"), MerchantMemory.NONE))
     }
+
+    @Test
+    fun merchant_flaw_001_a_duplicate_fills_a_missing_payee_then_its_remembered_category() {
+        val refunds = Category(EntityId.random(), "Refunds", CategoryKind.INCOME, now, false)
+        val memory = MerchantMemory(listOf(MerchantRule(EntityId.random(), "Swiggy", refunds.id, now, false)), listOf(refunds))
+        val sbi = RawMessage(Source.SMS, "JD-SBIUPI-S", "Dear SBI UPI User, ur A/cX1234 credited by Rs250.00 on 26Oct26 by (Ref no 429112345678)", at(t0))
+        val first = assertIs<Outcome.Added>(Capture.process(sbi, emptyList(), now, merchants = memory)).entry
+        assertNull(first.payee, "the bank's SMS doesn't name who paid")
+        val app = RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹250 from Swiggy", at(t0 + 1.minutes))
+        val dup = assertIs<Outcome.Duplicate>(Capture.process(app, listOf(first), now, merchants = memory))
+        assertEquals(first.copy(payee = "Swiggy", categoryId = refunds.id, updatedAt = now), dup.update)
+        // A category already on the entry (the user's, or memory's) stays.
+        val chosen = first.copy(categoryId = EntityId.random())
+        assertEquals(chosen.copy(payee = "Swiggy", updatedAt = now),
+            assertIs<Outcome.Duplicate>(Capture.process(app, listOf(chosen), now, merchants = memory)).update)
+        // Nothing to add: no update.
+        val complete = first.copy(payee = "Swiggy", categoryId = refunds.id)
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(app, listOf(complete), now, merchants = memory)).update)
+    }
+
+    @Test
+    fun merchant_edges_kinds_nameless_rules_and_what_a_duplicate_can_add() {
+        val income = Category(EntityId.random(), "Salary", CategoryKind.INCOME, now, false)
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now,
+            merchants = MerchantMemory(listOf(MerchantRule(EntityId.random(), "Swiggy", income.id, now, false)), listOf(income)))).entry.categoryId,
+            "a payment out is not put in an income category")
+        val nameless = MerchantMemory(listOf(MerchantRule(EntityId.random(), "@@", income.id, now, false)), listOf(income))
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, merchants = nameless)).entry.categoryId)
+        // The same SMS read again adds nothing: no update.
+        val sms = hdfcSms("250.00", "429112345678")
+        val first = assertIs<Outcome.Added>(Capture.process(sms, emptyList(), now)).entry
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(sms, listOf(first), now)).update)
+        // An entry that already has an account and a payee keeps them.
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val own = first.copy(accountId = EntityId.random())
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(sms, listOf(own), now, listOf(hdfc))).update)
+    }
 }

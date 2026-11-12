@@ -101,3 +101,27 @@
 - **#4:** show how many past payments match before saving, and warn on very short names (recommended)?
 - **#5:** cache the memory until records change (recommended)?
 - **#6, #7:** keep the payee's own capitals, and show "remembered for Swiggy" on the entry (recommended)?
+
+## Resolution (2026-11-12)
+
+Your decision: go with the recommendations (#1–#7). Each fix began with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 FLAW-001 | ✅ Fixed | A later message for the same payment fills a missing payee (and account); with no category yet, the payee's remembered category follows. The Detected inbox item shows the entry as it is now. Tests: `merchant_flaw_001_*` (capture, store and inbox) |
+| 2 FLAW-002 | ✅ Fixed | Choosing another category for a remembered payee says so: "Swiggy goes in Food & dining. Always put it in Shopping instead" |
+| 3 FLAW-003 | ✅ Fixed | With "Always put…" ticked, "Also put the 2 other Swiggy payments with no category in …" (unticked by default). Only entries of the same type with no category are changed, in one transaction (`MerchantStore.applyToEarlier`) |
+| 4 FLAW-004 | ✅ Fixed | The form shows "3 payments to Swiggy so far" (`MerchantStore.matches`), and "Short name: other payees may match" under 3 letters or digits |
+| 5 SIM-005 | ✅ Fixed | Capture keeps accounts and memory until the records change (count, change times and lengths of accounts, categories and rules). Probe: 10,000 of each, 92 ms → **6.4 ms** per message, records read once |
+| 6 FLAW-006 | ✅ Fixed | Rules keep the payee as written ("Uber India"); matching is by key as before. Rules saved lowercase earlier show capitalised. Golden backup files unchanged |
+| 7 FLAW-007 | ✅ Fixed | An entry whose category is the remembered one says "Food & dining: remembered for Swiggy" |
+
+Simulation after the fixes (`-Psim.capture.users=2000`): 0 doubled, 0 noise accepted, 0 false transfers, **0 in a wrong
+category**. 9,922 of 10,026 remembered payments are categorised (was 9,907); **all 104 left never had a message
+naming the payee**, so there's nothing to match. The simulation harness now also saves what a duplicate fills in, as
+`CaptureStore` does.
+
+Also changed while fixing:
+- The shared-core branch coverage gate (90 %) caught untested edges in the new stores, so tests were added. Unreachable
+  "can't be saved" branches in `CatalogStore` and `MerchantStore` were removed: their checks are the model's own.
+- UI tests now close the database after the screen is disposed (an outer JUnit rule), instead of racing a reload.
