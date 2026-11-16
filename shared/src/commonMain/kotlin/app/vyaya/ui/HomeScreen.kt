@@ -60,6 +60,8 @@ fun HomeScreen(
     monthEnd: MonthEnd? = null,
     /** Saved so far over the finished months, shown on the current month. */
     savings: SavingsSummary? = null,
+    /** Safe to spend per day (Phase 3): the current month only. */
+    safe: app.vyaya.core.engine.SafeToSpend? = null,
     /** This month's budgets against its spending (Phase 3), fullest first. */
     budgets: List<app.vyaya.core.engine.BudgetProgress> = emptyList(),
 ) {
@@ -72,7 +74,7 @@ fun HomeScreen(
             }
             if (view == null) return@Column
             LazyColumn(Modifier.fillMaxSize()) {
-                item { SummaryCard(view, monthEnd, savings) }
+                item { SummaryCard(view, monthEnd, savings, safe) }
                 if (budgets.isNotEmpty()) item(key = "budgets") {
                     // Budgets report #5: what this month's spending put in no budget.
                     BudgetsCard(budgets, categoryNames, outside = view.summary.spent - Money(budgets.sumOf { it.spent.paise }))
@@ -95,7 +97,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSummary?) {
+private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSummary?, safe: app.vyaya.core.engine.SafeToSpend?) {
     val s = view.summary
     val money = LocalMoneyColors.current
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -125,11 +127,31 @@ private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSu
                 Text("Saved so far ${savings.saved.format()} over ${savings.months} month${if (savings.months == 1) "" else "s"}$overspent",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
+            safe?.let { SafeLine(it, money.overspent) }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Text("In ${s.income.format()}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Text("Out ${s.spent.format()}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
+        }
+    }
+}
+
+/** "Safe to spend ₹789 a day, for 19 days, after ₹15,000 of bills still due", or why there's nothing safe to spend. */
+@Composable
+private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: androidx.compose.ui.graphics.Color) {
+    val onCard = MaterialTheme.colorScheme.onPrimaryContainer
+    Column(Modifier.padding(top = 10.dp)) {
+        when {
+            safe.perDay.paise > 0 -> {
+                Text("Safe to spend ${safe.perDay.format()} a day", style = MaterialTheme.typography.titleMedium, color = onCard)
+                val days = if (safe.daysLeft == 1) "today" else "for ${safe.daysLeft} days"
+                val bills = if (safe.billsDue.paise > 0) ", after ${safe.billsDue.format()} of bills still due" else ""
+                Text(days + bills, style = MaterialTheme.typography.bodySmall, color = onCard)
+            }
+            safe.shortBy.paise > 0 -> Text("Bills still due (${safe.billsDue.format()}) are ${safe.shortBy.format()} more than what's left",
+                style = MaterialTheme.typography.bodyMedium, color = overspent)
+            else -> Text("Nothing left to spend this month", style = MaterialTheme.typography.bodyMedium, color = onCard)
         }
     }
 }

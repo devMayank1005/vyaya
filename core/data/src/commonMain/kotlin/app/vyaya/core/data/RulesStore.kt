@@ -43,6 +43,12 @@ class RulesStore(private val db: VyayaDatabase) {
 
     suspend fun delete(rule: RecurringRule, now: Instant) = save(rule.copy(deleted = true, updatedAt = now))
 
+    /**
+     * Every rule-month that has its entry, made or skipped (a skipped month is a deleted entry with its key): for safe to
+     * spend, a bill is still due only when its month isn't here.
+     */
+    suspend fun madeKeys(): Set<app.vyaya.core.model.Generation> = entries.generated().mapNotNull { it.generatedBy }.toSet()
+
     /** The months [rule] was due while paused and has no entry for: the app asks whether to add them (FLAW-003). */
     suspend fun missedWhilePaused(rule: RecurringRule, now: Instant, zone: TimeZone): List<YearMonth> =
         Recurring.missedWhilePaused(rule, entries.generated(), now.toLocalDateTime(zone).date)

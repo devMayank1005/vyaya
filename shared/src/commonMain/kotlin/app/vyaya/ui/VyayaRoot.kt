@@ -366,8 +366,11 @@ private fun VyayaRootContent(
                     val savings by produceState<app.vyaya.core.data.SavingsSummary?>(null, settings, v) {
                         value = settings?.let { savingsStore.summary(it, today) }
                     }
+                    // Safe to spend (Phase 3): the bills' made months are read again whenever the month or the rules change.
+                    val made by produceState(emptySet<app.vyaya.core.model.Generation>(), v, rules) { value = rulesStore.madeKeys() }
+                    val safe = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today) }
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
-                        onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings,
+                        onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings, safe = safe,
                         // Budgets report #3: only the current month; a past month would be shown against today's limits.
                         budgets = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
                 }
