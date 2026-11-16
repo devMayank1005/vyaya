@@ -71,10 +71,12 @@ fun VyayaRoot(
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
     onRulesChanged: () -> Unit = {},
+    /** A budget was saved: the app may ask to post budget alerts (Android 13+). */
+    onBudgetSet: () -> Unit = {},
     /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
     showDetected: Boolean = true,
 ) = VyayaTheme {
-    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected)
+    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected, onBudgetSet = onBudgetSet)
 }
 
 @Composable
@@ -100,6 +102,8 @@ private fun VyayaRootContent(
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
     onRulesChanged: () -> Unit = {},
+    /** A budget was saved: the app may ask to post budget alerts (Android 13+). */
+    onBudgetSet: () -> Unit = {},
     /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
     showDetected: Boolean = true,
 ) {
@@ -186,7 +190,7 @@ private fun VyayaRootContent(
                             when {
                                 category == null -> "Choose a category"
                                 limit == null -> "Enter a monthly limit (up to 2 decimals, at most ₹100 crore)"
-                                else -> answer(budgetStore.set(category, limit, clock())) { changed() }
+                                else -> answer(budgetStore.set(category, limit, clock())) { changed(); onBudgetSet() }
                             }
                         },
                         onRemove = { budget?.let { b -> scope.launch { budgetStore.remove(b, clock()); changed() } } },
@@ -364,7 +368,8 @@ private fun VyayaRootContent(
                     }
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings,
-                        budgets = v?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
+                        // Budgets report #3: only the current month; a past month would be shown against today's limits.
+                        budgets = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
                 }
                 Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
                     onOpen = { editingRule = it },

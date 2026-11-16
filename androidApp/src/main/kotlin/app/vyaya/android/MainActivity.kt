@@ -82,6 +82,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Budgets report #2: asked once a budget exists, so the request comes with a reason the user just saw. */
+    private val askToNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private fun askToNotifyIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) askToNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     private val restoreFrom: ActivityResultLauncher<Array<String>> = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         showRestore { restoreFlow.picked(uri) }
@@ -117,6 +126,7 @@ class MainActivity : FragmentActivity() {
                             exportCsvTo.launch("vyaya-entries-${java.time.LocalDate.now()}.csv")
                         }
                     },
+                    onBudgetSet = ::askToNotifyIfNeeded,
                     onPassword = { pw -> showRestore { restoreFlow.withPassword(pw) } },
                     locked = locked.value,
                     onUnlock = ::askToUnlock,

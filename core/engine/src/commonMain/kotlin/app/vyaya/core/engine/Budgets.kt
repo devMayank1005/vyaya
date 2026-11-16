@@ -74,3 +74,34 @@ object Budgets {
         return Money((average + hundred - 1) / hundred * hundred)
     }
 }
+
+/** A budget that newly reached [level] this month (budgets report #2): said once per budget, month and level. */
+data class BudgetAlert(val progress: BudgetProgress, val level: BudgetState, val key: String) {
+
+    /**
+     * The notification's title and text. While the app lock is on ([locked]), neither the category nor any amount is
+     * shown: a notification is readable on the lock screen and over the shoulder.
+     */
+    fun text(categoryName: String, locked: Boolean): Pair<String, String> = when {
+        locked && level == BudgetState.OVER -> "Vyaya" to "A budget is over its limit"
+        locked -> "Vyaya" to "A budget is nearly used up"
+        level == BudgetState.OVER -> "$categoryName is over budget" to
+            "${progress.spent.format()} of ${progress.limit.format()} this month: ${Money(-progress.left.paise).format()} over."
+        else -> "$categoryName: ${progress.percent}% of the budget used" to
+            "${progress.spent.format()} of ${progress.limit.format()} this month. ${progress.left.format()} left."
+    }
+}
+
+object BudgetAlerts {
+
+    /**
+     * The alerts due for [progress] in [month], given the keys already [sent]. NEAR (80 %) and OVER are each said once
+     * a month; a jump straight past the limit says only OVER.
+     */
+    fun due(progress: List<BudgetProgress>, month: app.vyaya.core.model.BudgetMonth, sent: Set<String>): List<BudgetAlert> =
+        progress.mapNotNull { p ->
+            if (p.state == BudgetState.OK) return@mapNotNull null
+            val key = "${p.budget.id.value}:${month.start}:${p.state.name}"
+            if (key in sent) null else BudgetAlert(p, p.state, key)
+        }
+}

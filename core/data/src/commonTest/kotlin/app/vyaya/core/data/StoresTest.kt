@@ -180,4 +180,18 @@ class StoresTest {
         assertEquals(null, assertIs<Outcome.Added>(capture.process(paid(13, "Swiggy", 90), t0).single()).entry.categoryId)
         db.close()
     }
+
+    @Test
+    fun budgets_flaw_002_capture_says_when_it_saved_something() = runTest {
+        val db = inMemoryDatabase()
+        var saves = 0
+        val capture = CaptureStore(db, afterSave = { saves++ })
+        capture.process(hdfc, t0)
+        assertEquals(1, saves, "a payment added")
+        capture.process(hdfc, t0)
+        assertEquals(1, saves, "the same SMS again: nothing saved, nothing said")
+        capture.process(sms("Your OTP is 123456"), t0)
+        assertEquals(1, saves, "not a payment")
+        db.close()
+    }
 }

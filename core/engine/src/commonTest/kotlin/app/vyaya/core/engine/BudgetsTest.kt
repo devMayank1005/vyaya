@@ -99,4 +99,28 @@ class BudgetsTest {
         assertEquals(listOf(b), Budgets.live(listOf(a, b), listOf(food)))
         assertEquals(listOf(b), Budgets.live(listOf(b, a), listOf(food)), "the larger id wins a tie, whatever the order")
     }
+
+    @Test
+    fun budgets_flaw_002_an_alert_is_due_once_per_level_per_month() {
+        val b = budget(FOOD, 5_000)
+        fun at(spent: Long) = listOf(BudgetProgress(b, rupees(spent)))
+        assertEquals(emptyList(), BudgetAlerts.due(at(3_999), october, emptySet()))
+        val near = BudgetAlerts.due(at(4_000), october, emptySet()).single()
+        assertEquals(BudgetState.NEAR to "${b.id.value}:2026-10-01:NEAR", near.level to near.key)
+        assertEquals(emptyList(), BudgetAlerts.due(at(4_500), october, setOf(near.key)), "already said this month")
+        val over = BudgetAlerts.due(at(5_001), october, setOf(near.key)).single()
+        assertEquals(BudgetState.OVER, over.level)
+        assertEquals(listOf(BudgetState.OVER), BudgetAlerts.due(at(9_000), october, emptySet()).map { it.level }, "straight past: only over")
+        assertEquals(1, BudgetAlerts.due(at(4_000), calendar.next(october), setOf(near.key)).size, "a new month, a fresh alert")
+    }
+
+    @Test
+    fun budgets_flaw_002_the_alert_text_hides_amounts_and_category_while_locked() {
+        val near = BudgetAlert(BudgetProgress(budget(FOOD, 5_000), rupees(4_100)), BudgetState.NEAR, "k")
+        val over = BudgetAlert(BudgetProgress(budget(FOOD, 5_000), rupees(5_300)), BudgetState.OVER, "k")
+        assertEquals("Food: 82% of the budget used" to "₹4,100 of ₹5,000 this month. ₹900 left.", near.text("Food", locked = false))
+        assertEquals("Food is over budget" to "₹5,300 of ₹5,000 this month: ₹300 over.", over.text("Food", locked = false))
+        assertEquals("Vyaya" to "A budget is nearly used up", near.text("Food", locked = true))
+        assertEquals("Vyaya" to "A budget is over its limit", over.text("Food", locked = true))
+    }
 }

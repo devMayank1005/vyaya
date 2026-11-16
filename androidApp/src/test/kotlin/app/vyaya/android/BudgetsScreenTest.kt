@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -56,8 +57,13 @@ class BudgetsScreenTest {
         CapturedAt(Instant.parse(at), kotlinx.datetime.TimeZone.of("Asia/Kolkata")), null, null, food().id, "Cafe", "", emptyList(),
         EntrySource.MANUAL, null, emptyList(), null, now, now, false)
 
+    private var budgetsSet = 0
+
     private fun app() =
-        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        compose.setContent {
+            VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {},
+                onBudgetSet = { budgetsSet++ })
+        }
 
     private fun openBudgets() {
         compose.onNodeWithText("Settings").performClick()
@@ -76,6 +82,7 @@ class BudgetsScreenTest {
         compose.onNodeWithText("Save").performClick()
         compose.waitUntil(10_000) { runBlocking { BudgetStore(db).budgets() }.isNotEmpty() }
         assertEquals(Money(4_000_00), runBlocking { BudgetStore(db).budgets() }.single().limit)
+        assertEquals("saving a budget lets the app ask to notify (Android 13+)", 1, budgetsSet)
         waitFor("₹4,000 a month"); compose.waitForIdle()
     }
 
@@ -120,5 +127,52 @@ class BudgetsScreenTest {
         app()
         waitFor("Out ₹4,300")
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("₹300 over"))
+    }
+
+    private fun category(name: String) = runBlocking { CatalogStore(db).categories() }.first { it.name == name }
+
+    private fun spentIn(name: String?, rupees: Long, at: String = "2026-11-05T06:00:00Z") = spent(rupees, at).copy(categoryId = name?.let { category(it).id })
+
+    @Test
+    fun budgets_flaw_003_a_past_month_shows_no_budgets() {
+        runBlocking {
+            AppOpen(db).run(now)
+            BudgetStore(db).set(food(), Money(5_000_00), now)
+            EntryStore(db).save(listOf(spent(9_000, "2026-10-05T06:00:00Z"), spent(100, "2026-11-05T06:00:00Z")))
+        }
+        app()
+        waitFor("Out ₹100")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("₹100 of ₹5,000"))
+        compose.onNodeWithContentDescription("Previous month").performClick()
+        waitFor("Out ₹9,000")
+        compose.onNodeWithText("Budgets").assertDoesNotExist()
+    }
+
+    @Test
+    fun budgets_flaw_005_006_three_fullest_then_show_all_and_what_is_outside() {
+        runBlocking {
+            AppOpen(db).run(now)
+            listOf("Food & dining" to 5_000L, "Groceries" to 4_000L, "Transport" to 2_000L, "Shopping" to 3_000L).forEach { (n, r) ->
+                BudgetStore(db).set(category(n), Money(r * 100), now)
+            }
+            EntryStore(db).save(listOf(spentIn("Food & dining", 4_000), spentIn("Groceries", 2_000), spentIn("Transport", 500), spentIn(null, 1_500)))
+        }
+        app()
+        waitFor("Out ₹8,000")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("₹1,500 spent outside your budgets"))
+        compose.onNodeWithText("Shopping").assertDoesNotExist() // the emptiest, past the first 3
+        compose.onNodeWithText("Show all 4 budgets").performClick()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Shopping"))
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Show fewer"))
+    }
+
+    @Test
+    fun budgets_flaw_001_007_the_form_says_what_it_does_not_count() {
+        runBlocking { AppOpen(db).run(now) }
+        app()
+        openBudgets()
+        compose.onNodeWithText("Add budget", useUnmergedTree = true).performClick()
+        compose.onNodeWithText("Refunds aren't counted yet", substring = true).performScrollTo()
+        compose.onNodeWithText("start day", substring = true).performScrollTo()
     }
 }

@@ -40,6 +40,7 @@ import app.vyaya.core.engine.MonthEnd
 import app.vyaya.core.model.BudgetMonth
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.Money
 import app.vyaya.core.model.EntryType
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.toLocalDateTime
@@ -72,7 +73,10 @@ fun HomeScreen(
             if (view == null) return@Column
             LazyColumn(Modifier.fillMaxSize()) {
                 item { SummaryCard(view, monthEnd, savings) }
-                if (budgets.isNotEmpty()) item(key = "budgets") { BudgetsCard(budgets, categoryNames) }
+                if (budgets.isNotEmpty()) item(key = "budgets") {
+                    // Budgets report #5: what this month's spending put in no budget.
+                    BudgetsCard(budgets, categoryNames, outside = view.summary.spent - Money(budgets.sumOf { it.spent.paise }))
+                }
                 if (view.entries.isEmpty()) {
                     item { EmptyMonth() }
                 } else {

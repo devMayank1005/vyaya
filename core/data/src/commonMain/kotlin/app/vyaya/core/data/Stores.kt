@@ -76,7 +76,16 @@ class EntryStore(private val db: VyayaDatabase) {
  * entry, a transfer, a duplicate (nothing saved) or a review item. Detected payments are added automatically (the
  * user's choice); the app's Detected inbox lists them for edit or undo.
  */
-class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInbox = DetectedInbox(db)) {
+class CaptureStore(
+    private val db: VyayaDatabase,
+    private val inbox: DetectedInbox = DetectedInbox(db),
+    /**
+     * Called after a capture saved something (an entry added, a transfer, a duplicate that filled something in), once the
+     * transaction is committed and outside the capture lock: the budget alerts (budgets report #2). Its failure never
+     * affects the capture.
+     */
+    private val afterSave: suspend () -> Unit = {},
+) {
 
     private val entries = EntryStore(db)
 
@@ -88,7 +97,22 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
      * and each message in one database transaction, so a crash leaves nothing half-saved. Each part of a message is
      * looked up near its own date (DATA-002), and split and parsed once (FLAW-009).
      */
-    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
+    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> {
+        val outcomes = saveAll(raw, now)
+        val saved = outcomes.any { it is Outcome.Added || it is Outcome.Transfer || (it is Outcome.Duplicate && it.update != null) }
+        if (saved) {
+            try {
+                afterSave()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // An alert that couldn't be worked out is skipped; the payment is saved.
+            }
+        }
+        return outcomes
+    }
+
+    private suspend fun saveAll(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 val (accounts, merchants) = captureContext()

@@ -72,4 +72,10 @@ class ManifestTest {
         val sms = info.requestedPermissions.orEmpty().filter { "SMS" in it }.toSet()
         assertEquals(if (Channel.READS_SMS) setOf("android.permission.RECEIVE_SMS", "android.permission.READ_SMS") else emptySet<String>(), sms)
     }
+
+    @Test
+    fun budgets_flaw_002_asks_to_post_notifications_for_budget_alerts() {
+        val asked = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toList()
+        assertTrue(asked.toString(), "android.permission.POST_NOTIFICATIONS" in asked)
+    }
 }

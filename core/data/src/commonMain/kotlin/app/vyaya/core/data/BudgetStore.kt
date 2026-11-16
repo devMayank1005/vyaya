@@ -53,10 +53,12 @@ class BudgetStore(private val db: VyayaDatabase, private val limits: BackupLimit
 
     /**
      * A limit to start from for [categoryId]: the average spent in it over the last finished budget months (up to 3),
-     * counting only months since the user's first entry. Read one month at a time.
+     * counting only months since it was first used. Read one month at a time.
      */
     suspend fun suggestion(categoryId: EntityId, settings: Settings, today: LocalDate): Suggestion? {
-        val earliest = db.entries().earliestMs() ?: return null
+        // Budgets report #4: from the category's own first month, so a new category isn't averaged with months before it
+        // was used. A category used only inside splits has no column of its own: then from the user's first entry.
+        val earliest = db.entries().earliestWithCategoryMs(categoryId.value) ?: db.entries().earliestMs() ?: return null
         val schedule = settings.monthSchedule
         val first = schedule.monthContaining(Instant.fromEpochMilliseconds(earliest).toLocalDateTime(settings.homeTimeZone).date)
         val entries = EntryStore(db)

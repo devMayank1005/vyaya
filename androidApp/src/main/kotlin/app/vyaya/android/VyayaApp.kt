@@ -15,7 +15,9 @@ class VyayaApp : Application() {
 
     val database: VyayaDatabase by lazy { open(this) }
     val inbox: DetectedInbox by lazy { DetectedInbox(database) }
-    val capture: CaptureStore by lazy { CaptureStore(database, inbox) }
+    /** Budgets report #2: after each capture that saved something, a budget alert if one is due. */
+    val budgetNotifier: BudgetNotifier by lazy { BudgetNotifier(this, database, locked = { appLock.enabled }, clock = { kotlin.time.Clock.System.now() }) }
+    val capture: CaptureStore by lazy { CaptureStore(database, inbox, afterSave = { budgetNotifier.check() }) }
     /** FLAW-001 (lock report): one lock for the process, so a re-created screen (rotation) isn't taken for a return. */
     val appLock: AppLock by lazy { appLockOf(this) }
     val appVerifier: AppVerifier by lazy { AppVerifier(packageManager, UpiApps.default.apps.associateBy { it.packageName }) }

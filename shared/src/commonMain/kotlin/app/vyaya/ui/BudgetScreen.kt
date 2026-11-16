@@ -81,18 +81,27 @@ fun BudgetForm(
             Text("Suggested ${s.limit.format()}: your average over $months", style = MaterialTheme.typography.bodySmall)
             AssistChip({ amount = plainRupees(s.limit); error = null }, { Text("Use ${s.limit.format()}") })
         }
-        Text("A fresh limit each month: what isn't spent doesn't carry over.", style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Budgets report #1 and #7: what a budget doesn't count, said where the limit is set.
+        Text(
+            "A fresh limit each month: what isn't spent doesn't carry over. Refunds aren't counted yet: a refund doesn't " +
+                "come off the budget. After you change the month's start day, one month is shorter or longer; its limit " +
+                "stays the same.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
-/** Home: each budget against this month's spending, fullest first. */
+/**
+ * Home: each budget against this month's spending, fullest first: the 3 fullest, the rest on request (budgets report
+ * #6), and what was spent outside every budget (#5).
+ */
 @Composable
-fun BudgetsCard(progress: List<BudgetProgress>, names: Map<EntityId, String>) {
+fun BudgetsCard(progress: List<BudgetProgress>, names: Map<EntityId, String>, outside: Money = Money(0)) {
+    var all by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Budgets", style = MaterialTheme.typography.titleMedium)
-            progress.forEach { p ->
+            (if (all) progress else progress.take(SHOWN)).forEach { p ->
                 val colour = when (p.state) {
                     BudgetState.OVER -> MaterialTheme.colorScheme.error
                     BudgetState.NEAR -> MaterialTheme.colorScheme.tertiary
@@ -111,6 +120,15 @@ fun BudgetsCard(progress: List<BudgetProgress>, names: Map<EntityId, String>) {
                     )
                 }
             }
+            if (progress.size > SHOWN) {
+                TextButton({ all = !all }) { Text(if (all) "Show fewer" else "Show all ${progress.size} budgets") }
+            }
+            if (outside.paise > 0) {
+                Text("${outside.format()} spent outside your budgets", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
+
+private const val SHOWN = 3

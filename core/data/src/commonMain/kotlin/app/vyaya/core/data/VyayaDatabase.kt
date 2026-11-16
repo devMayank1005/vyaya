@@ -82,6 +82,10 @@ interface EntryDao {
     @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0")
     suspend fun earliestMs(): Long?
 
+    /** When [categoryId] was first used (budgets report #4). A split's own category isn't a column, so not counted here. */
+    @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0 AND categoryId = :categoryId")
+    suspend fun earliestWithCategoryMs(categoryId: String): Long?
+
     /** Entries a recurring rule made (catch-up and clock repair look at these only). */
     @Query("SELECT * FROM entries WHERE ruleId IS NOT NULL")
     suspend fun generated(): List<EntryRow>

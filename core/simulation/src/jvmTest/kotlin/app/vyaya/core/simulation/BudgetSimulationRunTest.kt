@@ -104,7 +104,9 @@ class BudgetSimulationRunTest {
                 val got = BudgetStore(db).suggestion(c.id, records.settings, today)
                 val live = entries.filter { !it.deleted }
                 val want = if (live.isEmpty()) null else {
-                    val first = schedule.monthContaining(live.minOf { it.occurredAt.instant }.toLocalDateTime(records.settings.homeTimeZone).date)
+                    // From the category's own first entry (budgets report #4); used only in splits: the first entry of all.
+                    val since = live.filter { it.categoryId == c.id }.ifEmpty { live }.minOf { it.occurredAt.instant }
+                    val first = schedule.monthContaining(since.toLocalDateTime(records.settings.homeTimeZone).date)
                     val months = generateSequence(schedule.previous(schedule.monthContaining(today))) { schedule.previous(it) }
                         .takeWhile { it.start >= first.start }.take(3).toList()
                     val spent = months.map { m ->

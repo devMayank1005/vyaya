@@ -85,4 +85,19 @@ class BudgetStoreTest {
         assertEquals(BudgetStore.Suggestion(Money(2_700_00), months = 3), budgets.suggestion(food.id, settings, today), "(0 + 3,000 + 5,000) / 3 = 2,667, up to 2,700")
         db.close()
     }
+
+    @Test
+    fun budgets_flaw_004_a_new_category_is_suggested_from_its_own_first_month() = runTest {
+        val db = inMemoryDatabase()
+        val catalog = CatalogStore(db)
+        val food = saved(catalog.addCategory("Food", CategoryKind.EXPENSE, t))
+        val pets = saved(catalog.addCategory("Pets", CategoryKind.EXPENSE, t))
+        EntryStore(db).save(listOf(
+            spend(food.id, 2_000, "2026-06-10T06:00:00Z"), // the user since June
+            spend(pets.id, 3_000, "2026-10-10T06:00:00Z"), // Pets used from October
+        ))
+        assertEquals(BudgetStore.Suggestion(Money(3_000_00), months = 1), BudgetStore(db).suggestion(pets.id, Settings.default(), today),
+            "not (0 + 0 + 3,000) / 3: September and August came before Pets was used")
+        db.close()
+    }
 }
