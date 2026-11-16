@@ -81,3 +81,52 @@ internal fun reasonText(reason: String?): String = when (reason) {
     "UNVERIFIED_APP" -> "From an app the phone couldn't confirm is the real one"
     else -> "Check this payment"
 }
+
+/** Why a message was skipped, in plain words (the Ignored tab). */
+fun ignoredWhy(reason: app.vyaya.core.filters.IgnoreReason): String = when (reason) {
+    app.vyaya.core.filters.IgnoreReason.UNTRUSTED_APP -> "From an app Vyaya doesn't read payments from"
+    app.vyaya.core.filters.IgnoreReason.PERSONAL_NUMBER -> "From a phone number, not a bank: often a scam"
+    app.vyaya.core.filters.IgnoreReason.UNKNOWN_SENDER -> "From a sender Vyaya doesn't know"
+    app.vyaya.core.filters.IgnoreReason.PROMOTIONAL -> "A promotional message"
+    app.vyaya.core.filters.IgnoreReason.OTP -> "A one-time password, not a payment"
+    app.vyaya.core.filters.IgnoreReason.FAILED -> "Failed or reversed: no money moved"
+    app.vyaya.core.filters.IgnoreReason.NOT_YET_HAPPENED -> "A reminder, or money that hasn't moved yet"
+    app.vyaya.core.filters.IgnoreReason.REQUEST -> "Someone asking for money, not a payment"
+    app.vyaya.core.filters.IgnoreReason.NOT_A_TRANSACTION -> "Vyaya couldn't read a payment in it"
+}
+
+/**
+ * The Ignored tab (Phase 3): messages with an amount that weren't logged, newest first, as a summary (the sender, the
+ * amount, why, when). "This was a payment" adds it (the form opens with the amount and day); "Not a payment" puts it away.
+ */
+@Composable
+fun IgnoredList(
+    items: List<app.vyaya.core.data.IgnoredItem>,
+    onWasPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
+    onNotPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            Text("Messages with an amount that Vyaya didn't log. Only the sender, amount and reason are kept, for 30 days; never the message.",
+                Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (items.isEmpty()) item { Text("Nothing skipped in the last 30 days", Modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge) }
+        items(items, key = { it.id }) { item ->
+            androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val from = app.vyaya.core.parser.UpiApps.default.apps.firstOrNull { it.packageName == item.sender }?.name ?: item.sender
+                    Text("${item.amount.format()} · $from", style = MaterialTheme.typography.titleMedium)
+                    Text(ignoredWhy(item.reason), style = MaterialTheme.typography.bodyMedium)
+                    val local = item.receivedAt.toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
+                    Text("${local.date} ${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        androidx.compose.material3.OutlinedButton({ onWasPayment(item) }) { Text("This was a payment") }
+                        androidx.compose.material3.TextButton({ onNotPayment(item) }) { Text("Not a payment") }
+                    }
+                }
+            }
+        }
+    }
+}

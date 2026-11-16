@@ -119,6 +119,10 @@ private fun VyayaRootContent(
     val merchants = remember(db) { app.vyaya.core.data.MerchantStore(db) }
     val budgetStore = remember(db) { app.vyaya.core.data.BudgetStore(db) }
     val monthStarts = remember(db) { app.vyaya.core.data.MonthStartStore(db) }
+    val ignoredStore = remember(db) { app.vyaya.core.data.IgnoredStore(db) }
+    var ignoredVersion by remember { mutableStateOf(0) }
+    /** The Ignored tab's "This was a payment": the message being added (its amount and day fill the form). */
+    var fromIgnored by remember { mutableStateOf<app.vyaya.core.data.IgnoredItem?>(null) }
     var monthStartVersion by remember { mutableStateOf(0) }
     /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
     var catalogView by remember { mutableStateOf<String?>(null) }
@@ -319,6 +323,9 @@ private fun VyayaRootContent(
                             if (input.alsoEarlier) merchants.applyToEarlier(entry.payee!!, entry.categoryId!!, entry.type, now)
                             catalogVersion++
                         }
+                        // Added from the Ignored tab: that message is answered.
+                        fromIgnored?.let { ignoredStore.wasPayment(it.id); ignoredVersion++ }
+                        fromIgnored = null
                     }
                     adding = false; editing = null
                 }
@@ -328,9 +335,11 @@ private fun VyayaRootContent(
                 existing?.let { e -> scope.launch { entries.save(listOf(e.markDeleted(clock()))) } }
                 editing = null
             },
-            onClose = { adding = false; editing = null },
+            onClose = { adding = false; editing = null; fromIgnored = null },
             accounts = records?.accounts.orEmpty(),
             rules = records?.merchantRules.orEmpty(),
+            initialAmount = fromIgnored?.amount,
+            initialDate = fromIgnored?.receivedAt?.toLocalDateTime(zone())?.date,
             matches = { payee, type -> merchants.matches(payee, type) },
             keyOf = merchants::keyOf,
         )
@@ -402,7 +411,10 @@ private fun VyayaRootContent(
                         onEntry = { editingLedger = it; ledgerForm = "edit" }, onRename = { ledgerForm = "rename" },
                         onRemove = { scope.launch { ledger.deletePerson(who, clock()); ledgerChanged() }; person = null })
                 }
-                Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
+                Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery,
+                    ignored = { ignoredStore.items(clock()) }, ignoredVersion = ignoredVersion,
+                    onWasPayment = { item -> fromIgnored = item; adding = true },
+                    onNotPayment = { item -> scope.launch { ignoredStore.notPayment(item.id); ignoredVersion++ } })
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
                     onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },

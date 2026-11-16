@@ -236,13 +236,48 @@ interface PrefDao {
     suspend fun put(row: PrefRow)
 }
 
-@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class, PrefRow::class], version = 1)
+/**
+ * A message capture skipped that showed an amount (the Ignored tab, Phase 3): a summary only, never its text (the
+ * user's choice). [sender] is masked when it is a phone number. Kept 30 days; never in a backup.
+ */
+@Entity(tableName = "ignored", indices = [Index("receivedAtMs")])
+data class IgnoredRow(
+    /** The message's id (as the Detected inbox's): the same message read again is one row. */
+    @PrimaryKey val id: String,
+    val sender: String,
+    val amountPaise: Long,
+    val reason: String,
+    val receivedAtMs: Long,
+    /** OPEN, PAYMENT (the user said it was one, and added it) or NOT_PAYMENT. */
+    val status: String,
+)
+
+@Dao
+interface IgnoredDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(row: IgnoredRow)
+
+    @Query("SELECT * FROM ignored WHERE status = 'OPEN' ORDER BY receivedAtMs DESC")
+    suspend fun open(): List<IgnoredRow>
+
+    @Query("UPDATE ignored SET status = :status WHERE id = :id")
+    suspend fun setStatus(id: String, status: String)
+
+    @Query("DELETE FROM ignored WHERE receivedAtMs < :beforeMs")
+    suspend fun purge(beforeMs: Long)
+
+    @Query("SELECT * FROM ignored")
+    suspend fun all(): List<IgnoredRow>
+}
+
+@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class, PrefRow::class, IgnoredRow::class], version = 1)
 @ConstructedBy(VyayaDatabaseConstructor::class)
 abstract class VyayaDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
     abstract fun detected(): DetectedDao
     abstract fun records(): RecordDao
     abstract fun prefs(): PrefDao
+    abstract fun ignored(): IgnoredDao
 }
 
 // Room's compiler supplies the actual implementations for each platform.

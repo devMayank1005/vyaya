@@ -67,14 +67,17 @@ fun AddEntryScreen(
     /** Merchant memory: the payee's payments of a type so far (null: not known). */
     matches: suspend (String, EntryType) -> MerchantStore.Matches? = { _, _ -> null },
     keyOf: (String) -> String = { it.lowercase().filter(Char::isLetterOrDigit) },
+    /** A new entry's amount and day, filled in (from the Ignored tab's "This was a payment"). */
+    initialAmount: Money? = null,
+    initialDate: LocalDate? = null,
 ) {
     var accountId by remember { mutableStateOf(existing?.accountId) }
     var type by remember { mutableStateOf(if (existing?.type == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
-    var amount by remember { mutableStateOf(existing?.amount?.let(::plainAmount) ?: "") }
+    var amount by remember { mutableStateOf(existing?.amount?.let(::plainAmount) ?: initialAmount?.let(::plainAmount) ?: "") }
     var categoryId by remember { mutableStateOf(existing?.categoryId) }
     var payee by remember { mutableStateOf(existing?.payee ?: "") }
     var note by remember { mutableStateOf(existing?.note ?: "") }
-    var date by remember { mutableStateOf(existing?.occurredAt?.let { it.instant.toLocalDateTime(it.timeZone).date } ?: today) }
+    var date by remember { mutableStateOf(existing?.occurredAt?.let { it.instant.toLocalDateTime(it.timeZone).date } ?: initialDate ?: today) }
     var error by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
     var always by remember { mutableStateOf(false) }

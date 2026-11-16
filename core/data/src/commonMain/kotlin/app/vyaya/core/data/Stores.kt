@@ -88,6 +88,7 @@ class CaptureStore(
 ) {
 
     private val entries = EntryStore(db)
+    private val ignored = IgnoredStore(db)
 
     /** Every capture rule looks at most this far from a message's time (recurring entries: 5 days); references, any time. */
     private val window = 6.days
@@ -128,6 +129,10 @@ class CaptureStore(
                         else -> {}
                     }
                     inbox.record(part, outcome)
+                    // The Ignored tab: a skipped message that shows an amount, as a summary (never its text).
+                    if (outcome is Outcome.Ignored) {
+                        app.vyaya.core.parser.Extractors.amount(part.text)?.let { ignored.record(part, outcome.reason, it, now) }
+                    }
                     outcome
                 }
             }
