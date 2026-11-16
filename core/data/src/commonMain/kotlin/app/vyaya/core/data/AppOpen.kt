@@ -6,6 +6,7 @@ import app.vyaya.core.backup.ClockRepair
 import app.vyaya.core.engine.Recurring
 import app.vyaya.core.model.DefaultCategories
 import kotlinx.datetime.toLocalDateTime
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
 /** What [AppOpen.run] did. */
@@ -46,9 +47,17 @@ class AppOpen(private val db: VyayaDatabase) {
 
             val zone = records.settings.homeTimeZone
             val today = now.toLocalDateTime(zone).date
-            val made = Recurring.catchUp(records.recurring, entries.generated(), today, zone, now)
+            val generated = entries.generated()
+            val due = Recurring.catchUp(records.recurring, generated, today, zone, now)
+            // Safe-to-spend DATA-001: a bill already paid a few days early (or late) stands for its month instead of a
+            // second entry. Only the entries around the due dates are read (a day more for other time zones).
+            val made = if (due.isEmpty()) due else {
+                val around = (Recurring.PAID_NEARBY_DAYS + 1).days
+                val nearby = entries.inRange(due.minOf { it.occurredAt.instant } - around, due.maxOf { it.occurredAt.instant } + around)
+                Recurring.linkPaid(due, nearby, generated, now)
+            }
             entries.save(made)
-            OpenResult(seeded, repaired, made.size)
+            OpenResult(seeded, repaired, made.count { it.generatedBy != null && !it.deleted })
         }
     }
 }

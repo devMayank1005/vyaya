@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 1,
-    "identityHash": "67163bcb740070fe7860a582f328fe42",
+    "identityHash": "0e7ae01a5475f5bca903f34f87f1bbd1",
     "entities": [
       {
         "tableName": "entries",
@@ -249,11 +249,35 @@
             "id"
           ]
         }
+      },
+      {
+        "tableName": "prefs",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '67163bcb740070fe7860a582f328fe42')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '0e7ae01a5475f5bca903f34f87f1bbd1')"
     ]
   }
 }

@@ -97,4 +97,46 @@ class SafeToSpendTest {
             check(s.shortBy.paise == maxOf(0, -room))
         }
     }
+
+    @Test
+    fun safe_data_001_a_bill_already_paid_early_is_no_longer_due() {
+        val today = LocalDate(2026, 11, 19)
+        val month = calendar.monthContaining(today)
+        val rent = rule(20, 15_000)
+        val upi = entry(EntryType.EXPENSE, rupees(15_000), "2026-11-18T06:00:00Z", category = null)
+        val s = SafeToSpend.of(summary(month, 50_000, 15_000), listOf(rent), emptySet(), today, payments = listOf(upi))!!
+        assertEquals(rupees(0), s.billsDue, "the rent was paid yesterday: not due again")
+        val again = SafeToSpend.of(summary(month, 50_000, 15_000), listOf(rent), emptySet(), today, payments = listOf(upi), taken = setOf(upi.id))!!
+        assertEquals(rupees(15_000), again.billsDue, "a payment that already stands for another bill doesn't count twice")
+        val two = SafeToSpend.of(summary(month, 50_000, 15_000), listOf(rent, rule(20, 15_000)), emptySet(), today, payments = listOf(upi))!!
+        assertEquals(rupees(15_000), two.billsDue, "one payment, one bill")
+    }
+
+    @Test
+    fun safe_flaw_002_income_rules_still_to_come_this_month_are_counted_as_expected() {
+        val today = LocalDate(2026, 11, 12)
+        val month = calendar.monthContaining(today)
+        val salary = rule(30, 60_000, type = EntryType.INCOME)
+        val s = SafeToSpend.of(summary(month, 0, 10_000), listOf(salary, rule(20, 15_000)), emptySet(), today)!!
+        assertEquals(rupees(60_000), s.expectedIncome)
+        assertEquals(rupees(15_000), s.billsDue)
+        assertEquals(rupees(1_842), s.perDay, "(−10,000 + 60,000 − 15,000) / 19 = 1,842.1")
+        val early = SafeToSpend.of(summary(month, 60_000, 10_000), listOf(salary), emptySet(), LocalDate(2026, 11, 26),
+            payments = listOf(entry(EntryType.INCOME, rupees(60_000), "2026-11-26T06:00:00Z", category = null)))!!
+        assertEquals(rupees(0), early.expectedIncome, "the salary came 4 days early: not expected again")
+    }
+
+    @Test
+    fun safe_flaw_003_todays_amount_is_set_at_the_start_of_the_day_and_today_says_what_is_left_of_it() {
+        val today = LocalDate(2026, 11, 12)
+        val month = calendar.monthContaining(today)
+        val lunch = entry(EntryType.EXPENSE, rupees(500), "2026-11-12T06:00:00Z", category = null) // today, in Kolkata
+        // Left is 30,000 after lunch: 30,500 at the start of the day.
+        val s = SafeToSpend.of(summary(month, 50_000, 20_000), emptyList(), emptySet(), today, payments = listOf(lunch))!!
+        assertEquals(rupees(1_605), s.perDay, "30,500 / 19 = 1,605.2: lunch doesn't change today's amount")
+        assertEquals(rupees(1_105), s.leftToday)
+        val big = entry(EntryType.EXPENSE, rupees(2_000), "2026-11-12T07:00:00Z", category = null)
+        assertEquals(rupees(-895), SafeToSpend.of(summary(month, 50_000, 22_000), emptyList(), emptySet(), today, payments = listOf(lunch, big))!!.leftToday,
+            "over today's amount")
+    }
 }

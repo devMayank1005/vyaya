@@ -49,6 +49,9 @@ class RulesStore(private val db: VyayaDatabase) {
      */
     suspend fun madeKeys(): Set<app.vyaya.core.model.Generation> = entries.generated().mapNotNull { it.generatedBy }.toSet()
 
+    /** Payments that stand for a rule's month (paid a few days early or late, safe-to-spend DATA-001). */
+    suspend fun linkedPayments(): Set<app.vyaya.core.model.EntityId> = entries.generated().mapNotNull { it.linkedEntryId }.toSet()
+
     /** The months [rule] was due while paused and has no entry for: the app asks whether to add them (FLAW-003). */
     suspend fun missedWhilePaused(rule: RecurringRule, now: Instant, zone: TimeZone): List<YearMonth> =
         Recurring.missedWhilePaused(rule, entries.generated(), now.toLocalDateTime(zone).date)

@@ -220,12 +220,29 @@ interface RecordDao {
     suspend fun clear()
 }
 
-@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class], version = 1)
+/**
+ * Small values for this phone only (never in a backup): what the user put off ("not now"). Not records: nothing
+ * about the money, and losing them only means a suggestion may be shown again.
+ */
+@Entity(tableName = "prefs")
+data class PrefRow(@PrimaryKey val key: String, val value: String)
+
+@Dao
+interface PrefDao {
+    @Query("SELECT value FROM prefs WHERE `key` = :key")
+    suspend fun get(key: String): String?
+
+    @Upsert
+    suspend fun put(row: PrefRow)
+}
+
+@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class, PrefRow::class], version = 1)
 @ConstructedBy(VyayaDatabaseConstructor::class)
 abstract class VyayaDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
     abstract fun detected(): DetectedDao
     abstract fun records(): RecordDao
+    abstract fun prefs(): PrefDao
 }
 
 // Room's compiler supplies the actual implementations for each platform.

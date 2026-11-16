@@ -63,6 +63,10 @@ fun BackupScreen(
     onExportCsv: () -> Unit = {},
     onPayees: () -> Unit = {},
     onBudgets: () -> Unit = {},
+    /** The current month's start day, a change to come (from, day), and how to set it (safe-to-spend FLAW-002). */
+    startDay: Int? = null,
+    nextStart: Pair<kotlinx.datetime.LocalDate, Int>? = null,
+    onStartDay: (Int) -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -124,6 +128,37 @@ fun BackupScreen(
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
+        if (startDay != null) {
+            var asking by remember { mutableStateOf(false) }
+            var dayText by remember { mutableStateOf("") }
+            var dayProblem by remember { mutableStateOf<String?>(null) }
+            Text("Your month", style = MaterialTheme.typography.titleMedium)
+            Text("Your month starts on the ${ordinal(startDay)}" +
+                (nextStart?.let { (from, d) -> ". From $from, on the ${ordinal(d)}" } ?: ""), style = MaterialTheme.typography.bodyMedium)
+            Text("Start it on your salary day, so each month begins with its money. A change starts with your next month; " +
+                "the month in between is shorter or longer, so nothing is counted twice.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton({ asking = true; dayText = ""; dayProblem = null }) { Text("Change start day") }
+            if (asking) AlertDialog(
+                onDismissRequest = { asking = false },
+                title = { Text("Month start day") },
+                text = {
+                    Column {
+                        OutlinedTextField(dayText, { dayText = it.filter(Char::isDigit).take(2); dayProblem = null }, label = { Text("Start day (1–31)") },
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            singleLine = true)
+                        dayProblem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                },
+                confirmButton = {
+                    TextButton({
+                        val d = dayText.toIntOrNull()
+                        if (d == null || d !in 1..31) dayProblem = "A day from 1 to 31 (in shorter months, the last day)"
+                        else { onStartDay(d); asking = false }
+                    }) { Text("Save start day") }
+                },
+                dismissButton = { TextButton({ asking = false }) { Text("Cancel") } },
+            )
+        }
         Text("Spreadsheet", style = MaterialTheme.typography.titleMedium)
         Text("All your entries as a CSV file for Excel or Google Sheets. No password: anyone with the file can read it. " +
             "It can't be restored; use a backup for that.", style = MaterialTheme.typography.bodySmall)

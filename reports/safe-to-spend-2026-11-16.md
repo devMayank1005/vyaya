@@ -80,3 +80,23 @@ says nothing about real users, but see #2.
 - **#2:** (a) count expected income from income rules, (b) suggest the salary day as the month start, or (c) both
   (recommended: c)?
 - **#3, #4:** "left for today", and a note when a budget is nearly used up (recommended)?
+
+## Resolution (2026-11-16)
+
+Your decision: go with the recommendations. Each fix began with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed | On open, before catch-up makes a rule's entry, a payment of the same type and amount within 5 days of the due date (typed in or captured, nearest first) stands for it. The rule's month is marked done (its key, deleted, `linkedEntryId` = the payment), and the payment takes the rule's category, account and note where it has none. A payment already standing for a rule month isn't used again. Safe to spend uses the same match (`Recurring.paymentFor`), so a bill paid early isn't "still due". Probe case: 2 entries → 1. Tests: `RecurringTest`, `AppOpenTest`, `SafeToSpendTest` |
+| 2 FLAW-002 | ✅ Fixed (a + b) | (a) Income rules still to come this month count as "₹60,000 of income expected", said on the line. (b) When the largest income of each of the last 2–3 months came within 3 days of one day, Home suggests "Start on the 29th" / "Not now" ("Not now" kept on this phone, per day). Settings → Your month: start day 1–31, from the next month (`MonthSchedule.withStartDay`; the month in between is shorter or longer). The start day is in backups, as before (no format change) |
+| 3 FLAW-003 | ✅ Fixed | The daily amount is set at the start of the day; "₹289 left for today", or "₹211 over today's amount". Bills paid today don't count against it |
+| 4 FLAW-004 | ✅ Fixed | Under the line: "Food & dining is nearly used up" / "is over its budget" (and N more) |
+
+Simulations after the fixes:
+- Safe to spend, 2,000 users: 8,000 days, **0 differ** (now with expected income, early payments and today's spending); a
+  daily amount every day plus every bill never below zero.
+- Database open, 1,000 users: 38,420 opens = engine; 0 duplicates, 0 missing. 1,314 bills paid early by UPI; 1,184
+  linked to their month; **0 paid and made again**. The rest were rules the simulation moved, paused or edited
+  before the due day.
+
+New local table `prefs` (this phone only, never in a backup: "not now" answers). DB version 1 is unreleased.

@@ -62,6 +62,10 @@ fun HomeScreen(
     savings: SavingsSummary? = null,
     /** Safe to spend per day (Phase 3): the current month only. */
     safe: app.vyaya.core.engine.SafeToSpend? = null,
+    /** Safe-to-spend FLAW-002: the salary day to suggest as the month's start, with what to do about it. */
+    salaryDay: Int? = null,
+    onStartOn: (Int) -> Unit = {},
+    onNotNow: (Int) -> Unit = {},
     /** This month's budgets against its spending (Phase 3), fullest first. */
     budgets: List<app.vyaya.core.engine.BudgetProgress> = emptyList(),
 ) {
@@ -74,7 +78,17 @@ fun HomeScreen(
             }
             if (view == null) return@Column
             LazyColumn(Modifier.fillMaxSize()) {
-                item { SummaryCard(view, monthEnd, savings, safe) }
+                item {
+                    // Safe-to-spend FLAW-004: a budget nearly used up is said under the daily amount, so the two agree.
+                    val tight = budgets.filter { it.state != app.vyaya.core.engine.BudgetState.OK }
+                    val note = tight.firstOrNull()?.let { p ->
+                        val name = categoryNames[p.budget.categoryId].orEmpty()
+                        val what = if (p.state == app.vyaya.core.engine.BudgetState.OVER) "$name is over its budget" else "$name is nearly used up"
+                        if (tight.size > 1) "$what (and ${tight.size - 1} more)" else what
+                    }
+                    SummaryCard(view, monthEnd, savings, safe, note)
+                }
+                salaryDay?.let { d -> item(key = "salary-day") { SalaryDayCard(d, onStartOn, onNotNow) } }
                 if (budgets.isNotEmpty()) item(key = "budgets") {
                     // Budgets report #5: what this month's spending put in no budget.
                     BudgetsCard(budgets, categoryNames, outside = view.summary.spent - Money(budgets.sumOf { it.spent.paise }))
@@ -97,7 +111,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSummary?, safe: app.vyaya.core.engine.SafeToSpend?) {
+private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSummary?, safe: app.vyaya.core.engine.SafeToSpend?, budgetNote: String? = null) {
     val s = view.summary
     val money = LocalMoneyColors.current
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -127,7 +141,7 @@ private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSu
                 Text("Saved so far ${savings.saved.format()} over ${savings.months} month${if (savings.months == 1) "" else "s"}$overspent",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
-            safe?.let { SafeLine(it, money.overspent) }
+            safe?.let { SafeLine(it, money.overspent, budgetNote) }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Text("In ${s.income.format()}", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -137,23 +151,64 @@ private fun SummaryCard(view: MonthView, monthEnd: MonthEnd?, savings: SavingsSu
     }
 }
 
-/** "Safe to spend ₹789 a day, for 19 days, after ₹15,000 of bills still due", or why there's nothing safe to spend. */
+/**
+ * "Safe to spend ₹789 a day", "for 19 days, after ₹15,000 of bills still due and ₹60,000 of income expected",
+ * "₹289 left for today"; or why there's nothing safe to spend. [budgetNote]: a budget nearly used up (FLAW-004).
+ */
 @Composable
-private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: androidx.compose.ui.graphics.Color) {
+private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: androidx.compose.ui.graphics.Color, budgetNote: String?) {
     val onCard = MaterialTheme.colorScheme.onPrimaryContainer
     Column(Modifier.padding(top = 10.dp)) {
+        val expected = safe.expectedIncome.takeIf { it.paise > 0 }?.format()
         when {
             safe.perDay.paise > 0 -> {
                 Text("Safe to spend ${safe.perDay.format()} a day", style = MaterialTheme.typography.titleMedium, color = onCard)
                 val days = if (safe.daysLeft == 1) "today" else "for ${safe.daysLeft} days"
                 val bills = if (safe.billsDue.paise > 0) ", after ${safe.billsDue.format()} of bills still due" else ""
-                Text(days + bills, style = MaterialTheme.typography.bodySmall, color = onCard)
+                val income = when {
+                    expected == null -> ""
+                    bills.isNotEmpty() -> " and $expected of income expected"
+                    else -> ", with $expected of income expected"
+                }
+                Text(days + bills + income, style = MaterialTheme.typography.bodySmall, color = onCard)
+                // FLAW-003: the amount is set when the day begins; today's spending comes off it here.
+                Text(
+                    if (safe.leftToday.paise >= 0) "${safe.leftToday.format()} left for today"
+                    else "${app.vyaya.core.model.Money(-safe.leftToday.paise).format()} over today's amount",
+                    style = MaterialTheme.typography.bodyMedium, color = if (safe.leftToday.paise >= 0) onCard else overspent,
+                )
             }
-            safe.shortBy.paise > 0 -> Text("Bills still due (${safe.billsDue.format()}) are ${safe.shortBy.format()} more than what's left",
-                style = MaterialTheme.typography.bodyMedium, color = overspent)
+            safe.shortBy.paise > 0 -> Text("Bills still due (${safe.billsDue.format()}) are ${safe.shortBy.format()} more than what's left" +
+                (expected?.let { " and expected ($it)" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = overspent)
             else -> Text("Nothing left to spend this month", style = MaterialTheme.typography.bodyMedium, color = onCard)
         }
+        budgetNote?.let { Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = overspent) }
     }
+}
+
+/** Safe-to-spend FLAW-002: start the month on the salary day, so each month begins with its own salary. */
+@Composable
+private fun SalaryDayCard(day: Int, onStartOn: (Int) -> Unit, onNotNow: (Int) -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Your salary comes around the ${ordinal(day)}", style = MaterialTheme.typography.titleSmall)
+            Text("Start your month on that day, so each month begins with the money for it. It changes from your next month.",
+                style = MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.Button({ onStartOn(day) }) { Text("Start on the ${ordinal(day)}") }
+                androidx.compose.material3.TextButton({ onNotNow(day) }) { Text("Not now") }
+            }
+        }
+    }
+}
+
+/** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th … 21st, 22nd, 23rd … 31st. */
+fun ordinal(day: Int): String = "$day" + when {
+    day % 100 in 11..13 -> "th"
+    day % 10 == 1 -> "st"
+    day % 10 == 2 -> "nd"
+    day % 10 == 3 -> "rd"
+    else -> "th"
 }
 
 @Composable

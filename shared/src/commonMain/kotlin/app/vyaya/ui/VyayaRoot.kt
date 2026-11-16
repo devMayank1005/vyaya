@@ -118,6 +118,8 @@ private fun VyayaRootContent(
     val catalog = remember(db) { app.vyaya.core.data.CatalogStore(db) }
     val merchants = remember(db) { app.vyaya.core.data.MerchantStore(db) }
     val budgetStore = remember(db) { app.vyaya.core.data.BudgetStore(db) }
+    val monthStarts = remember(db) { app.vyaya.core.data.MonthStartStore(db) }
+    var monthStartVersion by remember { mutableStateOf(0) }
     /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
     var catalogView by remember { mutableStateOf<String?>(null) }
     var catalogItem by remember { mutableStateOf<String?>(null) }
@@ -368,9 +370,19 @@ private fun VyayaRootContent(
                     }
                     // Safe to spend (Phase 3): the bills' made months are read again whenever the month or the rules change.
                     val made by produceState(emptySet<app.vyaya.core.model.Generation>(), v, rules) { value = rulesStore.madeKeys() }
-                    val safe = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today) }
+                    val linked by produceState(emptySet<app.vyaya.core.model.EntityId>(), v, rules) { value = rulesStore.linkedPayments() }
+                    val safe = v?.takeIf { monthOffset == 0 }?.let {
+                        app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today, payments = it.entries, taken = linked)
+                    }
+                    // Safe-to-spend FLAW-002: the salary day, suggested on the current month until taken or put off.
+                    val salaryDay by produceState<Int?>(null, v, monthStartVersion, monthOffset) {
+                        value = if (monthOffset == 0) monthStarts.salarySuggestion(today) else null
+                    }
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings, safe = safe,
+                        salaryDay = salaryDay,
+                        onStartOn = { d -> scope.launch { monthStarts.setStartDay(d, today); monthStartVersion++; catalogVersion++ } },
+                        onNotNow = { d -> scope.launch { monthStarts.notNow(d); monthStartVersion++ } },
                         // Budgets report #3: only the current month; a past month would be shown against today's limits.
                         budgets = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
                 }
@@ -393,7 +405,16 @@ private fun VyayaRootContent(
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery)
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
-                    onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" })
+                    onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },
+                    startDay = records?.settings?.let { st -> st.monthSchedule.monthContaining(clock().toLocalDateTime(st.homeTimeZone).date).startDay },
+                    nextStart = records?.settings?.let { st ->
+                        val today = clock().toLocalDateTime(st.homeTimeZone).date
+                        st.monthSchedule.changes.lastOrNull()?.takeIf { it.effectiveFrom > today }?.let { it.effectiveFrom to it.startDay }
+                    },
+                    onStartDay = { d -> scope.launch {
+                        val st = records?.settings ?: return@launch
+                        monthStarts.setStartDay(d, clock().toLocalDateTime(st.homeTimeZone).date); monthStartVersion++; catalogVersion++
+                    } })
             }
         }
     }
