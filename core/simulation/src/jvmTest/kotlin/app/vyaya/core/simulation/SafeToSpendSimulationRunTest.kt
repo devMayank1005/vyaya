@@ -53,7 +53,7 @@ class SafeToSpendSimulationRunTest {
     fun run_safe_to_spend_simulation(): Unit = runBlocking {
         val users = System.getProperty("sim.engine.users")?.toIntOrNull() ?: 100
         val random = Random(29)
-        var checked = 0; var same = 0; var differ = 0; var positive = 0; var short = 0; var nothing = 0; var broke = 0
+        var checked = 0; var same = 0; var differ = 0; var positive = 0; var short = 0; var nothing = 0; var broke = 0; var widgetDiffers = 0
         val notes = mutableListOf<String>()
         val started = System.nanoTime()
         repeat(users) { u ->
@@ -85,6 +85,8 @@ class SafeToSpendSimulationRunTest {
                 val active = RulesStore(db).active()
                 val taken = RulesStore(db).linkedPayments()
                 val got = SafeToSpend.of(view.summary, active, RulesStore(db).madeKeys(), day, payments = view.entries, taken = taken)!!
+                // The widget (Phase 3) works it out through QuickLookStore: it must say what Home says.
+                if (app.vyaya.core.data.QuickLookStore(db).safeToSpend(now) != got) widgetDiffers++
 
                 // Independent: every day from today to the month's end, each live rule due that day and not made; a payment
                 // already made for it a few days early (the shared Recurring.paymentFor) takes it off.
@@ -127,6 +129,7 @@ class SafeToSpendSimulationRunTest {
             appendLine("days checked $checked: app = independent count $same, DIFFER $differ")
             appendLine("shown: a daily amount $positive, bills more than what's left $short, nothing left $nothing")
             appendLine("daily amount every day + every bill below zero (must be 0): $broke")
+            appendLine("widget != Home (must be 0): $widgetDiffers")
             notes.forEach { appendLine("  $it") }
         }
         println(report)
