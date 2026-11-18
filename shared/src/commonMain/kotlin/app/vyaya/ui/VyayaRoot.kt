@@ -160,7 +160,21 @@ private fun VyayaRootContent(
     var ledgerForm by remember { mutableStateOf<String?>(null) }
     var editingLedger by remember { mutableStateOf<app.vyaya.core.model.LedgerEntry?>(null) }
     fun ledgerChanged() { ledgerVersion++ }
+    // Branch review 2026-11-18 #7: an action that fails (the data refuses it, a damaged row) says so; it never crashes the
+    // app. Nothing is logged: the error may hold the user's data.
+    var actionFailed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    /** Every action on this screen runs here: a failure is caught and said, so the scope (and the app) carries on. */
+    fun safely(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) = scope.launch {
+        try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            actionFailed = true
+        }
+    }
 
     val settings = records?.settings
     val month = remember(settings, monthOffset) {
@@ -221,7 +235,7 @@ private fun VyayaRootContent(
                                 else -> answer(budgetStore.set(category, limit, clock())) { changed(); onBudgetSet() }
                             }
                         },
-                        onRemove = { budget?.let { b -> scope.launch { budgetStore.remove(b, clock()); changed() } } },
+                        onRemove = { budget?.let { b -> safely { budgetStore.remove(b, clock()); changed() } } },
                         onClose = { catalogItem = null })
                 } else CatalogList("Budgets", live.map { CatalogRow(it.id.value, names[it.categoryId].orEmpty(), "${it.limit.format()} a month") },
                     addLabel = "Add budget", onAdd = { catalogItem = "new" }, onOpen = { catalogItem = it }, onBack = { catalogView = null },
@@ -232,7 +246,7 @@ private fun VyayaRootContent(
                 val rules = records?.merchantRules.orEmpty().filter { !it.deleted }.sortedBy { it.payee.lowercase() }
                 val rule = item?.let { i -> rules.firstOrNull { it.id.value == i } }
                 if (rule != null) RememberedPayeeForm(payeeLabel(rule.payee), names[rule.categoryId].orEmpty(),
-                    onForget = { scope.launch { merchants.forget(rule, clock()); changed() } }, onClose = { catalogItem = null })
+                    onForget = { safely { merchants.forget(rule, clock()); changed() } }, onClose = { catalogItem = null })
                 else CatalogList("Remembered payees", rules.map { CatalogRow(it.id.value, payeeLabel(it.payee), "→ " + names[it.categoryId].orEmpty()) },
                     addLabel = null, onAdd = {}, onOpen = { catalogItem = it }, onBack = { catalogView = null },
                     empty = "None yet. When you put a detected payment in a category, tick \"Always put…\" and its payee's later payments go there too.")
@@ -242,14 +256,14 @@ private fun VyayaRootContent(
                 CategoryForm(c, onSave = { name, kind ->
                     answer(if (c == null) catalog.addCategory(name, kind, clock()) else catalog.renameCategory(c, name, clock())) { changed() }
                 }, deleteNote = { c?.let { deleteNote(catalog.uses(it)) } ?: "" },
-                    onDelete = { c?.let { scope.launch { catalog.deleteCategory(it, clock()); changed() } } }, onClose = { catalogItem = null })
+                    onDelete = { c?.let { safely { catalog.deleteCategory(it, clock()); changed() } } }, onClose = { catalogItem = null })
             }
             item != null -> {
                 val a = records?.accounts.orEmpty().firstOrNull { it.id.value == item }
                 AccountForm(a, onSave = { name, kind, mask ->
                     answer(if (a == null) catalog.addAccount(name, kind, mask, clock()) else catalog.updateAccount(a, name, kind, mask, clock())) { changed() }
                 }, deleteNote = { a?.let { deleteNote(catalog.uses(it)) } ?: "" },
-                    onDelete = { a?.let { scope.launch { catalog.deleteAccount(it, clock()); changed() } } }, onClose = { catalogItem = null })
+                    onDelete = { a?.let { safely { catalog.deleteAccount(it, clock()); changed() } } }, onClose = { catalogItem = null })
             }
             view == "categories" -> CatalogList("Categories",
                 cats.map { CatalogRow(it.id.value, it.name, if (it.kind == app.vyaya.core.model.CategoryKind.INCOME) "Income" else "Spending") },
@@ -265,7 +279,7 @@ private fun VyayaRootContent(
         RuleForm(existing, categories,
             onSave = { input ->
                 val now = clock(); val zone = records?.settings?.homeTimeZone ?: zone()
-                scope.launch {
+                safely {
                     if (existing == null) rulesStore.add(input.type, input.money!!, input.dayOfMonth!!, input.categoryId, input.note.trim(), now, zone, input.accountId)
                     else {
                         val changed = existing.copy(amount = input.money!!, dayOfMonth = input.dayOfMonth!!, categoryId = input.categoryId, accountId = input.accountId,
@@ -279,7 +293,7 @@ private fun VyayaRootContent(
                 addingRule = false; editingRule = null
                 true
             },
-            onDelete = { existing?.let { r -> scope.launch { rulesStore.delete(r, clock()); rulesChanged() } }; editingRule = null },
+            onDelete = { existing?.let { r -> safely { rulesStore.delete(r, clock()); rulesChanged() } }; editingRule = null },
             onClose = { addingRule = false; editingRule = null },
             accounts = records?.accounts.orEmpty(),
         )
@@ -290,25 +304,25 @@ private fun VyayaRootContent(
         val today = clock().toLocalDateTime(settings?.homeTimeZone ?: zone()).date
         val who = person
         when (form) {
-            "person" -> PersonForm(onSave = { name -> scope.launch { ledger.addPerson(name, clock()); ledgerChanged() }; ledgerForm = null; true },
+            "person" -> PersonForm(onSave = { name -> safely { ledger.addPerson(name, clock()); ledgerChanged() }; ledgerForm = null; true },
                 onClose = { ledgerForm = null })
             "rename" -> if (who != null) PersonForm(initialName = who.name, onClose = { ledgerForm = null }, onSave = { name ->
                 val renamed = who.copy(name = name.trim())
-                scope.launch { ledger.renamePerson(who, name, clock()); ledgerChanged() }
+                safely { ledger.renamePerson(who, name, clock()); ledgerChanged() }
                 person = renamed; ledgerForm = null; true
             })
             "edit" -> editingLedger?.let { entry ->
                 LedgerForm(
                     title = "Change", initialAmount = plainRupees(entry.amount), initialNote = entry.note,
-                    onSave = { amount, note -> scope.launch { ledger.update(entry.copy(amount = amount, note = note.trim()), clock()); ledgerChanged() }; ledgerForm = null },
-                    onDelete = { scope.launch { ledger.delete(entry, clock()); ledgerChanged() }; ledgerForm = null },
+                    onSave = { amount, note -> safely { ledger.update(entry.copy(amount = amount, note = note.trim()), clock()); ledgerChanged() }; ledgerForm = null },
+                    onDelete = { safely { ledger.delete(entry, clock()); ledgerChanged() }; ledgerForm = null },
                     onClose = { ledgerForm = null },
                 )
             }
             else -> if (who != null) LedgerForm(
                 title = when (form) { "lent" -> "I lent ${who.name}"; "borrowed" -> "I borrowed from ${who.name}"; else -> "Paid back" },
                 onSave = { amount, note ->
-                    scope.launch {
+                    safely {
                         when (form) {
                             "lent" -> ledger.add(who.id, app.vyaya.core.model.LedgerDirection.LENT, amount, today, note, clock())
                             "borrowed" -> ledger.add(who.id, app.vyaya.core.model.LedgerDirection.BORROWED, amount, today, note, clock())
@@ -337,7 +351,7 @@ private fun VyayaRootContent(
                 val entry = input.toEntry(existing, clock(), zone())
                 if (entry != null) {
                     val now = clock()
-                    scope.launch {
+                    safely {
                         entries.save(listOf(entry))
                         // Merchant memory: later detected payments to this payee go in this category.
                         if (input.alwaysForPayee && entry.payee != null && entry.categoryId != null) {
@@ -354,7 +368,7 @@ private fun VyayaRootContent(
                 entry != null
             },
             onDelete = {
-                existing?.let { e -> scope.launch { entries.save(listOf(e.markDeleted(clock()))) } }
+                existing?.let { e -> safely { entries.save(listOf(e.markDeleted(clock()))) } }
                 editing = null
             },
             onClose = { adding = false; editing = null; fromIgnored = null },
@@ -372,6 +386,13 @@ private fun VyayaRootContent(
         return
     }
 
+    if (actionFailed) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { actionFailed = false },
+        title = { Text("That didn't work") },
+        text = { Text("Nothing was changed. If it happens again, check the phone's date and time, or export a backup and tell us.") },
+        confirmButton = { androidx.compose.material3.TextButton({ actionFailed = false }) { Text("OK") } },
+    )
+
     alreadyLogged?.let { (item, entry) ->
         val at = entry.occurredAt.instant.toLocalDateTime(records?.settings?.homeTimeZone ?: zone())
         androidx.compose.material3.AlertDialog(
@@ -384,7 +405,7 @@ private fun VyayaRootContent(
             confirmButton = {
                 androidx.compose.material3.TextButton({
                     alreadyLogged = null
-                    scope.launch { ignoredStore.wasPayment(item.id); ignoredVersion++ }
+                    safely { ignoredStore.wasPayment(item.id); ignoredVersion++ }
                     editing = entry
                 }) { Text("Open it") }
             },
@@ -405,7 +426,7 @@ private fun VyayaRootContent(
             confirmButton = {
                 androidx.compose.material3.TextButton({
                     askThisMonth = null
-                    scope.launch { rulesStore.applyToThisMonth(rule, clock(), records?.settings?.homeTimeZone ?: zone()) }
+                    safely { rulesStore.applyToThisMonth(rule, clock(), records?.settings?.homeTimeZone ?: zone()) }
                 }) { Text("Change this month's too") }
             },
             dismissButton = { androidx.compose.material3.TextButton({ askThisMonth = null }) { Text("Only from next month") } },
@@ -441,35 +462,35 @@ private fun VyayaRootContent(
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings, safe = safe,
                         salaryDay = salaryDay,
-                        onStartOn = { d -> scope.launch { monthStarts.setStartDay(d, today); monthStartVersion++; catalogVersion++ } },
-                        onNotNow = { d -> scope.launch { monthStarts.notNow(d); monthStartVersion++ } },
+                        onStartOn = { d -> safely { monthStarts.setStartDay(d, today); monthStartVersion++; catalogVersion++ } },
+                        onNotNow = { d -> safely { monthStarts.notNow(d); monthStartVersion++ } },
                         // Budgets report #3: only the current month; a past month would be shown against today's limits.
                         budgets = v?.takeIf { monthOffset == 0 }?.let { app.vyaya.core.engine.Budgets.progress(records?.budgets.orEmpty(), it.summary, categories) }.orEmpty())
                 }
                 Tab.RECURRING -> RulesScreen(rules, categories.associate { it.id to it.name }, onAdd = { addingRule = true },
                     onOpen = { editingRule = it },
-                    onPause = { r -> scope.launch { rulesStore.pause(r, clock()); rulesChanged() } },
+                    onPause = { r -> safely { rulesStore.pause(r, clock()); rulesChanged() } },
                     missed = { r -> rulesStore.missedWhilePaused(r, clock(), records?.settings?.homeTimeZone ?: zone()) },
                     onResume = { r, addMissed ->
-                        scope.launch { rulesStore.resume(r, addMissed, clock(), records?.settings?.homeTimeZone ?: zone()); rulesChanged() }
+                        safely { rulesStore.resume(r, addMissed, clock(), records?.settings?.homeTimeZone ?: zone()); rulesChanged() }
                     })
                 Tab.PEOPLE -> {
                     val who = person
                     if (who == null) PeopleScreen(people, balances, onAddPerson = { ledgerForm = "person" }, onOpen = { person = it })
                     else PersonScreen(who, balances.of(who.id), personEntries,
                         onLent = { ledgerForm = "lent" }, onBorrowed = { ledgerForm = "borrowed" }, onPaidBack = { ledgerForm = "paidBack" },
-                        onSettleAll = { scope.launch { ledger.settleAll(who.id, clock()); ledgerChanged() } }, onBack = { person = null },
+                        onSettleAll = { safely { ledger.settleAll(who.id, clock()); ledgerChanged() } }, onBack = { person = null },
                         onEntry = { editingLedger = it; ledgerForm = "edit" }, onRename = { ledgerForm = "rename" },
-                        onRemove = { scope.launch { ledger.deletePerson(who, clock()); ledgerChanged() }; person = null })
+                        onRemove = { safely { ledger.deletePerson(who, clock()); ledgerChanged() }; person = null })
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery,
                     ignored = { ignoredStore.items(clock()) }, ignoredVersion = ignoredVersion,
                     // DATA-002: a payment already logged for it is offered first, so it isn't added twice.
-                    onWasPayment = { item -> scope.launch {
+                    onWasPayment = { item -> safely {
                         val logged = ignoredStore.alreadyLogged(item)
                         if (logged != null) alreadyLogged = item to logged else { fromIgnored = item; adding = true }
                     } },
-                    onNotPayment = { item -> scope.launch { ignoredStore.notPayment(item.id); ignoredVersion++ } },
+                    onNotPayment = { item -> safely { ignoredStore.notPayment(item.id); ignoredVersion++ } },
                     homeZone = records?.settings?.homeTimeZone ?: zone())
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
@@ -479,8 +500,8 @@ private fun VyayaRootContent(
                         val today = clock().toLocalDateTime(st.homeTimeZone).date
                         st.monthSchedule.changes.lastOrNull()?.takeIf { it.effectiveFrom > today }?.let { it.effectiveFrom to it.startDay }
                     },
-                    onStartDay = { d -> scope.launch {
-                        val st = records?.settings ?: return@launch
+                    onStartDay = { d -> safely {
+                        val st = records?.settings ?: return@safely
                         monthStarts.setStartDay(d, clock().toLocalDateTime(st.homeTimeZone).date); monthStartVersion++; catalogVersion++
                     } })
             }

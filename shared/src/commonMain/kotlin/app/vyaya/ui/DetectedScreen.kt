@@ -29,13 +29,18 @@ import kotlinx.datetime.toLocalDateTime
 
 /** Payments capture found: added ones to undo, review ones to add or dismiss. */
 @Composable
-fun DetectedScreen(items: List<DetectedItem>, onUndo: (String) -> Unit, onAdd: (String) -> Unit, onDismiss: (String) -> Unit, modifier: Modifier = Modifier) {
+fun DetectedScreen(
+    items: List<DetectedItem>, onUndo: (String) -> Unit, onAdd: (String) -> Unit, onDismiss: (String) -> Unit, modifier: Modifier = Modifier,
+    /** Branch review #3: "Is this your Rent?" answered yes (the payment is that bill) or no (the bill is made as usual). */
+    onYesBill: (String) -> Unit = {},
+    onNoBill: (String) -> Unit = {},
+) {
     if (items.isEmpty()) {
         Text("Nothing detected yet", modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge)
         return
     }
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(items, key = { it.id }) { item -> DetectedCard(item, onUndo, onAdd, onDismiss) }
+        items(items, key = { it.id }) { item -> if (item.kind == DetectedKind.BILL) BillCard(item, onYesBill, onNoBill) else DetectedCard(item, onUndo, onAdd, onDismiss) }
     }
 }
 
@@ -61,6 +66,24 @@ private fun DetectedCard(item: DetectedItem, onUndo: (String) -> Unit, onAdd: (S
                     Spacer(Modifier.width(8.dp))
                     OutlinedButton({ onDismiss(item.id) }) { Text("Not mine") }
                 }
+            }
+        }
+    }
+}
+
+/** A recurring bill whose month may have been paid by a payment already in another category: the user decides. */
+@Composable
+private fun BillCard(item: DetectedItem, onYes: (String) -> Unit, onNo: (String) -> Unit) {
+    val bill = item.entry.note.ifEmpty { "bill" }
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("Is this your $bill?", style = MaterialTheme.typography.titleMedium)
+            Text("A payment of ${item.entry.amount.format()} came a few days from when $bill is due, but it's in another category. " +
+                "Yes: it counts as this month's $bill. No: $bill is added as usual.", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.padding(top = 8.dp)) {
+                Button({ onYes(item.id) }) { Text("Yes, it's $bill") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton({ onNo(item.id) }) { Text("No, a different payment") }
             }
         }
     }

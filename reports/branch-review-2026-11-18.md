@@ -132,3 +132,20 @@ But #1–#3 block calling any of it done.
   (recommended), or add a payee to rules?
 - **#4, #7, #8:** Kover on `:shared` and `androidApp`, error handling on screen actions, and money in/out in "already
   logged" (recommended)?
+
+## Resolution (2026-11-18)
+
+Your decisions: draft PR yes; migrations from the first beta; the early-payment link asks unless it's clear; fix the
+smaller items now.
+
+| # | Status | What was done |
+|---|---|---|
+| 1 SEC-001 | ✅ In progress → see CI | Every module, `:shared` included, compiles for iOS locally (`compileKotlinIosSimulatorArm64`); iOS tests can't link without Xcode here. Draft PR #6 (base `ios-app`) runs CI: core-jvm and android passed on `11c7081`; core-ios was queued at the time of writing |
+| 2 DATA-002 | ✅ Decided | Until the first beta, the database stays at version 1: before installing a new build, export a backup, uninstall, install, restore. From the first beta, every schema change gets a version bump, a migration and a migration test |
+| 3 FLAW-003 | ✅ Fixed | `Recurring.linkPaidOrAsk`: a payment with no category, or the rule's own, stands for the bill as before. A payment in another category is asked about in Detected ("Is this your Rent?"): Yes links it (`DetectedInbox.confirmBill`), No makes the bill as usual (`denyBill`). Asked once per bill month; if the payment was deleted meanwhile, Yes makes the bill as usual. Tests: `RecurringTest`, `AppOpenTest`, `DetectedScreenTest`; the open simulation is unchanged (0 paid and made) |
+| 4 FLAW-004 | ✅ Fixed | Kover on `androidApp` merged with `:shared`: each package ≥ 70 % of lines (`:androidApp:koverVerify`, now in CI's android job). Today: app.vyaya.android 79.5 % (new `MainActivityTest`: the app opens on Home; the CSV export asks the system for a text/csv file), app.vyaya.ui 97.1 %, app.vyaya.shared 99.5 % |
+| 5 FLAW-005 | ✅ Fixed | Core-data SEC-007, FLAW-004, FLAW-005 and FLAW-008 marked fixed, with their commits (`11c7081`) |
+| 6 SIM-006 | ⏳ Noted | Recorded here. The rule-level guarantees are the unit and property tests; making the simulation references independent of the engine is future work |
+| 7 PEN-007 | ✅ Fixed | Every action on the main screen runs through `safely { }`: a failure shows "That didn't work. Nothing was changed…" and the app carries on. Nothing is logged. Test: `ScreenActionsTest` (a start-day change refused after the clock was set back). Forms with their own scope (categories, accounts, budgets) return messages and don't throw |
+| 8 DATA-008 | ✅ Fixed | "Already logged" matches money in or out too. Test: `IgnoredStoreTest.review_data_008_*` |
+| 9 FLAW-009 | ⏳ Yours / later | Real samples, a hands-on check on a phone (after a backup), a cross-feature money simulation |

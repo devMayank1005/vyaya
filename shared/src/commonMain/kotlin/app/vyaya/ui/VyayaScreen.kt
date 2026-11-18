@@ -55,6 +55,8 @@ fun VyayaScreen(
                 onUndo = { id -> scope.launch { inbox.undo(id, clock()) } },
                 onAdd = { id -> scope.launch { inbox.confirm(id, clock()) } },
                 onDismiss = { id -> scope.launch { inbox.dismiss(id) } },
+                onYesBill = { id -> scope.launch { inbox.confirmBill(id, clock()) } },
+                onNoBill = { id -> scope.launch { inbox.denyBill(id, clock()) } },
             )
         }
     }

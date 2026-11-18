@@ -98,7 +98,8 @@ class DatabaseOpenSimulationRunTest {
                     val repaired = ClockRepair.repair(memory, clock)
                     val today = clock.toLocalDateTime(ist).date
                     val due = Recurring.catchUp(repaired.recurring, repaired.entries, today, ist, clock)
-                    val made = Recurring.linkPaid(due, repaired.entries, repaired.entries.filter { it.generatedBy != null }, clock)
+                    // As AppOpen: linked when clear; a payment in another category is a question (nothing saved yet).
+                    val made = Recurring.linkPaidOrAsk(due, repaired.entries, repaired.entries.filter { it.generatedBy != null }, clock).save
                     memory = repaired.copy(entries = (repaired.entries.associateBy { it.id } + made.associateBy { it.id }).values.toList()).normalized()
                     rules = memory.recurring
                     val onDb = SnapshotStore(db).load()

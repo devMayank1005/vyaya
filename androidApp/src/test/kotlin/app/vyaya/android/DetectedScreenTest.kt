@@ -88,4 +88,15 @@ class DetectedScreenTest {
         compose.onNodeWithText("Import last 30 days").performClick()
         assertEquals(1, imported)
     }
+
+    @Test
+    fun review_flaw_003_a_bill_question_asks_yes_or_no() {
+        val yes = mutableListOf<String>(); val no = mutableListOf<String>()
+        val bill = item("b", DetectedKind.BILL, 15_000_00, null, dup = "payment-id").let { it.copy(entry = it.entry.copy(note = "Rent")) }
+        compose.setContent { DetectedScreen(listOf(bill), {}, {}, {}, onYesBill = { yes += it }, onNoBill = { no += it }) }
+        compose.onNodeWithText("Is this your Rent?").assertExists()
+        compose.onNodeWithText("Yes, it's Rent").performClick()
+        compose.onNodeWithText("No, a different payment").performClick()
+        assertEquals(listOf("b") to listOf("b"), yes.toList() to no.toList())
+    }
 }

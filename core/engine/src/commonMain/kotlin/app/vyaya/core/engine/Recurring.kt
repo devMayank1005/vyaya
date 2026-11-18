@@ -65,33 +65,47 @@ object Recurring {
         EntrySource.MANUAL, EntrySource.SMS, EntrySource.NOTIFICATION, EntrySource.SCREENSHOT, EntrySource.SHORTCUT,
     )
 
+    /** What catch-up saves, and the bill payments it asks the user about ([draft] is the rule's entry not yet made). */
+    data class LinkResult(val save: List<Entry>, val ask: List<Pair<Entry, Entry>>)
+
     /**
      * Safe-to-spend report DATA-001: a bill paid a few days early (by UPI, or typed in) and then made by catch-up was
-     * counted twice. For each entry in [made], a payment in [nearby] of the same type and amount within [PAID_NEARBY] of
-     * its due date ([paymentFor]), stands for it instead: the rule's month is marked done (its key, deleted, pointing at
-     * the payment with linkedEntryId), and the payment takes the rule's category, account and note where it has none.
+     * counted twice. For each entry in [made], a payment in [nearby] of the same type and amount within
+     * [PAID_NEARBY_DAYS] of its due date ([paymentFor]) may stand for it:
+     * - when the payment has no category, or already has the rule's, it does: the rule's month is marked done (its key,
+     *   deleted, pointing at the payment with linkedEntryId), and the payment takes the rule's category, account and
+     *   note where it has none;
+     * - when the payment is in another category, it may be a different payment of the same amount (branch review
+     *   2026-11-18 #3): nothing is made yet, and the pair is returned in [LinkResult.ask] for the user ("Is this your
+     *   Rent?").
      * A payment already standing for a rule month ([generated] keys pointing at it), or taken in this run, isn't used
-     * again. Returns what to save: [made] with these changes.
+     * again.
      */
-    fun linkPaid(made: List<Entry>, nearby: List<Entry>, generated: List<Entry>, now: Instant): List<Entry> {
+    fun linkPaidOrAsk(made: List<Entry>, nearby: List<Entry>, generated: List<Entry>, now: Instant): LinkResult {
         val taken = generated.mapNotNullTo(HashSet()) { it.linkedEntryId }
-        val out = mutableListOf<Entry>()
+        val save = mutableListOf<Entry>()
+        val ask = mutableListOf<Pair<Entry, Entry>>()
         for (e in made) {
-            val key = e.generatedBy
-            if (e.deleted || key == null) { out += e; continue }
+            if (e.deleted || e.generatedBy == null) { save += e; continue }
             val payment = paymentFor(e.type, e.amount, e.occurredAt.localDate, nearby, taken)
-            if (payment == null) { out += e; continue }
+            if (payment == null) { save += e; continue }
             taken += payment.id
-            out += e.copy(deleted = true, linkedEntryId = payment.id)
-            out += payment.copy(
-                categoryId = payment.categoryId ?: e.categoryId,
-                accountId = payment.accountId ?: e.accountId,
-                note = payment.note.ifEmpty { e.note },
-                updatedAt = now,
-            )
+            if (payment.categoryId != null && payment.categoryId != e.categoryId) { ask += e to payment; continue }
+            save += linked(e, payment, now)
         }
-        return out
+        return LinkResult(save, ask)
     }
+
+    /** The rule's month [draft] marked done by [payment], and the payment with the rule's category, account and note. */
+    fun linked(draft: Entry, payment: Entry, now: Instant): List<Entry> = listOf(
+        draft.copy(deleted = true, linkedEntryId = payment.id),
+        payment.copy(
+            categoryId = payment.categoryId ?: draft.categoryId,
+            accountId = payment.accountId ?: draft.accountId,
+            note = payment.note.ifEmpty { draft.note },
+            updatedAt = now,
+        ),
+    )
 
     /**
      * The payment among [nearby] that is a bill of [type] and [amount] due on [due], paid up to [PAID_NEARBY] early or

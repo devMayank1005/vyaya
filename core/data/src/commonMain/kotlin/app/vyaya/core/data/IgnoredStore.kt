@@ -1,6 +1,7 @@
 package app.vyaya.core.data
 
 import app.vyaya.core.filters.IgnoreReason
+import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Money
 import app.vyaya.core.parser.RawMessage
 import kotlin.time.Duration.Companion.days
@@ -42,7 +43,7 @@ class IgnoredStore(private val db: VyayaDatabase) {
      */
     suspend fun alreadyLogged(item: IgnoredItem): app.vyaya.core.model.Entry? =
         EntryStore(db).inRange(item.receivedAt - 1.days, item.receivedAt + 1.days)
-            .filter { !it.deleted && it.amount == item.amount }
+            .filter { !it.deleted && it.amount == item.amount && it.type == (if (item.credit) EntryType.INCOME else EntryType.EXPENSE) } // review #8
             .minByOrNull { (it.occurredAt.instant - item.receivedAt).absoluteValue }
 
     /** The user says it was a payment (and adds it as an entry). */

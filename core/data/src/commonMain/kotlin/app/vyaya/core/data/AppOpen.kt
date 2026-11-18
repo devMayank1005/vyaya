@@ -51,12 +51,15 @@ class AppOpen(private val db: VyayaDatabase) {
             val due = Recurring.catchUp(records.recurring, generated, today, zone, now)
             // Safe-to-spend DATA-001: a bill already paid a few days early (or late) stands for its month instead of a
             // second entry. Only the entries around the due dates are read (a day more for other time zones).
-            val made = if (due.isEmpty()) due else {
+            // Branch review 2026-11-18 #3: a payment already in another category is asked about, not taken.
+            val result = if (due.isEmpty()) Recurring.LinkResult(due, emptyList()) else {
                 val around = (Recurring.PAID_NEARBY_DAYS + 1).days
                 val nearby = entries.inRange(due.minOf { it.occurredAt.instant } - around, due.maxOf { it.occurredAt.instant } + around)
-                Recurring.linkPaid(due, nearby, generated, now)
+                Recurring.linkPaidOrAsk(due, nearby, generated, now)
             }
+            val made = result.save
             entries.save(made)
+            result.ask.forEach { (draft, payment) -> DetectedInbox(db).askBill(draft, payment) }
             // Ignored-tab FLAW-006: summaries past keeping leave the phone even if nothing is captured for a while.
             db.ignored().purge((now - IgnoredStore.KEEP).toEpochMilliseconds())
             OpenResult(seeded, repaired, made.count { it.generatedBy != null && !it.deleted })

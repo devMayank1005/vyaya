@@ -98,4 +98,16 @@ class IgnoredStoreTest {
         assertEquals(Money(2_000_00), IgnoredStore(db).alreadyLogged(item)?.amount)
         db.close()
     }
+
+    @Test
+    fun review_data_008_already_logged_means_the_same_direction() = runTest {
+        val db = inMemoryDatabase()
+        val capture = CaptureStore(db)
+        capture.process(failed, t0) // a payment out that failed
+        val item = IgnoredStore(db).items(t0).single()
+        // Money of the same amount came in a minute later: not the same payment.
+        capture.process(RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹2,000 from Rahul", CapturedAt(t0 + 1.minutes, ist)), t0)
+        assertEquals(null, IgnoredStore(db).alreadyLogged(item))
+        db.close()
+    }
 }
