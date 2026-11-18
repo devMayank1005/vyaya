@@ -19,7 +19,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew compileCommonMainKotlinMetadata jvmTest koverVerify --console=plain
+      # :koverVerify is the shared-core gate (root project); the Android gate runs in the android job.
+      - run: ./gradlew compileCommonMainKotlinMetadata jvmTest :koverVerify --console=plain
       - if: always()
         run: python3 scripts/test-summary.py jvmTest
 
