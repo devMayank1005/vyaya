@@ -125,7 +125,8 @@ class DetectedInbox(private val db: VyayaDatabase) {
     suspend fun confirmRepayment(id: String, now: Instant) = db.useWriterConnection { transactor ->
         transactor.immediateTransaction {
             val item = open(id, DetectedKind.REPAY) ?: return@immediateTransaction
-            val income = entries.byId(item.entry.id)?.takeIf { !it.deleted }
+            // Still income: one made a transfer or an expense since isn't deleted by a "yes".
+            val income = entries.byId(item.entry.id)?.takeIf { !it.deleted && it.type == app.vyaya.core.model.EntryType.INCOME }
             val person = item.possibleDuplicateOf?.let(EntityId::parse)
             val owed = person?.let { Balances.of(SnapshotStore(db).peopleInTransaction().ledger).of(it).paise } ?: 0L
             if (income == null || person == null || owed < income.amount.paise) {

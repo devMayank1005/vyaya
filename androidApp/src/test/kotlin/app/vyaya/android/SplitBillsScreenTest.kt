@@ -163,4 +163,28 @@ class SplitBillsScreenTest {
         compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
         waitFor("after ₹800 your friends owe you")
     }
+
+    @Test
+    fun split_flaw_004_when_what_friends_owe_is_more_than_whats_left_home_says_so() {
+        dinnerSplit() // ₹400 spent, ₹800 lent; ₹1,000 came in. Seen the next day (today's payments count in today's amount)
+        runBlocking { app.vyaya.core.data.EntryStore(db).save(listOf(app.vyaya.core.model.Entry(app.vyaya.core.model.EntityId.random(),
+            app.vyaya.core.model.EntryType.INCOME, Money(1_000_00), app.vyaya.core.model.CapturedAt(now, kotlinx.datetime.TimeZone.of("Asia/Kolkata")),
+            null, null, null, "Refund", "", emptyList(), app.vyaya.core.model.EntrySource.MANUAL, null, emptyList(), null, now, now, false))) }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now + kotlin.time.Duration.parse("1d") }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        waitFor("Nothing safe to spend until your friends pay you back: they owe you ₹800, ₹200 more than what's left")
+        assertEquals(0, compose.onAllNodes(hasText("Bills still due", substring = true), useUnmergedTree = true).fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun split_flaw_003_save_waits_until_the_shares_are_read() {
+        val saved = mutableListOf<app.vyaya.ui.EntryInput>()
+        val split = runBlocking { dinnerSplit() }
+        compose.setContent {
+            app.vyaya.ui.AddEntryScreen(split, runBlocking { CatalogStore(db).categories() }, kotlinx.datetime.LocalDate(2026, 11, 18), onSave = { true },
+                onDelete = {}, onClose = {}, onSaveSplit = { saved += it; null }, shares = null)
+        }
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        waitFor("One moment: still reading who shared it")
+        assertEquals(0, saved.size)
+    }
 }

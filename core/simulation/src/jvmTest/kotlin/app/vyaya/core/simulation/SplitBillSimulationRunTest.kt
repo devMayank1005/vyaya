@@ -132,7 +132,7 @@ class SplitBillSimulationRunTest {
         val ist = TimeZone.of("Asia/Kolkata")
         val names = listOf("Rahul", "Priya", "Ankit", "Neha")
         var edits = 0; var deletes = 0; var takenBack = 0; var messages = 0; var asked = 0; var askedWrongly = 0; var missedAsks = 0
-        var confirmed = 0; var denied = 0; var personOff = 0; var linksLost = 0; var backupRefused = 0; var lentOver = 0; var incomeOff = 0
+        var confirmed = 0; var denied = 0; var settles = 0; var personOff = 0; var linksLost = 0; var backupRefused = 0; var lentOver = 0; var incomeOff = 0
         val started = System.nanoTime()
         repeat(users) {
             val db: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>().setDriver(BundledSQLiteDriver()).build()
@@ -141,17 +141,25 @@ class SplitBillSimulationRunTest {
             SnapshotStore(db).saveRecords(Snapshot.empty().copy(categories = listOf(food)))
             val ledger = LedgerStore(db)
             val people = names.take(random.nextInt(1, names.size + 1)).map { ledger.addPerson(it, t0) }
-            // The model: each live payment's shares, shares kept from deleted payments, and pay-backs.
-            val shares = LinkedHashMap<EntityId, Pair<Entry, List<Pair<EntityId, Long>>>>()
-            val kept = HashMap<EntityId, Long>(); val repaid = HashMap<EntityId, Long>()
-            fun owes(p: EntityId) = shares.values.sumOf { (_, s) -> s.filter { it.first == p }.sumOf { it.second } } + (kept[p] ?: 0) - (repaid[p] ?: 0)
+            // The model: each live payment's shares, shares kept from deleted payments, and pay-backs; each settled or not.
+            class Item(val person: EntityId, val paise: Long, var settled: Boolean = false)
+            val shares = LinkedHashMap<EntityId, List<Item>>()
+            val kept = mutableListOf<Item>(); val repaid = mutableListOf<Item>()
+            fun owes(p: EntityId) = shares.values.flatten().filter { it.person == p && !it.settled }.sumOf { it.paise } +
+                kept.filter { it.person == p && !it.settled }.sumOf { it.paise } - repaid.filter { it.person == p && !it.settled }.sumOf { it.paise }
             var keptIncome = 0L
             var clock = t0
             suspend fun split(entry: Entry, friends: List<EntityId>, at: Instant): Boolean {
                 val each = if (friends.isEmpty()) emptyList() else SplitShares.equal(entry.amount, friends.size).friends.map { Money(it.paise / 100 * 100) }
                 val pairs = friends.zip(each).filter { it.second.paise > 0 }
-                return when (val r = SplitStore(db).save(entry, emptyList(), pairs, at)) {
-                    is CatalogResult.Saved -> { if (pairs.isEmpty()) shares.remove(entry.id) else shares[entry.id] = r.item to pairs.map { it.first to it.second.paise }; true }
+                return when (SplitStore(db).save(entry, emptyList(), pairs, at)) {
+                    is CatalogResult.Saved -> {
+                        // An unchanged share (same person, same amount) keeps whether it was settled; the rest are new.
+                        val before = shares[entry.id].orEmpty().toMutableList()
+                        val now = pairs.map { (p, a) -> before.firstOrNull { it.person == p && it.paise == a.paise }?.also { before -= it } ?: Item(p, a.paise) }
+                        if (now.isEmpty()) shares.remove(entry.id) else shares[entry.id] = now
+                        true
+                    }
                     is CatalogResult.Refused -> false
                 }
             }
@@ -172,10 +180,10 @@ class SplitBillSimulationRunTest {
                         deletes++
                         val back = random.nextBoolean()
                         SplitStore(db).delete(EntryStore(db).byId(id)!!, back, clock)
-                        val (_, s) = shares.remove(id)!!
-                        if (back) takenBack++ else s.forEach { (p, a) -> kept[p] = (kept[p] ?: 0) + a }
+                        val s = shares.remove(id)!!
+                        if (back) takenBack++ else kept += s
                     }
-                    else -> { // money in by UPI
+                    7, 9 -> { // money in by UPI
                         val stranger = random.nextInt(6) == 0
                         val who = if (stranger) null else people.random(random)
                         val owed = who?.let { owes(it.id) } ?: 0
@@ -196,7 +204,12 @@ class SplitBillSimulationRunTest {
                         if (ask == null && shouldAsk) missedAsks++
                         if (ask == null) { keptIncome += rupees * 100; return@repeat }
                         if (random.nextInt(4) == 0) { DetectedInbox(db).denyRepayment(ask.id); denied++; keptIncome += rupees * 100 }
-                        else { DetectedInbox(db).confirmRepayment(ask.id, clock); confirmed++; repaid[who!!.id] = (repaid[who.id] ?: 0) + rupees * 100 }
+                        else { DetectedInbox(db).confirmRepayment(ask.id, clock); confirmed++; repaid += Item(who!!.id, rupees * 100) }
+                    }
+                    8 -> people.random(random).let { p -> // settled in People ("all square"), then perhaps edited again
+                        settles++
+                        ledger.settleAll(p.id, clock)
+                        (shares.values.flatten() + kept + repaid).filter { it.person == p.id }.forEach { it.settled = true }
                     }
                 }
             }
@@ -219,7 +232,7 @@ class SplitBillSimulationRunTest {
         }
         val report = buildString {
             appendLine("Split-bill changes simulation: $users users (${"%.1f".format((System.nanoTime() - started) / 1e9)} s)")
-            appendLine("edits $edits; deletes $deletes (shares taken back $takenBack); money-in messages $messages: asked $asked, yes $confirmed, no $denied")
+            appendLine("settled in People $settles; edits $edits; deletes $deletes (shares taken back $takenBack); money-in messages $messages: asked $asked, yes $confirmed, no $denied")
             appendLine("asked wrongly $askedWrongly; not asked when it should $missedAsks; owed per person off $personOff; income off $incomeOff;" +
                 " links lost in backup $linksLost; backup refused $backupRefused; open lending > owed $lentOver (all must be 0)")
         }

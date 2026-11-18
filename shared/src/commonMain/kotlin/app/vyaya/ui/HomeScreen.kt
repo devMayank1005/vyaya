@@ -180,8 +180,16 @@ private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: android
                     style = MaterialTheme.typography.bodyMedium, color = if (safe.leftToday.paise >= 0) onCard else overspent,
                 )
             }
-            safe.shortBy.paise > 0 -> Text("Bills still due (${safe.billsDue.format()}) are ${safe.shortBy.format()} more than what's left" +
-                (expected?.let { " and expected ($it)" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = overspent)
+            safe.shortBy.paise > 0 -> {
+                // Split-bills #4: money friends owe can be what takes it below zero, with or without bills.
+                val owed = safe.lent.format()
+                val left = "more than what's left" + (expected?.let { " and expected ($it)" } ?: "")
+                Text(when {
+                    safe.billsDue.paise == 0L -> "Nothing safe to spend until your friends pay you back: they owe you $owed, ${safe.shortBy.format()} $left"
+                    safe.lent.paise > 0 -> "Bills still due (${safe.billsDue.format()}) and what your friends owe you ($owed) are ${safe.shortBy.format()} $left"
+                    else -> "Bills still due (${safe.billsDue.format()}) are ${safe.shortBy.format()} $left"
+                }, style = MaterialTheme.typography.bodyMedium, color = overspent)
+            }
             else -> Text("Nothing left to spend this month", style = MaterialTheme.typography.bodyMedium, color = onCard)
         }
         budgetNote?.let { Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = overspent) }

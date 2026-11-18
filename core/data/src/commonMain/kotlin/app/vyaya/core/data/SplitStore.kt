@@ -47,17 +47,21 @@ class SplitStore(private val db: VyayaDatabase) {
             .getOrElse { return Refused("This split can't be saved") }
         val what = entry.payee ?: entry.note.ifEmpty { "A shared payment" }
         val date = entry.occurredAt.localDate
-        val lent = friends.map { (person, share) ->
-            LedgerEntry(EntityId.random(), person, LedgerDirection.LENT, share, date, "$what: their share of ${entry.amount.format()}".take(500),
+        // Split-bills report #3: saving a payment again replaces its shares, so an edit never adds to what friends owe. A
+        // share whose person and amount are unchanged stays as it is (settled stays settled); the others are taken back
+        // and written anew. One transaction with the entry.
+        val previous = sharesOf(entry).toMutableList()
+        val lent = friends.mapNotNull { (person, share) ->
+            val same = previous.firstOrNull { it.personId == person && it.amount == share }
+            if (same != null) { previous -= same; null }
+            else LedgerEntry(EntityId.random(), person, LedgerDirection.LENT, share, date, "$what: their share of ${entry.amount.format()}".take(500),
                 false, now, false, paymentId = entry.id)
         }
-        // Split-bills report #3: saving a payment again replaces its shares (the old ones are taken back), so an edit
-        // never adds to what friends owe. One transaction with the entry.
-        val previous = sharesOf(entry).map { it.copy(deleted = true, updatedAt = now) }
+        val takenBack = previous.map { it.copy(deleted = true, updatedAt = now) }
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 EntryStore(db).save(listOf(split))
-                val ledger = previous + lent
+                val ledger = takenBack + lent
                 if (ledger.isNotEmpty()) db.records().upsert(SnapshotStore.recordRows(Snapshot.empty().copy(ledger = ledger)))
             }
         }

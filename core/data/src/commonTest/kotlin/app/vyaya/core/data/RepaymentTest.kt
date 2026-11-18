@@ -109,4 +109,17 @@ class RepaymentTest {
         assertEquals(400_00L, LedgerStore(db).balances().of(rahul.id).paise)
         db.close()
     }
+
+    @Test
+    fun split_data_002_yes_on_money_that_became_a_transfer_closes_without_deleting_it() = runTest {
+        val db = inMemoryDatabase()
+        val rahul = rahulOwes400(db)
+        val inbox = DetectedInbox(db)
+        val income = received(db, 400, "Rahul")
+        EntryStore(db).save(listOf(income.copy(type = app.vyaya.core.model.EntryType.TRANSFER, categoryId = null, updatedAt = t + 2.days)))
+        inbox.confirmRepayment(inbox.items().single { it.kind == DetectedKind.REPAY }.id, t + 2.days)
+        assertEquals(false, EntryStore(db).byId(income.id)!!.deleted)
+        assertEquals(400_00L, LedgerStore(db).balances().of(rahul.id).paise)
+        db.close()
+    }
 }

@@ -134,4 +134,20 @@ class SplitStoreTest {
         assertEquals(true, EntryStore(db).byId(again.id)!!.deleted)
         db.close()
     }
+
+    @Test
+    fun split_flaw_003_an_edit_never_reopens_a_share_already_settled() = runTest {
+        val db = inMemoryDatabase()
+        val (dinner, rahul, priya) = dinnerWithRahulAndPriya(db)
+        LedgerStore(db).settleAll(rahul.id, t) // Rahul paid in cash and was settled in People
+        // The note corrected: the same friends, the same shares.
+        saved(SplitStore(db).save(dinner.copy(note = "Team dinner"), emptyList(), listOf(rahul.id to Money(400_00), priya.id to Money(400_00)), t))
+        assertEquals(0L, LedgerStore(db).balances().of(rahul.id).paise, "Rahul stays settled")
+        assertEquals(400_00L, LedgerStore(db).balances().of(priya.id).paise)
+        // Priya's share changed: only hers is replaced.
+        saved(SplitStore(db).save(dinner, emptyList(), listOf(rahul.id to Money(400_00), priya.id to Money(300_00)), t))
+        assertEquals(0L to 300_00L, LedgerStore(db).balances().of(rahul.id).paise to LedgerStore(db).balances().of(priya.id).paise)
+        assertEquals(2, SplitStore(db).sharesOf(dinner).size)
+        db.close()
+    }
 }

@@ -101,7 +101,7 @@ Simulation after the fixes (`-Psim.engine.users=2000`; reference: an independent
 
 | Check | Result |
 |---|---|
-| Edits 8,357; deletes 3,984 (shares taken back 1,968); money-in messages 14,809 (asked 9,718: yes 7,239, no 2,479) | — |
+| Settled in People 4,817; edits 8,233; deletes 4,069 (shares taken back 2,034); money-in messages 9,569 (asked 5,781: yes 4,344, no 1,437) | — |
 | Asked when it shouldn't be / not asked when it should | 0 / 0 |
 | What each person owes, against the model | 0 off |
 | Income, against the model (pay-backs out, "no" kept) | 0 off |
@@ -109,6 +109,33 @@ Simulation after the fixes (`-Psim.engine.users=2000`; reference: an independent
 | Open lending this month > what's owed | 0 |
 | First simulation again (44,274 splits) | all 0. A payment saved with no parts and no friends is now a plain entry, so the parts check skips it |
 
+The simulation's model also settles people in People. Run against the first version of #3 (every edit replaced every
+share), it reported 51 people off; with the fix below, 0.
+
 Found while fixing (also fixed): safe to spend added back today's spending at the full payment amount rather than your
 share. The split store refused to un-split a payment corrected to income.
+
+Found in review after the fixes (fixed test-first; each test was red before):
+- An edit made a settled share owed again. Saving a split re-created every share as not settled, and every edit of a
+  split payment (even its note) goes through the split store. Now a share with the same person and amount stays as it
+  is; only changed ones are replaced (`split_flaw_003_an_edit_never_reopens_a_share_already_settled`).
+- Home said "Bills still due (₹0) are ₹300 more than what's left" when money lent was what took it below zero. It now
+  says "Nothing safe to spend until your friends pay you back: they owe you ₹800, ₹200 more than what's left", or
+  names bills and lending together.
+- "Yes, Rahul paid me back" on money since made a transfer deleted the transfer. It now only takes out income.
+- Delete asks only about shares not yet settled. Save waits while the shares are being read (screen test with the
+  shares still loading).
+
+Not covered by a test: Delete reading the shares itself rather than the form's copy. The race needs a tap before a
+database read finishes, which a Robolectric test can't time reliably.
+
+## Assumptions made without asking (say if you want any changed)
+1. Matching a pay-back to a person: the names agree word for word as far as the shorter goes ("Rahul" = "Rahul
+   Sharma"). Two equally good matches mean no question. The amount must be at most what they owe.
+2. "Take it back", or removing a friend from a split, after they already paid back part of it leaves the pay-back in
+   People. The balance can then say you owe them, which is true: they paid for a share that's gone.
+3. Saving a split payment with every part and friend removed makes it a plain payment (it used to make a one-part
+   split of the whole amount). The first simulation's parts check was changed to match.
+4. Open lending counts only this month's lending. Older lending came out of an earlier month's money.
+5. Pay-back questions appear in Detected, which iOS hides for now (the iOS-step item in the branch review).
 

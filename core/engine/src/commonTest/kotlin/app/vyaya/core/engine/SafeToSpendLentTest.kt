@@ -58,5 +58,12 @@ class SafeToSpendLentTest {
         assertEquals(rupees(977), tomorrow.perDay, "₹8,800 over 9 days, rounded down to the rupee")
     }
 
+    @Test
+    fun lent_alone_can_leave_nothing_safe_and_says_by_how_much() {
+        val s = SafeToSpend.of(MonthSummary(month, rupees(1_000), rupees(500), emptyMap()), emptyList(), emptySet(), LocalDate(2026, 11, 21), lent = rupees(800))!!
+        assertEquals(rupees(0) to rupees(300), s.perDay to s.shortBy)
+        assertEquals(rupees(0), s.billsDue)
+    }
+
     private fun LocalDate.plusDays(n: Int) = LocalDate.fromEpochDays(toEpochDays() + n)
 }

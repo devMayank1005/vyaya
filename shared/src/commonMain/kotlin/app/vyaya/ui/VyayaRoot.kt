@@ -400,7 +400,8 @@ private fun VyayaRootContent(
                 // Read here, not from the form's copy (it may still be loading): a shared payment always asks.
                 existing?.let { e ->
                     safely {
-                        val owed = app.vyaya.core.data.SplitStore(db).sharesOf(e)
+                        // Only what's still owed: a share already settled has nothing to take back.
+                        val owed = app.vyaya.core.data.SplitStore(db).sharesOf(e).filter { !it.settled }
                         if (owed.isNotEmpty()) takingBack = e to owed
                         else { entries.save(listOf(e.markDeleted(clock()))); editing = null }
                     }
