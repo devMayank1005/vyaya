@@ -85,7 +85,7 @@ fun CategoryForm(
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add category" else "Category", style = MaterialTheme.typography.headlineSmall)
         // Catalog report #9: the store checks everything, and its answer is what the form says.
-        FormActions(existing?.name, onSave = { scope.launch { error = onSave(name, kind) } }, deleteNote, onDelete, onClose)
+        FormActions(existing?.name, onSave = { scope.launchSafely({ error = ACTION_FAILED }) { error = onSave(name, kind) } }, deleteNote, onDelete, onClose)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         OutlinedTextField(name, { name = it.take(100); error = null }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -108,7 +108,7 @@ fun AccountForm(
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add account" else "Account", style = MaterialTheme.typography.headlineSmall)
-        FormActions(existing?.name, onSave = { scope.launch { error = onSave(name, kind, mask) } }, deleteNote, onDelete, onClose)
+        FormActions(existing?.name, onSave = { scope.launchSafely({ error = ACTION_FAILED }) { error = onSave(name, kind, mask) } }, deleteNote, onDelete, onClose)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         OutlinedTextField(name, { name = it.take(100); error = null }, Modifier.fillMaxWidth(), label = { Text("Name") }, singleLine = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,7 +128,7 @@ private fun FormActions(deleting: String?, onSave: () -> Unit, deleteNote: suspe
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onSave) { Text("Save") }
         OutlinedButton(onClose) { Text("Cancel") }
-        if (deleting != null) TextButton({ scope.launch { confirm = deleteNote() } }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+        if (deleting != null) TextButton({ scope.launchSafely { confirm = deleteNote() } }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
     }
     confirm?.let { note ->
         AlertDialog(

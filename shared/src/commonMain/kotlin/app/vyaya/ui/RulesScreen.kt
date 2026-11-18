@@ -72,7 +72,7 @@ fun RulesScreen(
                     }
                     if (r.paused) {
                         TextButton({
-                            scope.launch {
+                            scope.launchSafely {
                                 val months = missed(r)
                                 if (months.isEmpty()) onResume(r, true) else asking = r to months
                             }

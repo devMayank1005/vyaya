@@ -166,15 +166,15 @@ private fun VyayaRootContent(
     val scope = rememberCoroutineScope()
 
     /** Every action on this screen runs here: a failure is caught and said, so the scope (and the app) carries on. */
-    fun safely(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) = scope.launch {
-        try {
-            block()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            actionFailed = true
-        }
-    }
+    fun safely(block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit) = scope.launchSafely({ actionFailed = true }, block)
+
+    // Shown over whatever screen is open (forms and lists return early below).
+    if (actionFailed) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { actionFailed = false },
+        title = { Text("That didn't work") },
+        text = { Text("Nothing was changed. If it happens again, check the phone's date and time, or export a backup and tell us.") },
+        confirmButton = { androidx.compose.material3.TextButton({ actionFailed = false }) { Text("OK") } },
+    )
 
     val settings = records?.settings
     val month = remember(settings, monthOffset) {
@@ -385,13 +385,6 @@ private fun VyayaRootContent(
         )
         return
     }
-
-    if (actionFailed) androidx.compose.material3.AlertDialog(
-        onDismissRequest = { actionFailed = false },
-        title = { Text("That didn't work") },
-        text = { Text("Nothing was changed. If it happens again, check the phone's date and time, or export a backup and tell us.") },
-        confirmButton = { androidx.compose.material3.TextButton({ actionFailed = false }) { Text("OK") } },
-    )
 
     alreadyLogged?.let { (item, entry) ->
         val at = entry.occurredAt.instant.toLocalDateTime(records?.settings?.homeTimeZone ?: zone())

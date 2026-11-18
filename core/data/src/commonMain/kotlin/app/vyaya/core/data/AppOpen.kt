@@ -60,6 +60,7 @@ class AppOpen(private val db: VyayaDatabase) {
             val made = result.save
             entries.save(made)
             result.ask.forEach { (draft, payment) -> DetectedInbox(db).askBill(draft, payment) }
+            DetectedInbox(db).closeSettledBills()
             // Ignored-tab FLAW-006: summaries past keeping leave the phone even if nothing is captured for a while.
             db.ignored().purge((now - IgnoredStore.KEEP).toEpochMilliseconds())
             OpenResult(seeded, repaired, made.count { it.generatedBy != null && !it.deleted })

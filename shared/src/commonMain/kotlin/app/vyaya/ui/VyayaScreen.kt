@@ -52,11 +52,11 @@ fun VyayaScreen(
             if (showIgnored) IgnoredList(skipped, onWasPayment, onNotPayment, homeZone)
             else DetectedScreen(
                 items,
-                onUndo = { id -> scope.launch { inbox.undo(id, clock()) } },
-                onAdd = { id -> scope.launch { inbox.confirm(id, clock()) } },
-                onDismiss = { id -> scope.launch { inbox.dismiss(id) } },
-                onYesBill = { id -> scope.launch { inbox.confirmBill(id, clock()) } },
-                onNoBill = { id -> scope.launch { inbox.denyBill(id, clock()) } },
+                onUndo = { id -> scope.launchSafely { inbox.undo(id, clock()) } },
+                onAdd = { id -> scope.launchSafely { inbox.confirm(id, clock()) } },
+                onDismiss = { id -> scope.launchSafely { inbox.dismiss(id) } },
+                onYesBill = { id -> scope.launchSafely { inbox.confirmBill(id, clock()) } },
+                onNoBill = { id -> scope.launchSafely { inbox.denyBill(id, clock()) } },
             )
         }
     }

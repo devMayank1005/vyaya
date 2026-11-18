@@ -137,7 +137,7 @@ fun AddEntryScreen(
                 val problem = input.problem(existing, TimeZone.currentSystemDefault())
                 when {
                     problem != null -> error = problem
-                    input.isSplit -> scope.launch { error = onSaveSplit(input) }
+                    input.isSplit -> scope.launchSafely({ error = ACTION_FAILED }) { error = onSaveSplit(input) }
                     else -> error = if (onSave(input)) null else "This entry can't be saved"
                 }
             }) { Text("Save") }
@@ -197,7 +197,7 @@ fun AddEntryScreen(
                     OutlinedTextField(newPerson, { newPerson = it.take(100) }, Modifier.weight(1f), label = { Text("New person's name") }, singleLine = true)
                     TextButton({
                         val name = newPerson.trim()
-                        if (name.isNotEmpty()) scope.launch { onAddPerson(name)?.let { p -> added += p; friends += p.id; newPerson = "" } }
+                        if (name.isNotEmpty()) scope.launchSafely({ error = ACTION_FAILED }) { onAddPerson(name)?.let { p -> added += p; friends += p.id; newPerson = "" } }
                     }) { Text("Add person") }
                 }
                 friends.forEach { id ->

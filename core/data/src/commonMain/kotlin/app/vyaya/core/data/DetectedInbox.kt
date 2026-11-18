@@ -103,6 +103,7 @@ class DetectedInbox(private val db: VyayaDatabase) {
     suspend fun confirmBill(id: String, now: Instant) = db.useWriterConnection { transactor ->
         transactor.immediateTransaction {
             val item = open(id, DetectedKind.BILL) ?: return@immediateTransaction
+            if (settled(item)) return@immediateTransaction db.detected().setStatus(id, "SETTLED")
             val payment = item.possibleDuplicateOf?.let { entries.byId(EntityId.parse(it) ?: return@let null) }
             if (payment == null || payment.deleted) entries.save(listOf(item.entry.copy(updatedAt = now))) // the payment is gone: the bill as usual
             else entries.save(Recurring.linked(item.entry, payment, now))
@@ -114,8 +115,19 @@ class DetectedInbox(private val db: VyayaDatabase) {
     suspend fun denyBill(id: String, now: Instant) = db.useWriterConnection { transactor ->
         transactor.immediateTransaction {
             val item = open(id, DetectedKind.BILL) ?: return@immediateTransaction
+            if (settled(item)) return@immediateTransaction db.detected().setStatus(id, "SETTLED")
             entries.save(listOf(item.entry.copy(updatedAt = now)))
             db.detected().setStatus(id, "DISMISSED")
+        }
+    }
+
+    /** The bill's month already has its key (linked by the app meanwhile, or answered): answering again must not double it. */
+    private suspend fun settled(item: DetectedItem): Boolean = entries.byId(item.entry.id) != null
+
+    /** Called by app open, in its transaction: questions whose month got settled meanwhile close (branch review #3). */
+    internal suspend fun closeSettledBills() {
+        db.detected().open().filter { it.kind == DetectedKind.BILL.name }.forEach { row ->
+            itemOf(row)?.takeIf { settled(it) }?.let { db.detected().setStatus(row.id, "SETTLED") }
         }
     }
 

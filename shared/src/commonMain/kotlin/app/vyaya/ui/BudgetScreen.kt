@@ -63,7 +63,7 @@ fun BudgetForm(
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add budget" else categoryName.orEmpty(), style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button({ scope.launch { error = onSave(categoryId, amount) } }) { Text("Save") }
+            Button({ scope.launchSafely({ error = ACTION_FAILED }) { error = onSave(categoryId, amount) } }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
             if (existing != null) TextButton(onRemove) { Text("Remove", color = MaterialTheme.colorScheme.error) }
         }
