@@ -33,6 +33,7 @@ import app.vyaya.core.data.SnapshotStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntryType
+import app.vyaya.core.model.Money
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
@@ -171,6 +172,24 @@ private fun VyayaRootContent(
     }
     val view by remember(month, settings) { if (month != null && settings != null) months.watch(month, settings) else flowOf(null) }.collectAsState(null)
     val categories = records?.categories.orEmpty()
+
+    /** Split bills: the form's message, or null when saved (the entry and the friends' ledger entries, together). */
+    suspend fun saveSplit(input: EntryInput, existing: Entry?): String? {
+        val entry = input.toEntry(existing, clock(), zone()) ?: return "This entry can't be saved"
+        val mine = input.splitCategories.map { (id, text) ->
+            app.vyaya.core.model.Split(id, Money.parse(text.trim())?.takeIf { it.paise > 0 } ?: return "Enter each part (up to 2 decimals)")
+        }
+        val friends = input.friendShares.map { (id, text) -> id to (Money.parse(text.trim())?.takeIf { it.paise > 0 } ?: return "Enter each friend's share") }
+        return when (val r = app.vyaya.core.data.SplitStore(db).save(entry, mine, friends, clock())) {
+            is app.vyaya.core.data.CatalogResult.Saved -> {
+                if (friends.isNotEmpty()) ledgerChanged()
+                fromIgnored?.let { ignoredStore.wasPayment(it.id); ignoredVersion++ }
+                fromIgnored = null; adding = false; editing = null
+                null
+            }
+            is app.vyaya.core.data.CatalogResult.Refused -> r.reason
+        }
+    }
 
     /** The form's message: none when [r] saved (then [onSaved]), else why the store refused. */
     fun <T> answer(r: app.vyaya.core.data.CatalogResult<T>, onSaved: () -> Unit): String? = when (r) {
@@ -341,6 +360,9 @@ private fun VyayaRootContent(
             onClose = { adding = false; editing = null; fromIgnored = null },
             accounts = records?.accounts.orEmpty(),
             rules = records?.merchantRules.orEmpty(),
+            people = people,
+            onAddPerson = { name -> ledger.addPerson(name, clock()).also { ledgerChanged() } },
+            onSaveSplit = { input -> saveSplit(input, existing) },
             initialAmount = fromIgnored?.amount,
             initialType = fromIgnored?.let { if (it.credit) EntryType.INCOME else EntryType.EXPENSE },
             initialDate = fromIgnored?.receivedAt?.toLocalDateTime(zone())?.date,

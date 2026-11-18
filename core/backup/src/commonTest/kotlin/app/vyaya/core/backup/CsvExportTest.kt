@@ -99,4 +99,13 @@ class CsvExportTest {
         assertTrue(cells.contains(",Saved,5.00,, 5.00,"), cells) // blank signed amount; a split with an unknown category
         assertTrue(cells.contains(",\"a\rb\","), cells)
     }
+
+    @Test
+    fun split_bills_the_signed_amount_is_your_own_share() {
+        val dinner = Entry(EntityId.random(), EntryType.EXPENSE, Money(1_200_00), CapturedAt(T, IST), null, null, null, "Dinner", "", emptyList(),
+            EntrySource.MANUAL, null, listOf(app.vyaya.core.model.Split(FOOD, Money(400_00)), app.vyaya.core.model.Split(app.vyaya.core.model.SystemCategories.LENT.id, Money(800_00))),
+            null, T, T, false)
+        val cells = rows(GOLDEN_SNAPSHOT.copy(entries = listOf(dinner)))[1].split(",")
+        assertEquals(listOf("1200.00", "-400.00"), cells.subList(3, 5), "amount is the payment; signed_amount, so SUM gives what's left")
+    }
 }

@@ -41,6 +41,7 @@ import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Money
+import kotlinx.coroutines.launch
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
@@ -72,6 +73,10 @@ fun AddEntryScreen(
     initialDate: LocalDate? = null,
     /** Money in or out, for a new entry filled in from a message (Ignored tab FLAW-004). */
     initialType: EntryType? = null,
+    /** Split bills: the people to share with, adding one, and saving a split (its refusal message, or null when saved). */
+    people: List<app.vyaya.core.model.Person> = emptyList(),
+    onAddPerson: suspend (String) -> app.vyaya.core.model.Person? = { null },
+    onSaveSplit: suspend (EntryInput) -> String? = { "Splitting isn't available here" },
 ) {
     var accountId by remember { mutableStateOf(existing?.accountId) }
     var type by remember { mutableStateOf(if ((existing?.type ?: initialType) == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
@@ -99,14 +104,42 @@ fun AddEntryScreen(
     // This entry itself, if still uncategorised in the database, is saved with its category first: not one of the "other" ones.
     val selfOpen = existing != null && existing.categoryId == null && !existing.deleted && existing.type == type && existing.payee?.let(keyOf) == key
     val others = ((counts?.uncategorised ?: 0) - if (selfOpen) 1 else 0).coerceAtLeast(0)
+    // Split bills (option A): across the user's categories, and/or with friends (their shares go to People).
+    val canSplit = type == EntryType.EXPENSE && existing?.splits.isNullOrEmpty() && existing?.generatedBy == null
+    var acrossCategories by remember { mutableStateOf(false) }
+    var withFriends by remember { mutableStateOf(false) }
+    val parts = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.EntityId>() }
+    val partText = remember { androidx.compose.runtime.mutableStateMapOf<app.vyaya.core.model.EntityId, String>() }
+    val friends = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.EntityId>() }
+    val shareText = remember { androidx.compose.runtime.mutableStateMapOf<app.vyaya.core.model.EntityId, String>() }
+    val added = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.Person>() }
+    var sharesEdited by remember { mutableStateOf(false) }
+    var newPerson by remember { mutableStateOf("") }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val total = Money.parse(amount.trim())
+    // Equal shares, until the user types one: any odd paise stay with the user.
+    LaunchedEffect(amount, friends.toList()) {
+        if (!sharesEdited && total != null && total.paise > 0 && friends.isNotEmpty()) {
+            val equal = app.vyaya.core.engine.SplitShares.equal(total, friends.size)
+            friends.forEachIndexed { i, id -> shareText[id] = plainAmount(equal.friends[i]) }
+        }
+    }
+    val friendsTotal = friends.sumOf { Money.parse(shareText[it].orEmpty().trim())?.paise ?: 0L }
 
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(if (existing == null) "Add entry" else "Edit entry", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({
                 val input = EntryInput(type, amount, categoryId, payee, note, date, accountId, alwaysForPayee = always && canRemember,
-                    alsoEarlier = always && canRemember && alsoEarlier && others > 0)
-                error = input.problem(existing, TimeZone.currentSystemDefault()) ?: if (onSave(input)) null else "This entry can't be saved"
+                    alsoEarlier = always && canRemember && alsoEarlier && others > 0,
+                    splitCategories = if (canSplit && acrossCategories) parts.map { it to partText[it].orEmpty() } else emptyList(),
+                    friendShares = if (canSplit && withFriends) friends.map { it to shareText[it].orEmpty() } else emptyList())
+                val problem = input.problem(existing, TimeZone.currentSystemDefault())
+                when {
+                    problem != null -> error = problem
+                    input.isSplit -> scope.launch { error = onSaveSplit(input) }
+                    else -> error = if (onSave(input)) null else "This entry can't be saved"
+                }
             }) { Text("Save") }
             OutlinedButton(onClose) { Text("Cancel") }
             if (existing != null) TextButton(onDelete) { Text("Delete", color = MaterialTheme.colorScheme.error) }
@@ -122,10 +155,60 @@ fun AddEntryScreen(
             prefix = { Text("₹") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true,
             isError = error != null, supportingText = error?.let { { Text(it) } })
         val kind = if (type == EntryType.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
+        val shown = categories.filter { it.kind == kind && (!it.deleted || it.id == existing?.categoryId) }
+        if (!existing?.splits.isNullOrEmpty()) {
+            // A split entry keeps its parts; changing them means deleting it and adding it again.
+            val names = categories.associate { it.id to it.name } + (app.vyaya.core.model.SystemCategories.LENT.id to "Friends' shares")
+            Text("Split: " + existing!!.splits.joinToString(" + ") { "${names[it.categoryId].orEmpty()} ${it.amount.format()}" },
+                style = MaterialTheme.typography.bodyMedium)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Catalog report #6: an entry's own deleted category stays visible, so what's saved is what's shown.
-            categories.filter { it.kind == kind && (!it.deleted || it.id == existing?.categoryId) }.forEach { c ->
-                FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(if (c.deleted) "${c.name} (deleted)" else c.name) })
+            shown.forEach { c ->
+                val label = if (c.deleted) "${c.name} (deleted)" else c.name
+                if (canSplit && acrossCategories) {
+                    FilterChip(c.id in parts, { if (c.id in parts) { parts -= c.id; partText -= c.id } else parts += c.id }, { Text(label) })
+                } else {
+                    FilterChip(categoryId == c.id, { categoryId = if (categoryId == c.id) null else c.id }, { Text(label) })
+                }
+            }
+        }
+        if (canSplit) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(acrossCategories, { acrossCategories = !acrossCategories; error = null }, { Text("Split across categories") })
+                FilterChip(withFriends, { withFriends = !withFriends; error = null }, { Text("Split with friends") })
+            }
+            if (acrossCategories) {
+                Text("Tap the categories, then what went to each" + if (withFriends) " (your share only)." else ".", style = MaterialTheme.typography.bodySmall)
+                parts.forEach { id ->
+                    val c = categories.firstOrNull { it.id == id } ?: return@forEach
+                    OutlinedTextField(partText[id].orEmpty(), { partText[id] = it; error = null }, Modifier.fillMaxWidth(), label = { Text("${c.name} ₹") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                }
+            }
+            if (withFriends) {
+                val everyone = (people + added).distinctBy { it.id }
+                if (everyone.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    everyone.forEach { p ->
+                        FilterChip(p.id in friends, { if (p.id in friends) { friends -= p.id; shareText -= p.id } else friends += p.id }, { Text(p.name) })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(newPerson, { newPerson = it.take(100) }, Modifier.weight(1f), label = { Text("New person's name") }, singleLine = true)
+                    TextButton({
+                        val name = newPerson.trim()
+                        if (name.isNotEmpty()) scope.launch { onAddPerson(name)?.let { p -> added += p; friends += p.id; newPerson = "" } }
+                    }) { Text("Add person") }
+                }
+                friends.forEach { id ->
+                    val who = everyone.firstOrNull { it.id == id }?.name.orEmpty()
+                    OutlinedTextField(shareText[id].orEmpty(), { shareText[id] = it; sharesEdited = true; error = null }, Modifier.fillMaxWidth(),
+                        label = { Text("$who's share") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
+                }
+                if (total != null && friends.isNotEmpty()) {
+                    Text("Your share: ${Money(total.paise - friendsTotal).format()}. Their shares go to People, as money they owe you.",
+                        style = MaterialTheme.typography.bodyMedium)
+                }
             }
         }
         val name = payee.trim()

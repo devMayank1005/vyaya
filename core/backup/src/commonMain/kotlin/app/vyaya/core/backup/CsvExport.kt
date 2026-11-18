@@ -72,7 +72,7 @@ object CsvExport {
                 // csv report #5: spending negative, income positive, so SUM is what's left; transfers and money put
                 // aside move nothing in or out, as the engine counts them.
                 when (e.type) {
-                    EntryType.EXPENSE -> "-" + plain(e.amount)
+                    EntryType.EXPENSE -> "-" + plain(e.ownShare) // split bills: friends' shares are owed back, not spent
                     EntryType.INCOME -> plain(e.amount)
                     EntryType.TRANSFER, EntryType.SAVED -> ""
                 },

@@ -148,6 +148,13 @@ data class Entry(
     /** Only expenses count towards spending; transfers, Saved and lent/borrowed never do. */
     val countsAsSpending: Boolean get() = type == EntryType.EXPENSE
 
+    /**
+     * Split bills (option A, the user's choice): what of this payment is the user's own. A split in the system
+     * "Lent & Borrowed" category is friends' shares, owed back (in the People ledger), so not the user's spending.
+     */
+    val ownShare: Money
+        get() = if (splits.isEmpty()) amount else Money(splits.filter { it.categoryId != SystemCategories.LENT.id }.sumOf { it.amount.paise })
+
     val countsAsIncome: Boolean get() = type == EntryType.INCOME
 
     fun markDeleted(at: Instant): Entry = copy(deleted = true, updatedAt = at)
