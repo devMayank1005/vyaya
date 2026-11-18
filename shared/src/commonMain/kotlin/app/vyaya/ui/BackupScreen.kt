@@ -67,6 +67,9 @@ fun BackupScreen(
     startDay: Int? = null,
     nextStart: Pair<kotlinx.datetime.LocalDate, Int>? = null,
     onStartDay: (Int) -> Unit = {},
+    /** Phase 3: whether the home-screen widget shows safe to spend (off by default; never while the lock is on). */
+    widgetAmounts: Boolean = false,
+    onWidgetAmounts: (Boolean) -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -192,6 +195,17 @@ fun BackupScreen(
                     style = MaterialTheme.typography.bodySmall)
             }
             Switch(lockEnabled, onCheckedChange = null)
+        }
+        // Anyone who sees the home screen sees the widget, so the lock keeps amounts off it.
+        Row(Modifier.fillMaxWidth().toggleable(widgetAmounts && !lockEnabled, enabled = !lockEnabled, role = Role.Switch, onValueChange = onWidgetAmounts),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Show amounts on the home-screen widget")
+                Text(if (lockEnabled) "Hidden while the app lock is on. The widget shows only an Add button."
+                    else "Off: the widget shows only an Add button. On: it also shows what's safe to spend today, to anyone who sees your home screen.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(widgetAmounts && !lockEnabled, onCheckedChange = null, enabled = !lockEnabled)
         }
         if (!deviceSecure) {
             Text("This phone has no screen lock, so the app lock has nothing to ask. Set a screen lock in the phone's Settings first.",

@@ -77,8 +77,12 @@ fun VyayaRoot(
     onBudgetSet: () -> Unit = {},
     /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
     showDetected: Boolean = true,
+    /** Counts requests to open the add form (the widget and the Quick Settings tile); each new one opens it once. */
+    addRequests: Int = 0,
+    /** The widget's "show amounts" setting changed: redraw the widget. */
+    onWidgetChanged: () -> Unit = {},
 ) = VyayaTheme {
-    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected, onBudgetSet = onBudgetSet)
+    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected, onBudgetSet = onBudgetSet, addRequests = addRequests, onWidgetChanged = onWidgetChanged)
 }
 
 @Composable
@@ -108,7 +112,13 @@ private fun VyayaRootContent(
     onBudgetSet: () -> Unit = {},
     /** The Detected tab: capture from notifications and SMS (Android); iOS has no such access. */
     showDetected: Boolean = true,
+    /** Counts requests to open the add form (the widget and the Quick Settings tile); each new one opens it once. */
+    addRequests: Int = 0,
+    /** The widget's "show amounts" setting changed: redraw the widget. */
+    onWidgetChanged: () -> Unit = {},
 ) {
+    // Kept across the lock: a request is answered once, after unlocking, not again at every unlock.
+    var addHandled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
     // SEC-003: while locked, nothing of the money is composed at all.
     if (locked) return LockScreen(onUnlock)
 
@@ -137,6 +147,12 @@ private fun VyayaRootContent(
     /** A split payment being deleted, and the shares friends owe for it: the question whether those go too. */
     var takingBack by remember { mutableStateOf<Pair<Entry, List<app.vyaya.core.model.LedgerEntry>>?>(null) }
     var adding by remember { mutableStateOf(false) }
+    val quickLook = remember(db) { app.vyaya.core.data.QuickLookStore(db) }
+    var widgetAmounts by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(db) { widgetAmounts = quickLook.showAmounts() }
+    androidx.compose.runtime.LaunchedEffect(addRequests) {
+        if (addRequests > addHandled) { addHandled = addRequests; editing = null; adding = true }
+    }
     val rulesStore = remember(db) { RulesStore(db) }
     // MVP2 FLAW-001: one store for the screen's life, so finished months are read once.
     val savingsStore = remember(db) { app.vyaya.core.data.SavingsStore(db) }
@@ -479,15 +495,10 @@ private fun VyayaRootContent(
                     val savings by produceState<app.vyaya.core.data.SavingsSummary?>(null, settings, v) {
                         value = settings?.let { savingsStore.summary(it, today) }
                     }
-                    // Safe to spend (Phase 3): the bills' made months are read again whenever the month or the rules change.
-                    val made by produceState(emptySet<app.vyaya.core.model.Generation>(), v, rules) { value = rulesStore.madeKeys() }
-                    val linked by produceState(emptySet<app.vyaya.core.model.EntityId>(), v, rules) { value = rulesStore.linkedPayments() }
-                    // Split-bills #4: what friends still owe of this month's lending isn't safe to spend.
-                    val lent by produceState(Money(0), v, ledgerVersion) {
-                        value = v?.let { app.vyaya.core.engine.SafeToSpend.openLent(SnapshotStore(db).loadRecords().ledger, it.month) } ?: Money(0)
-                    }
-                    val safe = v?.takeIf { monthOffset == 0 }?.let {
-                        app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today, payments = it.entries, taken = linked, lent = lent)
+                    // Safe to spend (Phase 3), worked out as the widget does (QuickLookStore): again whenever the month, the
+                    // rules or People change. Only for the current month.
+                    val safe by produceState<app.vyaya.core.engine.SafeToSpend?>(null, v, rules, ledgerVersion, monthOffset) {
+                        value = if (v != null && monthOffset == 0) app.vyaya.core.data.QuickLookStore(db).safeToSpend(clock()) else null
                     }
                     // Safe-to-spend FLAW-002: the salary day, suggested on the current month until taken or put off.
                     val salaryDay by produceState<Int?>(null, v, monthStartVersion, monthOffset) {
@@ -529,6 +540,8 @@ private fun VyayaRootContent(
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
                     onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },
+                    widgetAmounts = widgetAmounts,
+                    onWidgetAmounts = { on -> safely { quickLook.setShowAmounts(on); widgetAmounts = on; onWidgetChanged() } },
                     startDay = records?.settings?.let { st -> st.monthSchedule.monthContaining(clock().toLocalDateTime(st.homeTimeZone).date).startDay },
                     nextStart = records?.settings?.let { st ->
                         val today = clock().toLocalDateTime(st.homeTimeZone).date

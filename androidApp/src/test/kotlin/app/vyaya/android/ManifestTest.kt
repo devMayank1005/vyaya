@@ -57,6 +57,10 @@ class ManifestTest {
             "app.vyaya.android.SmsReceiver" to "android.permission.BROADCAST_SMS",
             // From androidx.profileinstaller (merged in): installs startup profiles; DUMP is held only by the system and adb.
             "androidx.profileinstaller.ProfileInstallReceiver" to "android.permission.DUMP",
+            // Only the system can bind a Quick Settings tile.
+            QuickAddTile::class.java.name to "android.permission.BIND_QUICK_SETTINGS_TILE",
+            // A home-screen widget must be reachable by the launcher: no permission exists for it. It only redraws itself.
+            QuickAddWidget::class.java.name to null,
         )
         info.services.orEmpty().filter { it.exported }.forEach { assertEquals(it.name, guarded[it.name], it.permission) }
         info.receivers.orEmpty().filter { it.exported }.forEach { assertEquals(it.name, guarded[it.name], it.permission) }
@@ -77,5 +81,14 @@ class ManifestTest {
     fun budgets_flaw_002_asks_to_post_notifications_for_budget_alerts() {
         val asked = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toList()
         assertTrue(asked.toString(), "android.permission.POST_NOTIFICATIONS" in asked)
+    }
+
+    @Test
+    fun the_widget_only_answers_the_systems_update() {
+        val receivers = context.packageManager.queryBroadcastReceivers(
+            android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE).setPackage(context.packageName), 0)
+        assertEquals(listOf(QuickAddWidget::class.java.name), receivers.map { it.activityInfo.name })
+        val other = context.packageManager.queryBroadcastReceivers(android.content.Intent("app.vyaya.action.ADD").setPackage(context.packageName), 0)
+        assertTrue(other.isEmpty())
     }
 }

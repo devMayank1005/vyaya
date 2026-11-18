@@ -55,4 +55,13 @@ class MainActivityTest {
             }
         }
     }
+
+    @Test
+    fun the_widget_and_the_tile_open_the_add_form() {
+        val add = Intent(androidx.test.core.app.ApplicationProvider.getApplicationContext(), MainActivity::class.java).setAction(QuickAddWidget.ACTION_ADD)
+        ActivityScenario.launch<MainActivity>(add).use {
+            waitFor("Add entry")
+            compose.onNodeWithText("Amount").assertExists()
+        }
+    }
 }

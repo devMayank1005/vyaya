@@ -40,6 +40,18 @@ class MainActivity : FragmentActivity() {
 
     private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
 
+    /** Phase 3: the widget's Add and the Quick Settings tile ask for the add form; each request opens it once. */
+    private val addRequests = mutableIntStateOf(0)
+
+    private fun askedToAdd(intent: Intent?) {
+        if (intent?.action == QuickAddWidget.ACTION_ADD) addRequests.intValue++
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        askedToAdd(intent)
+    }
+
     // SEC-003: the app lock, and the phone's own check before a backup leaves or replaces the data.
     private val appLock by lazy { (application as VyayaApp).appLock }
     private val authenticator by lazy { BiometricAuthenticator(this) }
@@ -104,6 +116,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as VyayaApp
+        if (savedInstanceState == null) askedToAdd(intent) // not again when re-created (rotation)
         setContent {
             MaterialTheme {
                 VyayaRoot(
@@ -140,12 +153,15 @@ class MainActivity : FragmentActivity() {
                             appLock.enabled = on
                             lockEnabled.value = on
                             secureWindow(on)
+                            QuickAddWidget.refresh(this) // amounts never show on the widget while the lock is on
                         }
                     },
                     onRestore = { mode ->
                         AppLock.confirmThen(authenticator, "Restore a backup over your data") { restoreFlow.start(mode) }
                     },
                     onRestoreAnyway = { AppLock.confirmThen(authenticator, "Restore a backup over your data") { showRestore { restoreFlow.restoreAnyway() } } },
+                    addRequests = addRequests.intValue,
+                    onWidgetChanged = { QuickAddWidget.refresh(this) },
                 )
             }
         }
@@ -161,6 +177,8 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onStop() {
+        // Whatever changed in the app shows on the widget (when it shows amounts at all).
+        QuickAddWidget.refresh(this)
         appLock.onStop()
         super.onStop()
     }
