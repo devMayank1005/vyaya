@@ -32,6 +32,7 @@ import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.data.SnapshotStore
 import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntryType
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
@@ -123,6 +124,8 @@ private fun VyayaRootContent(
     var ignoredVersion by remember { mutableStateOf(0) }
     /** The Ignored tab's "This was a payment": the message being added (its amount and day fill the form). */
     var fromIgnored by remember { mutableStateOf<app.vyaya.core.data.IgnoredItem?>(null) }
+    /** DATA-002: the ignored message, and the entry that looks like it was already logged for it. */
+    var alreadyLogged by remember { mutableStateOf<Pair<app.vyaya.core.data.IgnoredItem, Entry>?>(null) }
     var monthStartVersion by remember { mutableStateOf(0) }
     /** "categories" or "accounts" while that list is open; [catalogItem] the one being added ("new") or changed. */
     var catalogView by remember { mutableStateOf<String?>(null) }
@@ -339,11 +342,37 @@ private fun VyayaRootContent(
             accounts = records?.accounts.orEmpty(),
             rules = records?.merchantRules.orEmpty(),
             initialAmount = fromIgnored?.amount,
+            initialType = fromIgnored?.let { if (it.credit) EntryType.INCOME else EntryType.EXPENSE },
             initialDate = fromIgnored?.receivedAt?.toLocalDateTime(zone())?.date,
             matches = { payee, type -> merchants.matches(payee, type) },
             keyOf = merchants::keyOf,
         )
         return
+    }
+
+    alreadyLogged?.let { (item, entry) ->
+        val at = entry.occurredAt.instant.toLocalDateTime(records?.settings?.homeTimeZone ?: zone())
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { alreadyLogged = null },
+            title = { Text("This looks already logged") },
+            text = {
+                Text("${entry.amount.format()} on ${at.date} at ${at.hour.toString().padStart(2, '0')}:${at.minute.toString().padStart(2, '0')}" +
+                    (entry.payee?.let { " to $it" } ?: "") + ". Open it, or add this one anyway.")
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton({
+                    alreadyLogged = null
+                    scope.launch { ignoredStore.wasPayment(item.id); ignoredVersion++ }
+                    editing = entry
+                }) { Text("Open it") }
+            },
+            dismissButton = {
+                androidx.compose.foundation.layout.Row {
+                    androidx.compose.material3.TextButton({ alreadyLogged = null }) { Text("Cancel") }
+                    androidx.compose.material3.TextButton({ alreadyLogged = null; fromIgnored = item; adding = true }) { Text("Add anyway") }
+                }
+            },
+        )
     }
 
     askThisMonth?.let { (rule, old) ->
@@ -413,8 +442,13 @@ private fun VyayaRootContent(
                 }
                 Tab.DETECTED -> VyayaScreen(inbox, setup, clock, onNotificationAccess, onSms, onImport, onBattery,
                     ignored = { ignoredStore.items(clock()) }, ignoredVersion = ignoredVersion,
-                    onWasPayment = { item -> fromIgnored = item; adding = true },
-                    onNotPayment = { item -> scope.launch { ignoredStore.notPayment(item.id); ignoredVersion++ } })
+                    // DATA-002: a payment already logged for it is offered first, so it isn't added twice.
+                    onWasPayment = { item -> scope.launch {
+                        val logged = ignoredStore.alreadyLogged(item)
+                        if (logged != null) alreadyLogged = item to logged else { fromIgnored = item; adding = true }
+                    } },
+                    onNotPayment = { item -> scope.launch { ignoredStore.notPayment(item.id); ignoredVersion++ } },
+                    homeZone = records?.settings?.homeTimeZone ?: zone())
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
                     onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },

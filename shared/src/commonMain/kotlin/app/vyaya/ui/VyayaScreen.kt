@@ -33,6 +33,8 @@ fun VyayaScreen(
     ignoredVersion: Int = 0,
     onWasPayment: (app.vyaya.core.data.IgnoredItem) -> Unit = {},
     onNotPayment: (app.vyaya.core.data.IgnoredItem) -> Unit = {},
+    /** The home time zone, for the times shown (FLAW-005). */
+    homeZone: kotlinx.datetime.TimeZone = kotlinx.datetime.TimeZone.currentSystemDefault(),
 ) {
     val items = remember(inbox) { inbox.changes() }.collectAsState(emptyList()).value
     val skipped by androidx.compose.runtime.produceState(emptyList<app.vyaya.core.data.IgnoredItem>(), ignoredVersion, items) { value = ignored() }
@@ -45,9 +47,9 @@ fun VyayaScreen(
             androidx.compose.foundation.layout.Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                 androidx.compose.material3.FilterChip(!showIgnored, { showIgnored = false }, { Text("Logged") })
-                androidx.compose.material3.FilterChip(showIgnored, { showIgnored = true }, { Text("Ignored (${skipped.size})") })
+                androidx.compose.material3.FilterChip(showIgnored, { showIgnored = true }, { Text("Ignored (${skipped.count { !foldedAway(it.reason) }})") })
             }
-            if (showIgnored) IgnoredList(skipped, onWasPayment, onNotPayment)
+            if (showIgnored) IgnoredList(skipped, onWasPayment, onNotPayment, homeZone)
             else DetectedScreen(
                 items,
                 onUndo = { id -> scope.launch { inbox.undo(id, clock()) } },

@@ -7,7 +7,9 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
 /** One message capture skipped, as the Ignored tab shows it. */
-data class IgnoredItem(val id: String, val sender: String, val amount: Money, val reason: IgnoreReason, val receivedAt: Instant)
+data class IgnoredItem(
+    val id: String, val sender: String, val amount: Money, val reason: IgnoreReason, val receivedAt: Instant, val credit: Boolean = false,
+)
 
 /**
  * The Ignored tab (Phase 3, plan B2 "Trust"): "why wasn't this logged?". Messages with an amount that capture skipped,
@@ -20,8 +22,9 @@ class IgnoredStore(private val db: VyayaDatabase) {
     internal suspend fun record(message: RawMessage, reason: IgnoreReason, amount: Money, now: Instant) {
         db.ignored().purge((now - KEEP).toEpochMilliseconds())
         if (message.receivedAt.instant < now - KEEP) return // an old SMS read by the import: past keeping already
+        val credit = app.vyaya.core.parser.Extractors.direction(message.text)?.direction == app.vyaya.core.parser.Direction.CREDIT
         db.ignored().add(IgnoredRow(DetectedInbox.idOf(message), masked(message.sender), amount.paise, reason.name,
-            message.receivedAt.instant.toEpochMilliseconds(), OPEN))
+            message.receivedAt.instant.toEpochMilliseconds(), OPEN, credit))
     }
 
     /** What's waiting for an answer, newest first; anything older than [KEEP] is removed from the phone first. */
@@ -29,9 +32,18 @@ class IgnoredStore(private val db: VyayaDatabase) {
         db.ignored().purge((now - KEEP).toEpochMilliseconds())
         return db.ignored().open().mapNotNull { r ->
             val reason = IgnoreReason.entries.firstOrNull { it.name == r.reason } ?: return@mapNotNull null
-            IgnoredItem(r.id, r.sender, Money(r.amountPaise), reason, Instant.fromEpochMilliseconds(r.receivedAtMs))
+            IgnoredItem(r.id, r.sender, Money(r.amountPaise), reason, Instant.fromEpochMilliseconds(r.receivedAtMs), r.credit)
         }
     }
+
+    /**
+     * Report DATA-002: an entry already logged for [item]'s payment (the bank's retry went through, and was captured):
+     * a live entry of the same amount within a day of the message, nearest first. Asked before adding it again.
+     */
+    suspend fun alreadyLogged(item: IgnoredItem): app.vyaya.core.model.Entry? =
+        EntryStore(db).inRange(item.receivedAt - 1.days, item.receivedAt + 1.days)
+            .filter { !it.deleted && it.amount == item.amount }
+            .minByOrNull { (it.occurredAt.instant - item.receivedAt).absoluteValue }
 
     /** The user says it was a payment (and adds it as an entry). */
     suspend fun wasPayment(id: String) = db.ignored().setStatus(id, "PAYMENT")

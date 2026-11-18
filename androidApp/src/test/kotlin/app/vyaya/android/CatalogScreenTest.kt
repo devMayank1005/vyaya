@@ -31,7 +31,6 @@ import app.vyaya.core.data.VyayaDatabase
 import app.vyaya.ui.Setup
 import app.vyaya.ui.VyayaRoot
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -46,12 +45,15 @@ import kotlin.time.Instant
 @Config(sdk = [35])
 class CatalogScreenTest {
 
-    @get:Rule val compose = createComposeRule()
     private val context: Context = ApplicationProvider.getApplicationContext()
     private val db: VyayaDatabase = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build()
+
+    // The database closes after the screen is gone (outer rule): a load still running after the last check is cancelled
+    // with the screen instead of reading a closed database.
+    @get:Rule(order = 0) val closeDb = object : org.junit.rules.ExternalResource() { override fun after() = db.close() }
+    @get:Rule(order = 1) val compose = createComposeRule()
     private val now = Instant.parse("2026-11-09T10:00:00Z")
 
-    @After fun close() { compose.waitForIdle(); db.close() }
 
     private fun waitFor(text: String) =
         compose.waitUntil(5_000) { compose.onAllNodes(hasText(text, substring = true), useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }

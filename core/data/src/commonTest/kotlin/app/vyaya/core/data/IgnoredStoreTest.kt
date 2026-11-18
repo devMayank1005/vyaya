@@ -75,4 +75,27 @@ class IgnoredStoreTest {
         assertEquals(0, db.ignored().all().size, "removed from the phone, not only hidden")
         db.close()
     }
+
+    @Test
+    fun ignored_flaw_004_whether_money_came_in_or_went_out_is_kept() = runTest {
+        val db = inMemoryDatabase()
+        CaptureStore(db).process(sms("+919876543210", "Rs 5,000 credited to your account. Click to claim"), t0)
+        CaptureStore(db).process(failed, t0)
+        val byAmount = IgnoredStore(db).items(t0).associate { it.amount to it.credit }
+        assertEquals(mapOf(Money(5_000_00) to true, Money(2_000_00) to false), byAmount)
+        db.close()
+    }
+
+    @Test
+    fun ignored_data_002_an_entry_already_logged_for_it_is_found() = runTest {
+        val db = inMemoryDatabase()
+        val capture = CaptureStore(db)
+        capture.process(failed, t0)
+        val item = IgnoredStore(db).items(t0).single()
+        assertEquals(null, IgnoredStore(db).alreadyLogged(item))
+        // The bank's retry went through a minute later and was captured.
+        capture.process(sms("VM-HDFCBK-S", "Rs.2,000.00 debited from A/c XX1234 to Swiggy. UPI Ref 429100000077", t0 + 1.minutes), t0)
+        assertEquals(Money(2_000_00), IgnoredStore(db).alreadyLogged(item)?.amount)
+        db.close()
+    }
 }

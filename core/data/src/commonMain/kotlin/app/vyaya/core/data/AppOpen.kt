@@ -57,6 +57,8 @@ class AppOpen(private val db: VyayaDatabase) {
                 Recurring.linkPaid(due, nearby, generated, now)
             }
             entries.save(made)
+            // Ignored-tab FLAW-006: summaries past keeping leave the phone even if nothing is captured for a while.
+            db.ignored().purge((now - IgnoredStore.KEEP).toEpochMilliseconds())
             OpenResult(seeded, repaired, made.count { it.generatedBy != null && !it.deleted })
         }
     }

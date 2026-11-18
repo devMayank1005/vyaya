@@ -70,9 +70,11 @@ fun AddEntryScreen(
     /** A new entry's amount and day, filled in (from the Ignored tab's "This was a payment"). */
     initialAmount: Money? = null,
     initialDate: LocalDate? = null,
+    /** Money in or out, for a new entry filled in from a message (Ignored tab FLAW-004). */
+    initialType: EntryType? = null,
 ) {
     var accountId by remember { mutableStateOf(existing?.accountId) }
-    var type by remember { mutableStateOf(if (existing?.type == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
+    var type by remember { mutableStateOf(if ((existing?.type ?: initialType) == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
     var amount by remember { mutableStateOf(existing?.amount?.let(::plainAmount) ?: initialAmount?.let(::plainAmount) ?: "") }
     var categoryId by remember { mutableStateOf(existing?.categoryId) }
     var payee by remember { mutableStateOf(existing?.payee ?: "") }

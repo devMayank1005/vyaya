@@ -16,6 +16,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -95,37 +97,66 @@ fun ignoredWhy(reason: app.vyaya.core.filters.IgnoreReason): String = when (reas
     app.vyaya.core.filters.IgnoreReason.NOT_A_TRANSACTION -> "Vyaya couldn't read a payment in it"
 }
 
+/** Promotions and codes: folded away in the Ignored tab (FLAW-003), and not counted in its title. */
+fun foldedAway(reason: app.vyaya.core.filters.IgnoreReason): Boolean =
+    reason == app.vyaya.core.filters.IgnoreReason.PROMOTIONAL || reason == app.vyaya.core.filters.IgnoreReason.OTP
+
 /**
  * The Ignored tab (Phase 3): messages with an amount that weren't logged, newest first, as a summary (the sender, the
- * amount, why, when). "This was a payment" adds it (the form opens with the amount and day); "Not a payment" puts it away.
+ * amount, why, when, in the home [zone]). Promotions and codes are folded away (FLAW-003). "This was a payment" adds
+ * it; from a phone number or an unverified app there's a warning instead (SEC-001). "Not a payment" puts it away.
  */
 @Composable
 fun IgnoredList(
     items: List<app.vyaya.core.data.IgnoredItem>,
     onWasPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
     onNotPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
+    zone: kotlinx.datetime.TimeZone,
     modifier: Modifier = Modifier,
 ) {
+    var showFolded by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    val (folded, main) = items.partition { foldedAway(it.reason) }
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Text("Messages with an amount that Vyaya didn't log. Only the sender, amount and reason are kept, for 30 days; never the message.",
                 Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (items.isEmpty()) item { Text("Nothing skipped in the last 30 days", Modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge) }
-        items(items, key = { it.id }) { item ->
-            androidx.compose.material3.Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    val from = app.vyaya.core.parser.UpiApps.default.apps.firstOrNull { it.packageName == item.sender }?.name ?: item.sender
-                    Text("${item.amount.format()} · $from", style = MaterialTheme.typography.titleMedium)
-                    Text(ignoredWhy(item.reason), style = MaterialTheme.typography.bodyMedium)
-                    val local = item.receivedAt.toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault())
-                    Text("${local.date} ${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        androidx.compose.material3.OutlinedButton({ onWasPayment(item) }) { Text("This was a payment") }
-                        androidx.compose.material3.TextButton({ onNotPayment(item) }) { Text("Not a payment") }
-                    }
-                }
+        if (main.isEmpty()) item { Text("Nothing skipped in the last 30 days", Modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge) }
+        items(main, key = { it.id }) { IgnoredCard(it, onWasPayment, onNotPayment, zone) }
+        if (folded.isNotEmpty()) item(key = "folded") {
+            TextButton({ showFolded = !showFolded }, Modifier.padding(horizontal = 8.dp)) {
+                Text(if (showFolded) "Hide promotions and codes" else "Show promotions and codes (${folded.size})")
+            }
+        }
+        if (showFolded) items(folded, key = { it.id }) { IgnoredCard(it, onWasPayment, onNotPayment, zone) }
+    }
+}
+
+@Composable
+private fun IgnoredCard(
+    item: app.vyaya.core.data.IgnoredItem,
+    onWasPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
+    onNotPayment: (app.vyaya.core.data.IgnoredItem) -> Unit,
+    zone: kotlinx.datetime.TimeZone,
+) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val from = app.vyaya.core.parser.UpiApps.default.apps.firstOrNull { it.packageName == item.sender }?.name ?: item.sender
+            Text("${item.amount.format()} · $from", style = MaterialTheme.typography.titleMedium)
+            Text(ignoredWhy(item.reason), style = MaterialTheme.typography.bodyMedium)
+            val local = item.receivedAt.toLocalDateTime(zone)
+            Text("${local.date} ${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val risky = item.reason == app.vyaya.core.filters.IgnoreReason.PERSONAL_NUMBER || item.reason == app.vyaya.core.filters.IgnoreReason.UNTRUSTED_APP
+            if (risky) {
+                // SEC-001: a scam's amount isn't one tap from the user's books.
+                Text("Banks never send from phone numbers, and this app couldn't be verified as the real one: don't add it unless " +
+                    "you're sure. You can still add a payment by hand from Home.", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!risky) OutlinedButton({ onWasPayment(item) }) { Text("This was a payment") }
+                TextButton({ onNotPayment(item) }) { Text("Not a payment") }
             }
         }
     }

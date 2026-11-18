@@ -69,3 +69,20 @@
 - **#2:** check for an existing entry of the same amount within a day before adding (recommended)?
 - **#3:** promotions and codes folded away behind a count (recommended)?
 - **#4, #5, #6:** keep the direction, use the home zone, clean up on app open (recommended)?
+
+## Resolution (2026-11-18)
+
+Your decision: go with the recommendations (#1–#6). Each fix began with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 SEC-001 | ✅ Fixed | From a phone number or an unverified app: no "This was a payment", a warning instead ("Banks never send from phone numbers… You can still add a payment by hand from Home"). "Not a payment" stays |
+| 2 DATA-002 | ✅ Fixed | Before adding, `IgnoredStore.alreadyLogged` looks for a live entry of the same amount within a day. If there is one: "This looks already logged: ₹2,000 on … to Swiggy", with Open it (the message is answered, the entry opens) / Add anyway / Cancel |
+| 3 FLAW-003 | ✅ Fixed | Promotions and codes are behind "Show promotions and codes (N)", and the tab's count leaves them out |
+| 4 FLAW-004 | ✅ Fixed | The summary keeps whether money came in (the message's first direction word); "This was a payment" then starts as Income |
+| 5 FLAW-005 | ✅ Fixed | Times are shown in the home time zone (the test uses a home zone other than the phone's) |
+| 6 FLAW-006 | ✅ Fixed | App open also removes summaries older than 30 days |
+
+The capture simulation is unchanged (0 doubled, 0 noise accepted). While fixing, four UI tests that raced the app's own
+loading under full-gate load now wait for it. Two older test classes now close their database after the screen is
+disposed, not before.

@@ -250,6 +250,8 @@ data class IgnoredRow(
     val receivedAtMs: Long,
     /** OPEN, PAYMENT (the user said it was one, and added it) or NOT_PAYMENT. */
     val status: String,
+    /** Money came in (the message's first direction word was a credit), so adding it starts as income (FLAW-004). */
+    val credit: Boolean = false,
 )
 
 @Dao
