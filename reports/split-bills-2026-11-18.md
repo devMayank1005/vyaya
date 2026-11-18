@@ -15,7 +15,7 @@ spending, and a repayment isn't income.
 - Split-bill simulation `-Psim.engine.users=2000`.
 - The full local gate is green.
 
-**Status:** reported only. **Nothing fixed.**
+**Status:** all five fixed on 2026-11-18. See the Resolution at the end.
 
 ## Simulation
 
@@ -84,3 +84,31 @@ spending, and a repayment isn't income.
 - **#3:** edit a split payment's parts and shares, after #1 (recommended)?
 - **#4:** safe to spend subtracts money lent this month and not yet repaid (recommended)?
 - **#5:** fill a new friend's share from what's left (recommended)?
+
+## Resolution (2026-11-18)
+
+Your decision: go with the recommendations (#1–#5). Each fix began with a failing test.
+
+| # | Status | Fix |
+|---|---|---|
+| 1 DATA-001 | ✅ Fixed | **Backup v4.** A ledger entry has an optional `paymentId`. Split shares are linked to their payment. v2 and v3 files restore with no link, and a v3 file carrying the field is refused as edited. A link to an unknown payment is refused. Golden v4 file, round-trip property test, v3 → v4 migration test (rule 8.7). Deleting a split payment asks "Also take back what Priya and Rahul owe (₹800)?" (names in alphabetical order; Take it back / Keep in People). Delete reads the shares itself, so a tap before the form has loaded them still asks. Both are one transaction (`SplitStore.delete`) |
+| 2 DATA-002 | ✅ Fixed | Capture asks in Detected "Rahul paid you back ₹400?" when money comes in from a person who owes at least that. The name must agree word for word as far as the shorter goes ("Rahul" and "Rahul Sharma"); two equally good matches mean nobody is asked. Yes adds a pay-back in People and removes the income (soft delete, so an SMS import won't bring it back). No keeps it as income. A question about someone who no longer owes that much just closes |
+| 3 FLAW-003 | ✅ Fixed | A split payment opens with its parts and friends' shares filled in. Save replaces the shares (the old ones are taken back), never adding to them. Removing every part and friend makes it a plain payment again. Save waits until the shares are read |
+| 4 FLAW-004 | ✅ Fixed | Safe to spend subtracts `openLent`: for each friend, this month's lending, at most what they owe now. Home says "after ₹800 your friends owe you". A friend's share of a bill paid today counts in today's amount like your own share, so the day's amount doesn't jump |
+| 5 FLAW-005 | ✅ Fixed | A friend added after a share was typed gets an equal part of what's left (shared with you). Typed shares stay |
+
+Simulation after the fixes (`-Psim.engine.users=2000`; reference: an independent model of what each friend owes):
+
+| Check | Result |
+|---|---|
+| Edits 8,357; deletes 3,984 (shares taken back 1,968); money-in messages 14,809 (asked 9,718: yes 7,239, no 2,479) | — |
+| Asked when it shouldn't be / not asked when it should | 0 / 0 |
+| What each person owes, against the model | 0 off |
+| Income, against the model (pay-backs out, "no" kept) | 0 off |
+| Links lost in a backup round trip; backups refused | 0; 0 |
+| Open lending this month > what's owed | 0 |
+| First simulation again (44,274 splits) | all 0. A payment saved with no parts and no friends is now a plain entry, so the parts check skips it |
+
+Found while fixing (also fixed): safe to spend added back today's spending at the full payment amount rather than your
+share. The split store refused to un-split a payment corrected to income.
+

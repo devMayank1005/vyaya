@@ -77,6 +77,8 @@ fun AddEntryScreen(
     people: List<app.vyaya.core.model.Person> = emptyList(),
     onAddPerson: suspend (String) -> app.vyaya.core.model.Person? = { null },
     onSaveSplit: suspend (EntryInput) -> String? = { "Splitting isn't available here" },
+    /** Split-bills #3: the friends' shares of [existing] (empty when none), filled in to change; null while being read. */
+    shares: List<Pair<app.vyaya.core.model.EntityId, Money>>? = emptyList(),
 ) {
     var accountId by remember { mutableStateOf(existing?.accountId) }
     var type by remember { mutableStateOf(if ((existing?.type ?: initialType) == EntryType.INCOME) EntryType.INCOME else EntryType.EXPENSE) }
@@ -105,23 +107,46 @@ fun AddEntryScreen(
     val selfOpen = existing != null && existing.categoryId == null && !existing.deleted && existing.type == type && existing.payee?.let(keyOf) == key
     val others = ((counts?.uncategorised ?: 0) - if (selfOpen) 1 else 0).coerceAtLeast(0)
     // Split bills (option A): across the user's categories, and/or with friends (their shares go to People).
-    val canSplit = type == EntryType.EXPENSE && existing?.splits.isNullOrEmpty() && existing?.generatedBy == null
-    var acrossCategories by remember { mutableStateOf(false) }
+    // Split-bills #3: a split payment can be changed (its parts and shares are filled in; Save replaces them).
+    val canSplit = type == EntryType.EXPENSE && existing?.generatedBy == null
+    val wasSplit = !existing?.splits.isNullOrEmpty()
+    val ownParts = existing?.splits.orEmpty().filter { it.categoryId != app.vyaya.core.model.SystemCategories.LENT.id }
+    var acrossCategories by remember { mutableStateOf(ownParts.size > 1) }
     var withFriends by remember { mutableStateOf(false) }
-    val parts = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.EntityId>() }
-    val partText = remember { androidx.compose.runtime.mutableStateMapOf<app.vyaya.core.model.EntityId, String>() }
+    val parts = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.EntityId>().apply { if (ownParts.size > 1) addAll(ownParts.map { it.categoryId }) } }
+    val partText = remember {
+        androidx.compose.runtime.mutableStateMapOf<app.vyaya.core.model.EntityId, String>().apply {
+            if (ownParts.size > 1) ownParts.forEach { put(it.categoryId, plainAmount(it.amount)) }
+        }
+    }
     val friends = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.EntityId>() }
     val shareText = remember { androidx.compose.runtime.mutableStateMapOf<app.vyaya.core.model.EntityId, String>() }
     val added = remember { androidx.compose.runtime.mutableStateListOf<app.vyaya.core.model.Person>() }
     var sharesEdited by remember { mutableStateOf(false) }
+    var sharesFilled by remember { mutableStateOf(false) }
+    LaunchedEffect(shares) {
+        if (!sharesFilled && !shares.isNullOrEmpty()) {
+            sharesFilled = true; withFriends = true; sharesEdited = true // what was saved stays as it was, until changed
+            shares.forEach { (id, share) -> if (id !in friends) friends += id; shareText[id] = plainAmount(share) }
+        }
+    }
     var newPerson by remember { mutableStateOf("") }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val total = Money.parse(amount.trim())
     // Equal shares, until the user types one: any odd paise stay with the user.
     LaunchedEffect(amount, friends.toList()) {
-        if (!sharesEdited && total != null && total.paise > 0 && friends.isNotEmpty()) {
+        if (total == null || total.paise <= 0 || friends.isEmpty()) return@LaunchedEffect
+        if (!sharesEdited) {
             val equal = app.vyaya.core.engine.SplitShares.equal(total, friends.size)
             friends.forEachIndexed { i, id -> shareText[id] = plainAmount(equal.friends[i]) }
+        } else {
+            // Split-bills #5: a friend added after a share was typed gets an equal part of what's left (with you); typed ones stay.
+            val empty = friends.filter { shareText[it].isNullOrBlank() }
+            val left = total.paise - friends.filter { it !in empty }.sumOf { Money.parse(shareText[it].orEmpty().trim())?.paise ?: 0L }
+            if (empty.isNotEmpty() && left > 0) {
+                val equal = app.vyaya.core.engine.SplitShares.equal(Money(left), empty.size)
+                empty.forEachIndexed { i, id -> shareText[id] = plainAmount(equal.friends[i]) }
+            }
         }
     }
     val friendsTotal = friends.sumOf { Money.parse(shareText[it].orEmpty().trim())?.paise ?: 0L }
@@ -137,7 +162,9 @@ fun AddEntryScreen(
                 val problem = input.problem(existing, TimeZone.currentSystemDefault())
                 when {
                     problem != null -> error = problem
-                    input.isSplit -> scope.launchSafely({ error = ACTION_FAILED }) { error = onSaveSplit(input) }
+                    wasSplit && shares == null -> error = "One moment: still reading who shared it"
+                    // A split payment saved without its parts and friends isn't split any more: the split store takes the shares back.
+                    input.isSplit || wasSplit -> scope.launchSafely({ error = ACTION_FAILED }) { error = onSaveSplit(input) }
                     else -> error = if (onSave(input)) null else "This entry can't be saved"
                 }
             }) { Text("Save") }
@@ -156,12 +183,6 @@ fun AddEntryScreen(
             isError = error != null, supportingText = error?.let { { Text(it) } })
         val kind = if (type == EntryType.INCOME) CategoryKind.INCOME else CategoryKind.EXPENSE
         val shown = categories.filter { it.kind == kind && (!it.deleted || it.id == existing?.categoryId) }
-        if (!existing?.splits.isNullOrEmpty()) {
-            // A split entry keeps its parts; changing them means deleting it and adding it again.
-            val names = categories.associate { it.id to it.name } + (app.vyaya.core.model.SystemCategories.LENT.id to "Friends' shares")
-            Text("Split: " + existing!!.splits.joinToString(" + ") { "${names[it.categoryId].orEmpty()} ${it.amount.format()}" },
-                style = MaterialTheme.typography.bodyMedium)
-        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             // Catalog report #6: an entry's own deleted category stays visible, so what's saved is what's shown.
             shown.forEach { c ->

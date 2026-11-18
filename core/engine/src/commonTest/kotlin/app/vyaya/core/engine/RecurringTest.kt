@@ -220,4 +220,16 @@ class RecurringTest {
         assertEquals(1, Recurring.linkPaidOrAsk(made, listOf(food.copy(categoryId = RENT)), emptyList(), now).save.count { it.deleted })
         assertEquals(made, Recurring.linkPaidOrAsk(made, emptyList(), emptyList(), now).save, "nothing nearby: made as usual")
     }
+
+    @Test
+    fun linking_keeps_what_the_payment_already_has_and_passes_other_entries_through() {
+        val rent = rule(day = 20, startsOn = LocalDate(2026, 10, 20))
+        val made = catchUp(listOf(rent), emptyList(), LocalDate(2026, 10, 20))
+        val account = EntityId.random()
+        val upi = paid(11_000, "2026-10-18T06:00:00Z").copy(accountId = account, note = "October rent")
+        val payment = Recurring.linkPaidOrAsk(made, listOf(upi), emptyList(), now).save.single { it.id == upi.id }
+        assertEquals(account to "October rent", payment.accountId to payment.note, "its own account and note stay")
+        val typed = paid(500, "2026-10-18T06:00:00Z", source = EntrySource.MANUAL)
+        assertEquals(listOf(typed), Recurring.linkPaidOrAsk(listOf(typed), listOf(upi), emptyList(), now).save, "not a rule's entry: as it is")
+    }
 }

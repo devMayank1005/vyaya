@@ -35,6 +35,8 @@ fun VyayaScreen(
     onNotPayment: (app.vyaya.core.data.IgnoredItem) -> Unit = {},
     /** The home time zone, for the times shown (FLAW-005). */
     homeZone: kotlinx.datetime.TimeZone = kotlinx.datetime.TimeZone.currentSystemDefault(),
+    /** Something in People changed here (a pay-back answered). */
+    onLedgerChanged: () -> Unit = {},
 ) {
     val items = remember(inbox) { inbox.changes() }.collectAsState(emptyList()).value
     val skipped by androidx.compose.runtime.produceState(emptyList<app.vyaya.core.data.IgnoredItem>(), ignoredVersion, items) { value = ignored() }
@@ -57,6 +59,8 @@ fun VyayaScreen(
                 onDismiss = { id -> scope.launchSafely { inbox.dismiss(id) } },
                 onYesBill = { id -> scope.launchSafely { inbox.confirmBill(id, clock()) } },
                 onNoBill = { id -> scope.launchSafely { inbox.denyBill(id, clock()) } },
+                onYesRepay = { id -> scope.launchSafely { inbox.confirmRepayment(id, clock()); onLedgerChanged() } },
+                onNoRepay = { id -> scope.launchSafely { inbox.denyRepayment(id) } },
             )
         }
     }

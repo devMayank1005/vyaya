@@ -1,6 +1,10 @@
 package app.vyaya.core.engine
 
+import app.vyaya.core.model.BudgetMonth
 import app.vyaya.core.model.EntityId
+import app.vyaya.core.model.LedgerDirection
+import app.vyaya.core.model.LedgerEntry
+import app.vyaya.core.model.SystemCategories
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Generation
@@ -24,6 +28,8 @@ import kotlinx.datetime.yearMonth
  * - [perDay]: set at the start of today (FLAW-003): today's own spending doesn't lower today's amount; rounded down to
  *   whole rupees, never below zero. [leftToday] is what's left of it after today's spending (below zero: over).
  * - [shortBy]: how much the bills still due are more than what's left and expected (zero when they fit).
+ * - [lent]: money lent this month that friends haven't paid back yet (split-bills report #4): it left the account, so it
+ *   isn't safe to spend until it comes back. A friend's share of a bill paid today counts as today's, like your own.
  */
 data class SafeToSpend(
     val left: Money,
@@ -33,6 +39,7 @@ data class SafeToSpend(
     val shortBy: Money,
     val expectedIncome: Money = Money(0),
     val leftToday: Money = perDay,
+    val lent: Money = Money(0),
 ) {
 
     companion object {
@@ -43,6 +50,8 @@ data class SafeToSpend(
             payments: List<Entry> = emptyList(),
             /** Payments that already stand for a rule's month. */
             taken: Set<EntityId> = emptySet(),
+            /** [openLent] for this month. */
+            lent: Money = Money(0),
         ): SafeToSpend? {
             val month = summary.month
             if (today < month.start || today >= month.endExclusive) return null
@@ -65,14 +74,30 @@ data class SafeToSpend(
             }
             // Today's own spending, except bills (a rule's entry, or a payment standing for one): added back, so the
             // amount for today is the one it had when the day began.
-            val spentToday = payments.filter {
+            // Your share only (a split's friends' shares aren't in [summary]'s spending); their shares paid today are below.
+            val todays = payments.filter {
                 !it.deleted && it.countsAsSpending && it.generatedBy == null && it.id !in used && it.occurredAt.localDate == today
-            }.sumOf { it.amount.paise }
+            }
+            val lentToday = minOf(lent.paise, todays.sumOf { e -> e.splits.filter { it.categoryId == SystemCategories.LENT.id }.sumOf { it.amount.paise } })
+            val spentToday = todays.sumOf { it.ownShare.paise } + lentToday
             val daysLeft = today.daysUntil(month.endExclusive)
-            val room = summary.left.paise + expected - bills
+            val room = summary.left.paise + expected - bills - lent.paise
             val roomAtDayStart = room + spentToday
             val perDay = if (roomAtDayStart <= 0) 0L else roomAtDayStart / daysLeft / 100 * 100
-            return SafeToSpend(summary.left, Money(bills), daysLeft, Money(perDay), Money(maxOf(0L, -room)), Money(expected), Money(perDay - spentToday))
+            return SafeToSpend(summary.left, Money(bills), daysLeft, Money(perDay), Money(maxOf(0L, -room)), Money(expected),
+                Money(perDay - spentToday), lent)
+        }
+
+        /**
+         * What friends still owe of what you lent them in [month] (a split bill's shares, or money given): for each person,
+         * this month's lending, at most what they owe now. Older lending came out of an earlier month's money.
+         */
+        fun openLent(ledger: List<LedgerEntry>, month: BudgetMonth): Money {
+            val balances = Balances.of(ledger)
+            val thisMonth = ledger.filter {
+                !it.deleted && !it.settled && it.direction == LedgerDirection.LENT && it.date >= month.start && it.date < month.endExclusive
+            }.groupBy { it.personId }
+            return Money(thisMonth.entries.sumOf { (person, lent) -> minOf(lent.sumOf { it.amount.paise }, maxOf(0L, balances.of(person).paise)) })
         }
     }
 }

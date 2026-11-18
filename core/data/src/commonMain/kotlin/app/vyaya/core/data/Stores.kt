@@ -7,6 +7,7 @@ import app.vyaya.core.dedup.Outcome
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.MessageParser
 import app.vyaya.core.parser.MessageSplitter
 import app.vyaya.core.parser.ParseResult
@@ -129,6 +130,8 @@ class CaptureStore(
                         else -> {}
                     }
                     inbox.record(part, outcome)
+                    // Split-bills report #2: money in from a friend who owes you is asked about ("Rahul paid you back?").
+                    if (outcome is Outcome.Added && outcome.entry.type == EntryType.INCOME) inbox.askRepayment(outcome.entry)
                     // The Ignored tab: a skipped message that shows an amount, as a summary (never its text).
                     if (outcome is Outcome.Ignored) {
                         app.vyaya.core.parser.Extractors.amount(part.text)?.let { ignored.record(part, outcome.reason, it, now) }

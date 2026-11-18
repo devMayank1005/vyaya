@@ -95,7 +95,7 @@ object BackupCodec {
     const val FORMAT = "vyaya-backup"
 
     /** The schema this app writes. It reads every earlier one (v1 and v2 are migrated when read). */
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
     internal const val V1 = 1
     const val MAX_PROBLEMS = 20
 
@@ -142,6 +142,14 @@ object BackupCodec {
         read(text.lineSequence(), now, limits, restoreAnyway)
 
     /** Writes the old v2 format. Kept only to produce migration test fixtures. */
+    /** Writes the old v3 format. Kept only to produce migration test fixtures; the app always writes v4. */
+    internal fun encodeV3(snapshot: Snapshot, meta: ExportMeta): String {
+        val out = StringBuilder()
+        val result = BackupLines.write(toContent(snapshot, meta), 3, BackupLimits()) { out.append(it).append('\n') }
+        check(result is EncodeResult.Success) { (result as EncodeResult.Failure).reason }
+        return out.toString()
+    }
+
     internal fun encodeV2(snapshot: Snapshot, meta: ExportMeta): String {
         val out = StringBuilder()
         val result = BackupLines.write(toContent(snapshot, meta), 2, BackupLimits()) { out.append(it).append('\n') }
@@ -188,8 +196,8 @@ object BackupCodec {
             },
             people = s.people.map { PersonV1(it.id.value, it.name, it.updatedAt.toString(), it.deleted) },
             ledger = s.ledger.map { l ->
-                LedgerV1(l.id.value, l.personId.value, l.direction.name, l.amount.paise, l.date.toString(), l.note, l.settled,
-                    l.updatedAt.toString(), l.deleted)
+                LedgerV4(l.id.value, l.personId.value, l.direction.name, l.amount.paise, l.date.toString(), l.note, l.settled,
+                    l.updatedAt.toString(), l.deleted, l.paymentId?.value)
             },
             budgets = s.budgets.map { BudgetV1(it.id.value, it.categoryId.value, it.limit.paise, it.updatedAt.toString(), it.deleted) },
             merchantRules = s.merchantRules.map { MerchantRuleV1(it.id.value, it.payee, it.categoryId.value, it.updatedAt.toString(), it.deleted) },
@@ -370,12 +378,13 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
     }
 
-    fun ledger(l: LedgerV1) {
+    fun ledger(l: LedgerV4) {
         val id = id(l.id, "ledger entry") ?: return
         record("ledger entry $id") {
             LedgerEntry(
                 id, ref(l.personId, "person")!!, enum<LedgerDirection>(l.direction, "direction"), Money(l.amountPaise),
                 date(l.date, "date")!!, l.note, l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+                l.paymentId?.let { ref(it, "payment") },
             )
         }?.also { notAfterExport("ledger entry", id, it.updatedAt) }?.let(ledger::add)
     }

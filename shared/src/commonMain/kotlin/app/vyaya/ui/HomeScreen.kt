@@ -164,7 +164,9 @@ private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: android
             safe.perDay.paise > 0 -> {
                 Text("Safe to spend ${safe.perDay.format()} a day", style = MaterialTheme.typography.titleMedium, color = onCard)
                 val days = if (safe.daysLeft == 1) "today" else "for ${safe.daysLeft} days"
-                val bills = if (safe.billsDue.paise > 0) ", after ${safe.billsDue.format()} of bills still due" else ""
+                val owed = if (safe.lent.paise > 0) "${safe.lent.format()} your friends owe you" else null
+                val due = if (safe.billsDue.paise > 0) "${safe.billsDue.format()} of bills still due" else null
+                val bills = listOfNotNull(due, owed).takeIf { it.isNotEmpty() }?.let { ", after " + it.joinToString(" and ") } ?: ""
                 val income = when {
                     expected == null -> ""
                     bills.isNotEmpty() -> " and $expected of income expected"

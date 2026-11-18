@@ -120,7 +120,10 @@ internal object Consistency {
         s.recurring.forEach { r ->
             check("recurring rule ${r.id}", r.categoryId, categoryIds, "category"); check("recurring rule ${r.id}", r.accountId, accountIds, "account")
         }
-        s.ledger.forEach { check("ledger entry ${it.id}", it.personId, personIds, "person") }
+        s.ledger.forEach {
+            check("ledger entry ${it.id}", it.personId, personIds, "person")
+            check("ledger entry ${it.id}", it.paymentId, entryIds, "payment")
+        }
         s.budgets.forEach { check("budget ${it.id}", it.categoryId, categoryIds, "category") }
         s.merchantRules.forEach { check("merchant rule ${it.id}", it.categoryId, categoryIds, "category") }
 

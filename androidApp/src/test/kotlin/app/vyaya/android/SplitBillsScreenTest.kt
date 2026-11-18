@@ -91,4 +91,76 @@ class SplitBillsScreenTest {
             runBlocking { EntryStore(db).all() }.single().splits)
         waitFor("Out ₹2,000"); compose.waitForIdle()
     }
+
+    /** A ₹1,200 dinner, ₹400 each with Rahul and Priya, saved before the app opens. */
+    private fun dinnerSplit(): app.vyaya.core.model.Entry = runBlocking {
+        AppOpen(db).run(now)
+        val ledger = LedgerStore(db)
+        val rahul = ledger.addPerson("Rahul", now); val priya = ledger.addPerson("Priya", now)
+        val dinner = app.vyaya.core.model.Entry(app.vyaya.core.model.EntityId.random(), app.vyaya.core.model.EntryType.EXPENSE, Money(1_200_00),
+            app.vyaya.core.model.CapturedAt(now, kotlinx.datetime.TimeZone.of("Asia/Kolkata")), null, null, category("Food & dining").id,
+            "Barbeque Nation", "", emptyList(), app.vyaya.core.model.EntrySource.MANUAL, null, emptyList(), null, now, now, false)
+        (app.vyaya.core.data.SplitStore(db).save(dinner, emptyList(), listOf(rahul.id to Money(400_00), priya.id to Money(400_00)), now)
+            as app.vyaya.core.data.CatalogResult.Saved).item
+    }
+
+    private fun openDinner() {
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        waitFor("Barbeque Nation")
+        compose.onNodeWithText("Barbeque Nation", useUnmergedTree = true).performClick()
+        waitFor("Rahul's share")
+    }
+
+    @Test
+    fun split_flaw_003_edit_who_shared_a_dinner() {
+        val dinner = dinnerSplit()
+        openDinner()
+        compose.onNodeWithText("Rahul's share").assertExists()
+        compose.onNodeWithText("Priya", useUnmergedTree = true).performScrollTo().performClick() // Priya didn't come
+        waitFor("Your share: ₹800")
+        compose.onNodeWithText("Save").performScrollTo().performClick()
+        compose.waitUntil(10_000) { runBlocking { LedgerStore(db).balances() }.owedToYou == Money(400_00) }
+        assertEquals(listOf(Split(category("Food & dining").id, Money(800_00)), Split(SystemCategories.LENT.id, Money(400_00))),
+            runBlocking { EntryStore(db).byId(dinner.id) }!!.splits)
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun split_data_001_deleting_a_split_dinner_asks_about_what_friends_owe() {
+        val dinner = dinnerSplit()
+        openDinner()
+        compose.onNodeWithText("Delete").performScrollTo().performClick()
+        waitFor("Also take back what Priya and Rahul owe (₹800)?") // names in alphabetical order, whatever order they're stored in
+        compose.onNodeWithText("Take it back").performClick()
+        compose.waitUntil(10_000) { runBlocking { EntryStore(db).byId(dinner.id) }!!.deleted }
+        assertEquals(0L, runBlocking { LedgerStore(db).balances() }.owedToYou.paise)
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun split_flaw_005_a_friend_added_after_an_edited_share_gets_a_share_of_whats_left() {
+        addEntry("1200")
+        compose.onNodeWithText("Food & dining").performScrollTo().performClick()
+        compose.onNodeWithText("Split with friends").performScrollTo().performClick()
+        compose.onNodeWithText("New person's name").performScrollTo().performTextInput("Rahul")
+        compose.onNodeWithText("Add person").performScrollTo().performClick()
+        waitFor("Rahul's share")
+        compose.onNodeWithText("600").performScrollTo().performTextReplacement("500")
+        compose.onNodeWithText("New person's name").performScrollTo().performTextInput("Priya")
+        compose.onNodeWithText("Add person").performScrollTo().performClick()
+        waitFor("Priya's share")
+        waitFor("Your share: ₹350") // ₹700 left: half to Priya, half to you; Rahul's ₹500 kept
+        compose.onNodeWithText("350").assertExists()
+        compose.onNodeWithText("500").assertExists()
+    }
+
+    @Test
+    fun split_flaw_004_home_says_safe_to_spend_is_after_what_friends_owe() {
+        dinnerSplit()
+        runBlocking { app.vyaya.core.data.EntryStore(db).save(listOf(app.vyaya.core.model.Entry(app.vyaya.core.model.EntityId.random(),
+            app.vyaya.core.model.EntryType.INCOME, Money(50_000_00), app.vyaya.core.model.CapturedAt(now, kotlinx.datetime.TimeZone.of("Asia/Kolkata")),
+            null, null, null, "Salary", "", emptyList(), app.vyaya.core.model.EntrySource.MANUAL, null, emptyList(), null, now, now, false))) }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        waitFor("after ₹800 your friends owe you")
+    }
 }

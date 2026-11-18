@@ -74,6 +74,13 @@ class SnapshotStore(private val db: VyayaDatabase) {
         return RecordLines.snapshotOf(only) ?: error("the database holds a record that is not valid")
     }
 
+    /** People and the ledger, for a caller already inside a transaction (capture asking about a pay-back). */
+    internal suspend fun peopleInTransaction(): Snapshot {
+        suspend fun lines(kind: String) = db.records().ofKind(kind).map { it.line }
+        val only = RecordLines.of(Snapshot.empty()).copy(people = lines("person"), ledger = lines("ledger"))
+        return RecordLines.snapshotOf(only) ?: error("the database holds a record that is not valid")
+    }
+
     internal companion object {
         /** Rows for [s]'s records other than settings and entries. */
         fun recordRows(s: Snapshot): List<RecordRow> = rowsFor(s.normalized()).filter { it.kind != SETTINGS }

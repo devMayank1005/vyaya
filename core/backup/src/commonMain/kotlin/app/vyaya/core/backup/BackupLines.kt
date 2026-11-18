@@ -17,7 +17,7 @@ import kotlin.time.Instant
  * Line-based backup files: schema versions 2 and 3 (plan.md Part D). Each version is FROZEN; v3 differs from v2
  * only in the entry lines (see BackupV3.kt). The app writes v3 and reads both.
  *
- *   {"t":"header", format, schemaVersion: 2, appVersion, createdOn, exportedAt, currency, settings, counts}
+ *   {"t":"header", format, schemaVersion: 4, appVersion, createdOn, exportedAt, currency, settings, counts}
  *   {"t":"account", ...}   one compact JSON object per record, the v1 record fields, ordered by type then id
  *   ...
  *   {"t":"end","records":N,"sha256":"<hex>"}   SHA-256 of every line before it, each followed by "\n"
@@ -99,9 +99,9 @@ internal object BackupLines {
 
     // ---------------------------------------------------------------------------------------------- write
 
-    /** Writes [file] as schema [version] (3; 2 only for test fixtures). */
+    /** Writes [file] as schema [version] (4; 2 and 3 only for test fixtures). */
     fun write(file: BackupContent, version: Int, limits: BackupLimits, sink: (String) -> Unit): EncodeResult {
-        require(version == 2 || version == BackupCodec.SCHEMA_VERSION) { "can't write schema $version" }
+        require(version in 2..BackupCodec.SCHEMA_VERSION) { "can't write schema $version" }
         val total = file.recordCount
         if (total > limits.maxRecords) return EncodeResult.Failure("Too many records to back up: $total (limit ${limits.maxRecords})")
         limits.tooManyToWrite(file.counts())?.let { return it }
@@ -144,7 +144,11 @@ internal object BackupLines {
             failure?.let { return it }
         }
         file.people.forEach { emit("person", s(PersonV1.serializer()), it, "Person ${it.id}")?.let { f -> return f } }
-        file.ledger.forEach { emit("ledger", s(LedgerV1.serializer()), it, "Ledger entry ${it.id}")?.let { f -> return f } }
+        file.ledger.forEach { l ->
+            val failure = if (version < 4) emit("ledger", s(LedgerV1.serializer()), l.toV1(), "Ledger entry ${l.id}")
+            else emit("ledger", s(LedgerV4.serializer()), l, "Ledger entry ${l.id}")
+            failure?.let { return it }
+        }
         file.budgets.forEach { emit("budget", s(BudgetV1.serializer()), it, "Budget ${it.id}")?.let { f -> return f } }
         file.merchantRules.forEach { emit("merchantRule", s(MerchantRuleV1.serializer()), it, "Merchant rule ${it.id}")?.let { f -> return f } }
 

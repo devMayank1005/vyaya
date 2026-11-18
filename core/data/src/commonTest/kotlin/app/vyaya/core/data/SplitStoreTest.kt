@@ -82,4 +82,56 @@ class SplitStoreTest {
         assertEquals(0, LedgerStore(db).balances().owedToYou.paise)
         db.close()
     }
+
+    private suspend fun dinnerWithRahulAndPriya(db: VyayaDatabase): Triple<Entry, app.vyaya.core.model.Person, app.vyaya.core.model.Person> {
+        val food = saved(CatalogStore(db).addCategory("Food", CategoryKind.EXPENSE, t))
+        val ledger = LedgerStore(db)
+        val rahul = ledger.addPerson("Rahul", t); val priya = ledger.addPerson("Priya", t)
+        val dinner = saved(SplitStore(db).save(payment(1_200, "Barbeque Nation", food.id), emptyList(),
+            listOf(rahul.id to Money(400_00), priya.id to Money(400_00)), t))
+        return Triple(dinner, rahul, priya)
+    }
+
+    @Test
+    fun split_data_001_each_share_is_linked_to_its_payment() = runTest {
+        val db = inMemoryDatabase()
+        val (dinner, rahul, priya) = dinnerWithRahulAndPriya(db)
+        assertEquals(listOf(dinner.id, dinner.id), listOf(rahul, priya).map { LedgerStore(db).entries(it.id).single().paymentId })
+        assertEquals(Money(800_00), SplitStore(db).sharesOf(dinner).sumOf { it.amount.paise }.let(::Money))
+        db.close()
+    }
+
+    @Test
+    fun split_flaw_003_editing_a_split_replaces_its_shares_never_adds_to_them() = runTest {
+        val db = inMemoryDatabase()
+        val (dinner, rahul, _) = dinnerWithRahulAndPriya(db)
+        // Priya didn't come after all: Rahul and you, ₹600 each.
+        saved(SplitStore(db).save(dinner, emptyList(), listOf(rahul.id to Money(600_00)), t))
+        assertEquals(Money(600_00), LedgerStore(db).balances().owedToYou)
+        assertEquals(listOf(Split(dinner.categoryId!!, Money(600_00)), Split(SystemCategories.LENT.id, Money(600_00))), EntryStore(db).byId(dinner.id)!!.splits)
+        // Not shared any more: the shares are taken back.
+        saved(SplitStore(db).save(dinner, emptyList(), emptyList(), t))
+        assertEquals(0L, LedgerStore(db).balances().owedToYou.paise)
+        assertEquals(emptyList(), EntryStore(db).byId(dinner.id)!!.splits)
+        // A split payment that was really money in (corrected to income): not split, so allowed.
+        val (other, _, _) = Triple(saved(SplitStore(db).save(payment(900, "Cafe", dinner.categoryId), emptyList(), listOf(rahul.id to Money(300_00)), t)), 0, 0)
+        assertEquals(EntryType.INCOME, saved(SplitStore(db).save(other.copy(type = EntryType.INCOME, splits = emptyList(), categoryId = null), emptyList(), emptyList(), t)).type)
+        assertEquals(0L, LedgerStore(db).balances().owedToYou.paise)
+        db.close()
+    }
+
+    @Test
+    fun split_data_001_deleting_a_split_payment_can_take_the_shares_back() = runTest {
+        val db = inMemoryDatabase()
+        val (dinner, rahul, priya) = dinnerWithRahulAndPriya(db)
+        SplitStore(db).delete(dinner, takeBackShares = false, now = t)
+        assertEquals(Money(800_00), LedgerStore(db).balances().owedToYou, "kept in People when the user says so")
+        val again = saved(SplitStore(db).save(payment(900, "Cafe", dinner.categoryId), emptyList(),
+            listOf(rahul.id to Money(300_00), priya.id to Money(300_00)), t))
+        assertEquals(Money(1_400_00), LedgerStore(db).balances().owedToYou)
+        SplitStore(db).delete(again, takeBackShares = true, now = t)
+        assertEquals(Money(800_00), LedgerStore(db).balances().owedToYou, "only the second dinner's shares are taken back")
+        assertEquals(true, EntryStore(db).byId(again.id)!!.deleted)
+        db.close()
+    }
 }

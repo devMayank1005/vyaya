@@ -220,6 +220,8 @@ data class LedgerEntry(
     val settled: Boolean,
     val updatedAt: Instant,
     val deleted: Boolean,
+    /** Split bills: the payment this share was part of (backup v4); deleting or changing it takes the share back. */
+    val paymentId: EntityId? = null,
 ) {
     init {
         requirePositive(amount, "Ledger amount")

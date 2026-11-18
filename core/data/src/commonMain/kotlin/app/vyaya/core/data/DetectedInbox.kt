@@ -8,6 +8,11 @@ import app.vyaya.core.dedup.Outcome
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.engine.Recurring
+import app.vyaya.core.engine.Balances
+import app.vyaya.core.engine.Repayments
+import app.vyaya.core.backup.Snapshot
+import app.vyaya.core.model.LedgerDirection
+import app.vyaya.core.model.LedgerEntry
 import app.vyaya.core.model.Sha256
 import app.vyaya.core.parser.RawMessage
 import kotlinx.coroutines.flow.Flow
@@ -21,7 +26,11 @@ import kotlin.time.Instant
  * payment in another category ("Is this your Rent?", branch review 2026-11-18 #3): [DetectedItem.entry] is the rule's
  * entry not yet made, [DetectedItem.possibleDuplicateOf] the payment.
  */
-enum class DetectedKind { ADDED, REVIEW, TRANSFER, BILL }
+/**
+ * REPAY: money in that could be a friend paying back what they owe (split-bills report #2): [DetectedItem.entry] is the
+ * income, [DetectedItem.possibleDuplicateOf] the person.
+ */
+enum class DetectedKind { ADDED, REVIEW, TRANSFER, BILL, REPAY }
 
 /** What confirming a review item did. */
 enum class ConfirmResult { ADDED, ALREADY_ADDED, NOT_OPEN }
@@ -97,6 +106,43 @@ class DetectedInbox(private val db: VyayaDatabase) {
     internal suspend fun askBill(draft: Entry, payment: Entry) {
         db.detected().add(DetectedRow("bill:${draft.id.value}", DetectedKind.BILL.name, "OPEN", RecordLines.entry(draft), null,
             payment.id.value, payment.occurredAt.instant.toEpochMilliseconds(), draft.id.value))
+    }
+
+    /** Called by capture, in its transaction, for income it added: asks once if a friend who owes that much sent it. */
+    internal suspend fun askRepayment(income: Entry) {
+        val records = SnapshotStore(db).peopleInTransaction()
+        val person = Repayments.from(income.payee, income.amount, records.people, Balances.of(records.ledger)) ?: return
+        // The reason holds the person's name, for the question; possibleDuplicateOf their id.
+        db.detected().add(DetectedRow("repay:${income.id.value}", DetectedKind.REPAY.name, "OPEN", RecordLines.entry(income), person.name,
+            person.id.value, income.occurredAt.instant.toEpochMilliseconds(), income.id.value))
+    }
+
+    /**
+     * "Yes, Rahul paid me back": a pay-back in People, and the income is taken out (soft-deleted, so the SMS import won't
+     * bring it back): it isn't income. When he no longer owes that much (settled meanwhile) or the income is gone, the
+     * question just closes. One transaction.
+     */
+    suspend fun confirmRepayment(id: String, now: Instant) = db.useWriterConnection { transactor ->
+        transactor.immediateTransaction {
+            val item = open(id, DetectedKind.REPAY) ?: return@immediateTransaction
+            val income = entries.byId(item.entry.id)?.takeIf { !it.deleted }
+            val person = item.possibleDuplicateOf?.let(EntityId::parse)
+            val owed = person?.let { Balances.of(SnapshotStore(db).peopleInTransaction().ledger).of(it).paise } ?: 0L
+            if (income == null || person == null || owed < income.amount.paise) {
+                return@immediateTransaction db.detected().setStatus(id, "SETTLED")
+            }
+            val back = LedgerEntry(EntityId.random(), person, LedgerDirection.BORROWED, income.amount,
+                income.occurredAt.localDate, "Paid back", false, now, false)
+            db.records().upsert(SnapshotStore.recordRows(Snapshot.empty().copy(ledger = listOf(back))))
+            entries.save(listOf(income.markDeleted(now)))
+            db.detected().setStatus(id, "CONFIRMED")
+        }
+    }
+
+    /** "No, it's income": it stays as it is. */
+    suspend fun denyRepayment(id: String) {
+        open(id, DetectedKind.REPAY) ?: return
+        db.detected().setStatus(id, "DISMISSED")
     }
 
     /** "Yes, it's my Rent": the payment stands for the bill's month (as automatic linking does). One transaction. */

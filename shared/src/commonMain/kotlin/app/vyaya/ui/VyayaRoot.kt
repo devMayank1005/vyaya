@@ -134,6 +134,8 @@ private fun VyayaRootContent(
     var tab by remember { mutableStateOf(Tab.HOME) }
     var monthOffset by remember { mutableStateOf(0) }
     var editing by remember { mutableStateOf<Entry?>(null) }
+    /** A split payment being deleted, and the shares friends owe for it: the question whether those go too. */
+    var takingBack by remember { mutableStateOf<Pair<Entry, List<app.vyaya.core.model.LedgerEntry>>?>(null) }
     var adding by remember { mutableStateOf(false) }
     val rulesStore = remember(db) { RulesStore(db) }
     // MVP2 FLAW-001: one store for the screen's life, so finished months are read once.
@@ -196,7 +198,7 @@ private fun VyayaRootContent(
         val friends = input.friendShares.map { (id, text) -> id to (Money.parse(text.trim())?.takeIf { it.paise > 0 } ?: return "Enter each friend's share") }
         return when (val r = app.vyaya.core.data.SplitStore(db).save(entry, mine, friends, clock())) {
             is app.vyaya.core.data.CatalogResult.Saved -> {
-                if (friends.isNotEmpty()) ledgerChanged()
+                if (friends.isNotEmpty() || existing?.splits?.isNotEmpty() == true) ledgerChanged()
                 fromIgnored?.let { ignoredStore.wasPayment(it.id); ignoredVersion++ }
                 fromIgnored = null; adding = false; editing = null
                 null
@@ -343,8 +345,35 @@ private fun VyayaRootContent(
         return
     }
 
+    // Split-bills #1: deleting a payment friends shared asks whether what they owe for it goes too.
+    takingBack?.let { (payment, shares) ->
+        val names = shares.mapNotNull { s -> people.firstOrNull { it.id == s.personId }?.name }.distinct().sortedBy { it.lowercase() }
+        val who = when (names.size) { 0 -> "your friends"; 1 -> names[0]; else -> names.dropLast(1).joinToString(", ") + " and " + names.last() }
+        val owed = Money(shares.sumOf { it.amount.paise })
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { takingBack = null },
+            title = { Text("Delete this payment?") },
+            text = { Text("Also take back what $who ${if (names.size == 1) "owes" else "owe"} (${owed.format()})?") },
+            confirmButton = {
+                androidx.compose.material3.TextButton({
+                    safely { app.vyaya.core.data.SplitStore(db).delete(payment, takeBackShares = true, now = clock()); ledgerChanged() }
+                    takingBack = null; editing = null
+                }) { Text("Take it back") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton({
+                    safely { app.vyaya.core.data.SplitStore(db).delete(payment, takeBackShares = false, now = clock()) }
+                    takingBack = null; editing = null
+                }) { Text("Keep in People") }
+            },
+        )
+    }
+
     if (adding || editing != null) {
         val existing = editing
+        val shares by produceState<List<app.vyaya.core.model.LedgerEntry>?>(null, existing?.id) {
+            value = existing?.let { app.vyaya.core.data.SplitStore(db).sharesOf(it) } ?: emptyList()
+        }
         AddEntryScreen(
             existing, categories, today = clock().toLocalDateTime(zone()).date,
             onSave = { input ->
@@ -368,8 +397,14 @@ private fun VyayaRootContent(
                 entry != null
             },
             onDelete = {
-                existing?.let { e -> safely { entries.save(listOf(e.markDeleted(clock()))) } }
-                editing = null
+                // Read here, not from the form's copy (it may still be loading): a shared payment always asks.
+                existing?.let { e ->
+                    safely {
+                        val owed = app.vyaya.core.data.SplitStore(db).sharesOf(e)
+                        if (owed.isNotEmpty()) takingBack = e to owed
+                        else { entries.save(listOf(e.markDeleted(clock()))); editing = null }
+                    }
+                }
             },
             onClose = { adding = false; editing = null; fromIgnored = null },
             accounts = records?.accounts.orEmpty(),
@@ -377,6 +412,7 @@ private fun VyayaRootContent(
             people = people,
             onAddPerson = { name -> ledger.addPerson(name, clock()).also { ledgerChanged() } },
             onSaveSplit = { input -> saveSplit(input, existing) },
+            shares = shares?.map { it.personId to it.amount },
             initialAmount = fromIgnored?.amount,
             initialType = fromIgnored?.let { if (it.credit) EntryType.INCOME else EntryType.EXPENSE },
             initialDate = fromIgnored?.receivedAt?.toLocalDateTime(zone())?.date,
@@ -445,8 +481,12 @@ private fun VyayaRootContent(
                     // Safe to spend (Phase 3): the bills' made months are read again whenever the month or the rules change.
                     val made by produceState(emptySet<app.vyaya.core.model.Generation>(), v, rules) { value = rulesStore.madeKeys() }
                     val linked by produceState(emptySet<app.vyaya.core.model.EntityId>(), v, rules) { value = rulesStore.linkedPayments() }
+                    // Split-bills #4: what friends still owe of this month's lending isn't safe to spend.
+                    val lent by produceState(Money(0), v, ledgerVersion) {
+                        value = v?.let { app.vyaya.core.engine.SafeToSpend.openLent(SnapshotStore(db).loadRecords().ledger, it.month) } ?: Money(0)
+                    }
                     val safe = v?.takeIf { monthOffset == 0 }?.let {
-                        app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today, payments = it.entries, taken = linked)
+                        app.vyaya.core.engine.SafeToSpend.of(it.summary, rules, made, today, payments = it.entries, taken = linked, lent = lent)
                     }
                     // Safe-to-spend FLAW-002: the salary day, suggested on the current month until taken or put off.
                     val salaryDay by produceState<Int?>(null, v, monthStartVersion, monthOffset) {
@@ -484,7 +524,7 @@ private fun VyayaRootContent(
                         if (logged != null) alreadyLogged = item to logged else { fromIgnored = item; adding = true }
                     } },
                     onNotPayment = { item -> safely { ignoredStore.notPayment(item.id); ignoredVersion++ } },
-                    homeZone = records?.settings?.homeTimeZone ?: zone())
+                    homeZone = records?.settings?.homeTimeZone ?: zone(), onLedgerChanged = { ledgerChanged() })
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
                     onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },

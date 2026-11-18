@@ -51,7 +51,9 @@ data class EntryInput(
         val payee = payee.trim().ifEmpty { null }
         // MVP DATA-001: an entry a rule made keeps the rule's type, or no backup would be accepted again.
         val type = if (existing?.generatedBy != null) existing.type else type
-        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.trim(), updatedAt = now)
+        // A split's parts are set again by the split store (split-bills #3), so an edit never keeps parts of the old amount.
+        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.trim(),
+            splits = emptyList(), updatedAt = now)
             ?: Entry(EntityId.random(), type, money, occurredAt, accountId, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
                 emptyList(), null, now, now, false)
     }.getOrNull()

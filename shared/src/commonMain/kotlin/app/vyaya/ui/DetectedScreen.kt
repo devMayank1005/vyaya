@@ -34,13 +34,22 @@ fun DetectedScreen(
     /** Branch review #3: "Is this your Rent?" answered yes (the payment is that bill) or no (the bill is made as usual). */
     onYesBill: (String) -> Unit = {},
     onNoBill: (String) -> Unit = {},
+    /** Split-bills #2: money in from a friend who owes you, answered "paid back" (People, not income) or "income". */
+    onYesRepay: (String) -> Unit = {},
+    onNoRepay: (String) -> Unit = {},
 ) {
     if (items.isEmpty()) {
         Text("Nothing detected yet", modifier.padding(24.dp), style = MaterialTheme.typography.bodyLarge)
         return
     }
     LazyColumn(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(items, key = { it.id }) { item -> if (item.kind == DetectedKind.BILL) BillCard(item, onYesBill, onNoBill) else DetectedCard(item, onUndo, onAdd, onDismiss) }
+        items(items, key = { it.id }) { item ->
+            when (item.kind) {
+                DetectedKind.BILL -> BillCard(item, onYesBill, onNoBill)
+                DetectedKind.REPAY -> RepayCard(item, onYesRepay, onNoRepay)
+                else -> DetectedCard(item, onUndo, onAdd, onDismiss)
+            }
+        }
     }
 }
 
@@ -84,6 +93,24 @@ private fun BillCard(item: DetectedItem, onYes: (String) -> Unit, onNo: (String)
                 Button({ onYes(item.id) }) { Text("Yes, it's $bill") }
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton({ onNo(item.id) }) { Text("No, a different payment") }
+            }
+        }
+    }
+}
+
+/** Money in from a friend who owes you (split-bills #2): a pay-back goes to People and isn't income. */
+@Composable
+private fun RepayCard(item: DetectedItem, onYes: (String) -> Unit, onNo: (String) -> Unit) {
+    val who = item.reason ?: "A friend"
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("$who paid you back ${item.entry.amount.format()}?", style = MaterialTheme.typography.titleMedium)
+            Text("${item.entry.payee ?: who} sent ${item.entry.amount.format()} on ${whenText(item.entry)}, and $who owes you at least that. " +
+                "Yes: it comes off what $who owes, and it isn't income. No: it stays as income.", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.padding(top = 8.dp)) {
+                Button({ onYes(item.id) }) { Text("Yes, $who paid me back") }
+                Spacer(Modifier.width(8.dp))
+                OutlinedButton({ onNo(item.id) }) { Text("No, it's income") }
             }
         }
     }

@@ -72,6 +72,27 @@ internal fun EntryV3.toV1() = EntryV1(
     linkedEntryId, createdAt, updatedAt, deleted,
 )
 
+/** Ledger entry v4: v1 plus the payment a split bill's share came from (split-bills report 2026-11-18 #1). */
+@Serializable
+internal data class LedgerV4(
+    val id: String,
+    val personId: String,
+    val direction: String,
+    val amountPaise: Long,
+    val date: String,
+    val note: String,
+    val settled: Boolean,
+    val updatedAt: String,
+    val deleted: Boolean,
+    val paymentId: String? = null,
+)
+
+/** Migration v1–v3 → v4: older ledger entries aren't linked to a payment. */
+internal fun LedgerV1.toV4() = LedgerV4(id, personId, direction, amountPaise, date, note, settled, updatedAt, deleted, paymentId = null)
+
+/** Only for writing old-format test fixtures; the app always writes v4. Drops the link. */
+internal fun LedgerV4.toV1() = LedgerV1(id, personId, direction, amountPaise, date, note, settled, updatedAt, deleted)
+
 /** Everything a backup holds, as file records of the current schema. Not serialized as a whole. */
 internal data class BackupContent(
     val appVersion: String,
@@ -84,7 +105,7 @@ internal data class BackupContent(
     val entries: List<EntryV3>,
     val recurring: List<RecurringV3>,
     val people: List<PersonV1>,
-    val ledger: List<LedgerV1>,
+    val ledger: List<LedgerV4>,
     val budgets: List<BudgetV1>,
     val merchantRules: List<MerchantRuleV1>,
 ) {
@@ -93,11 +114,11 @@ internal data class BackupContent(
 
     fun toV1File() = BackupFileV1(
         BackupCodec.FORMAT, BackupCodec.V1, appVersion, createdOn, exportedAt, currency, settings,
-        accounts, categories, entries.map { it.toV1() }, recurring.map { it.toV1() }, people, ledger, budgets, merchantRules,
+        accounts, categories, entries.map { it.toV1() }, recurring.map { it.toV1() }, people, ledger.map { it.toV1() }, budgets, merchantRules,
     )
 }
 
 internal fun BackupFileV1.toContent() = BackupContent(
     appVersion, createdOn, exportedAt, currency, settings,
-    accounts, categories, entries.map { it.toV3() }, recurring.map { it.toV3() }, people, ledger, budgets, merchantRules,
+    accounts, categories, entries.map { it.toV3() }, recurring.map { it.toV3() }, people, ledger.map { it.toV4() }, budgets, merchantRules,
 )

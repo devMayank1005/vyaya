@@ -26,35 +26,59 @@ import kotlin.time.Instant
 class SplitStore(private val db: VyayaDatabase) {
 
     suspend fun save(entry: Entry, mine: List<Split>, friends: List<Pair<EntityId, Money>>, now: Instant): CatalogResult<Entry> {
-        if (entry.type != EntryType.EXPENSE) return Refused("Only spending can be split")
+        // Not split any more (an edit took the parts and friends away): a plain entry, and its shares are taken back.
+        val unsplit = mine.isEmpty() && friends.isEmpty()
+        if (entry.type != EntryType.EXPENSE && !unsplit) return Refused("Only spending can be split")
         if (friends.any { it.second.paise <= 0 } || mine.any { it.amount.paise <= 0 }) return Refused("Every share must be more than ₹0")
         val theirs = friends.sumOf { it.second.paise }
         val yours = entry.amount.paise - theirs
         if (yours <= 0) return Refused("Friends' shares (${Money(theirs).format()}) leave nothing for you; record it in People instead")
-        val parts = mine.ifEmpty {
+        val parts = if (unsplit) emptyList() else mine.ifEmpty {
             val category = entry.categoryId ?: return Refused("Choose a category for your share")
             listOf(Split(category, Money(yours)))
         }
         val partsTotal = parts.sumOf { it.amount.paise }
-        if (partsTotal != yours) {
+        if (!unsplit && partsTotal != yours) {
             val friendsNote = if (theirs > 0) " (${entry.amount.format()} less ${Money(theirs).format()} for friends)" else ""
             return Refused("Your parts add up to ${Money(partsTotal).format()}; they should be ${Money(yours).format()}$friendsNote")
         }
         val splits = parts + if (theirs > 0) listOf(Split(SystemCategories.LENT.id, Money(theirs))) else emptyList()
-        val split = runCatching { entry.copy(splits = splits, categoryId = parts.first().categoryId, updatedAt = now) }
+        val split = runCatching { entry.copy(splits = splits, categoryId = parts.firstOrNull()?.categoryId ?: entry.categoryId, updatedAt = now) }
             .getOrElse { return Refused("This split can't be saved") }
         val what = entry.payee ?: entry.note.ifEmpty { "A shared payment" }
         val date = entry.occurredAt.localDate
         val lent = friends.map { (person, share) ->
             LedgerEntry(EntityId.random(), person, LedgerDirection.LENT, share, date, "$what: their share of ${entry.amount.format()}".take(500),
-                false, now, false)
+                false, now, false, paymentId = entry.id)
         }
+        // Split-bills report #3: saving a payment again replaces its shares (the old ones are taken back), so an edit
+        // never adds to what friends owe. One transaction with the entry.
+        val previous = sharesOf(entry).map { it.copy(deleted = true, updatedAt = now) }
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
                 EntryStore(db).save(listOf(split))
-                if (lent.isNotEmpty()) db.records().upsert(SnapshotStore.recordRows(Snapshot.empty().copy(ledger = lent)))
+                val ledger = previous + lent
+                if (ledger.isNotEmpty()) db.records().upsert(SnapshotStore.recordRows(Snapshot.empty().copy(ledger = ledger)))
             }
         }
         return Saved(split)
+    }
+
+    /** The friends' shares that came from [payment] (split-bills report #1), not taken back. */
+    suspend fun sharesOf(payment: Entry): List<LedgerEntry> =
+        SnapshotStore(db).loadRecords().ledger.filter { it.paymentId == payment.id && !it.deleted }
+
+    /**
+     * Deletes [payment]; with [takeBackShares], what friends owe for it goes too (split-bills report #1). Otherwise their
+     * shares stay in People (a payment logged twice, say, whose other copy stays). One transaction.
+     */
+    suspend fun delete(payment: Entry, takeBackShares: Boolean, now: Instant) {
+        val shares = if (takeBackShares) sharesOf(payment).map { it.copy(deleted = true, updatedAt = now) } else emptyList()
+        db.useWriterConnection { transactor ->
+            transactor.immediateTransaction {
+                EntryStore(db).save(listOf(payment.markDeleted(now)))
+                if (shares.isNotEmpty()) db.records().upsert(SnapshotStore.recordRows(Snapshot.empty().copy(ledger = shares)))
+            }
+        }
     }
 }
