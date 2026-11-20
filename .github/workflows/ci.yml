@@ -60,7 +60,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - run: >-
           ./gradlew :shared:testAndroidHostTest :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
-          :androidApp:koverVerify :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
+          :androidApp:koverVerify :androidApp:lintPlayDebug :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
           -Pvyaya.testJdk=21 --console=plain
       - if: always()
         run: python3 scripts/test-summary.py testPlayDebugUnitTest && python3 scripts/test-summary.py testFullDebugUnitTest

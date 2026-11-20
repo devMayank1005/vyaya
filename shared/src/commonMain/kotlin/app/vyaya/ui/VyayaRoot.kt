@@ -151,7 +151,8 @@ private fun VyayaRootContent(
     var widgetAmounts by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(db) { widgetAmounts = quickLook.showAmounts() }
     androidx.compose.runtime.LaunchedEffect(addRequests) {
-        if (addRequests > addHandled) { addHandled = addRequests; editing = null; adding = true }
+        // Widget report #4: a form already open (an edit in progress) is kept, not replaced by an empty one.
+        if (addRequests > addHandled) { addHandled = addRequests; if (editing == null) adding = true }
     }
     val rulesStore = remember(db) { RulesStore(db) }
     // MVP2 FLAW-001: one store for the screen's life, so finished months are read once.

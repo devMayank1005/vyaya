@@ -88,7 +88,15 @@ class ManifestTest {
         val receivers = context.packageManager.queryBroadcastReceivers(
             android.content.Intent(android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE).setPackage(context.packageName), 0)
         assertEquals(listOf(QuickAddWidget::class.java.name), receivers.map { it.activityInfo.name })
+        // Besides the system's own time and zone changes (protected broadcasts: only the system can send them).
+        val actions = info.receivers.orEmpty().single { it.name == QuickAddWidget::class.java.name }.let { r ->
+            listOf(AppWidgetManagerActions.UPDATE, android.content.Intent.ACTION_TIME_CHANGED, android.content.Intent.ACTION_TIMEZONE_CHANGED, "app.vyaya.action.ADD")
+                .filter { a -> context.packageManager.queryBroadcastReceivers(android.content.Intent(a).setPackage(context.packageName), 0).any { it.activityInfo.name == r.name } }
+        }
+        assertEquals(listOf(AppWidgetManagerActions.UPDATE, android.content.Intent.ACTION_TIME_CHANGED, android.content.Intent.ACTION_TIMEZONE_CHANGED), actions)
         val other = context.packageManager.queryBroadcastReceivers(android.content.Intent("app.vyaya.action.ADD").setPackage(context.packageName), 0)
         assertTrue(other.isEmpty())
     }
 }
+
+private object AppWidgetManagerActions { const val UPDATE = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE }

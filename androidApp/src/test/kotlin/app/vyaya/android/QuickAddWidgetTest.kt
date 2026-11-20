@@ -88,7 +88,7 @@ class QuickAddWidgetTest {
         assertEquals(WidgetText.HIDDEN, WidgetText.line(null, showAmounts = true, locked = false))
         assertEquals("₹289 left for today", WidgetText.line(safe, showAmounts = true, locked = false))
         assertEquals("₹120 over today's amount", WidgetText.line(safe.copy(leftToday = Money(-120_00)), showAmounts = true, locked = false))
-        assertEquals("Nothing safe to spend this month", WidgetText.line(safe.copy(perDay = Money(0), leftToday = Money(0)), showAmounts = true, locked = false))
+        assertEquals("Nothing left to spend this month", WidgetText.line(safe.copy(left = Money(0), perDay = Money(0), leftToday = Money(0)), showAmounts = true, locked = false))
     }
 
     @Test
@@ -97,5 +97,63 @@ class QuickAddWidgetTest {
         runBlocking { QuickAddWidget.update(context, manager, intArrayOf(id), db, locked = true, now = now) }
         assertEquals(WidgetText.HIDDEN, shadowOf(manager).getViewFor(id).findViewById<TextView>(R.id.widget_line).text.toString())
         assertTrue(shadowOf(manager).getViewFor(id).findViewById<android.view.View>(R.id.widget_add) != null)
+    }
+
+    // --- widget report 2026-11-18 ------------------------------------------------------------------------------------
+
+    @Test
+    fun widget_flaw_001_a_redraw_is_booked_for_the_next_midnight_at_home() {
+        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        runBlocking { QuickAddWidget.update(context, manager, intArrayOf(id), db, locked = false, now = now) }
+        val alarms = context.getSystemService(android.app.AlarmManager::class.java)
+        val next = shadowOf(alarms).scheduledAlarms.single()
+        // 18 Nov 12:00 in India: the next redraw is at 19 Nov 00:00 there (18 Nov 18:30 UTC), a minute after at most.
+        val midnight = Instant.parse("2026-11-18T18:30:00Z").toEpochMilliseconds()
+        assertTrue("${next.triggerAtTime}", next.triggerAtTime in midnight..(midnight + 60_000))
+        val intent = shadowOf(next.operation).savedIntent
+        assertEquals(QuickAddWidget::class.java.name, intent.component?.className)
+        assertEquals(AppWidgetManager.ACTION_APPWIDGET_UPDATE, intent.action)
+        assertTrue(next.operation!!.isImmutable)
+    }
+
+    @Test
+    fun widget_flaw_001_the_phones_time_or_zone_changing_redraws_it() {
+        listOf(android.content.Intent.ACTION_TIME_CHANGED, android.content.Intent.ACTION_TIMEZONE_CHANGED).forEach { action ->
+            val found = context.packageManager.queryBroadcastReceivers(android.content.Intent(action).setPackage(context.packageName), 0)
+            assertEquals(action, listOf(QuickAddWidget::class.java.name), found.map { it.activityInfo.name })
+        }
+    }
+
+    @Test
+    fun widget_sec_001_turning_the_lock_on_hides_the_amount_at_once_and_a_failed_update_draws_it_hidden() {
+        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        fun shown() = shadowOf(manager).getViewFor(id).findViewById<TextView>(R.id.widget_line).text.toString()
+        manager.updateAppWidget(intArrayOf(id), QuickAddWidget.views(context, "₹500 left for today"))
+        QuickAddWidget.hideNow(context) // synchronous: no database read, nothing to wait for
+        assertEquals(WidgetText.HIDDEN, shown())
+        manager.updateAppWidget(intArrayOf(id), QuickAddWidget.views(context, "₹500 left for today"))
+        val broken = Room.inMemoryDatabaseBuilder<VyayaDatabase>(context).setDriver(AndroidSQLiteDriver()).build().also { it.close() }
+        runBlocking { QuickAddWidget.update(context, manager, intArrayOf(id), broken, locked = false, now = now) } // must not throw
+        assertEquals(WidgetText.HIDDEN, shown())
+    }
+
+    @Test
+    fun widget_pen_001_many_redraw_requests_read_the_month_at_most_twice_and_only_placed_widgets_are_drawn() {
+        var reads = 0
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val jobs = List(100) { QuickAddWidget.redraw { reads++; gate.await() } }
+        gate.complete(Unit)
+        runBlocking { jobs.forEach { it.join() } }
+        assertTrue("$reads", reads in 1..2)
+        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        assertEquals(listOf(id), QuickAddWidget.placed(context, manager).toList())
+    }
+
+    @Test
+    fun widget_flaw_003_nothing_safe_says_why() {
+        val none = SafeToSpend(Money(0), Money(0), 10, Money(0), Money(0))
+        assertEquals("₹0 today: bills still due", WidgetText.line(none.copy(billsDue = Money(15_000_00), shortBy = Money(5_000_00)), true, false))
+        assertEquals("₹0 today: friends owe you ₹800", WidgetText.line(none.copy(lent = Money(800_00), shortBy = Money(200_00)), true, false))
+        assertEquals("Nothing left to spend this month", WidgetText.line(none, true, false))
     }
 }

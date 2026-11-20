@@ -153,7 +153,8 @@ class MainActivity : FragmentActivity() {
                             appLock.enabled = on
                             lockEnabled.value = on
                             secureWindow(on)
-                            QuickAddWidget.refresh(this) // amounts never show on the widget while the lock is on
+                            // Amounts never show on the widget while the lock is on: hidden at once (widget report #2).
+                            if (on) QuickAddWidget.hideNow(this) else QuickAddWidget.refresh(this)
                         }
                     },
                     onRestore = { mode ->

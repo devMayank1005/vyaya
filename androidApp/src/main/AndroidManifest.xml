@@ -68,13 +68,17 @@
             </intent-filter>
         </service>
 
-        <!-- Home-screen widget: the launcher must reach it, so it is exported; it only redraws itself (QuickAddWidget). -->
+        <!-- Home-screen widget: the launcher must reach it, so it is exported; it only redraws itself, and only this
+             app's placed widgets, whatever a sender names (QuickAddWidget). -->
         <receiver
             android:name=".QuickAddWidget"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <!-- Widget report #1: a new day or zone redraws it. Protected broadcasts: only the system sends them. -->
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
