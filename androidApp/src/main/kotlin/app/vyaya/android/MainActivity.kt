@@ -33,7 +33,7 @@ import kotlin.time.Clock
 
 class MainActivity : FragmentActivity() {
 
-    private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = SmsFeature.AVAILABLE, smsGranted = false))
+    private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = false, smsGranted = false))
 
     /** Counts the open routine's runs, so the screens read categories and settings again after it. */
     private val opened = mutableIntStateOf(0)
@@ -216,7 +216,7 @@ class MainActivity : FragmentActivity() {
         setup.value = Setup(
             notificationAccess = access,
             listenerStopped = if (checkListener) ListenerHealth(this).status(access) == ListenerHealth.Status.STOPPED else setup.value.listenerStopped,
-            smsAvailable = SmsFeature.AVAILABLE,
+            smsAvailable = SmsFeature.available(this),
             smsGranted = SmsFeature.permissions.isNotEmpty() &&
                 SmsFeature.permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },
         )

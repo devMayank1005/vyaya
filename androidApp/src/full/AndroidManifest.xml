@@ -2,6 +2,10 @@
 <!-- The full build only: reads SMS itself. Not for the Play Store (SMS permissions are for default SMS apps there). -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Widget report FLAW-004: the SMS permissions alone would make a phone radio required; it's optional here, and
+         SmsFeature.available offers SMS only where there is one. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
 
