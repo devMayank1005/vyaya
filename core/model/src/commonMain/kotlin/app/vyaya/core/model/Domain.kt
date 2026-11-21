@@ -148,6 +148,13 @@ data class Entry(
     /** Only expenses count towards spending; transfers, Saved and lent/borrowed never do. */
     val countsAsSpending: Boolean get() = type == EntryType.EXPENSE
 
+    /**
+     * Split bills (option A, the user's choice): what of this payment is the user's own. A split in the system
+     * "Lent & Borrowed" category is friends' shares, owed back (in the People ledger), so not the user's spending.
+     */
+    val ownShare: Money
+        get() = if (splits.isEmpty()) amount else Money(splits.filter { it.categoryId != SystemCategories.LENT.id }.sumOf { it.amount.paise })
+
     val countsAsIncome: Boolean get() = type == EntryType.INCOME
 
     fun markDeleted(at: Instant): Entry = copy(deleted = true, updatedAt = at)
@@ -213,6 +220,8 @@ data class LedgerEntry(
     val settled: Boolean,
     val updatedAt: Instant,
     val deleted: Boolean,
+    /** Split bills: the payment this share was part of (backup v4); deleting or changing it takes the share back. */
+    val paymentId: EntityId? = null,
 ) {
     init {
         requirePositive(amount, "Ledger amount")
@@ -232,8 +241,11 @@ class MerchantRule(
     val updatedAt: Instant,
     val deleted: Boolean,
 ) {
-    /** Stored trimmed and lowercase so "SWIGGY" and "Swiggy" are one rule. */
-    val payee: String = payee.trim().lowercase()
+    /**
+     * Stored trimmed, as the user wrote it (merchant memory report #6). Capture matches payees by key (case and a UPI
+     * handle don't matter), so "SWIGGY" and "Swiggy" still find the same rule.
+     */
+    val payee: String = payee.trim()
 
     init { requireName(this.payee, "Merchant payee") }
 

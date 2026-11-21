@@ -219,11 +219,12 @@ iOS:     Shortcuts action · Share Extension · App Intents (Siri) · Vision OCR
     be after the month the backup was made in (in the backup's time zone) or before the rule's first month.
     The entry keeps its rule's type and is dated in its month or the month either side.
   - Recurring rules have no `lastGeneratedOn`; v1 and v2 values are dropped when read.
-- **v1** files (one pretty-printed JSON document) and **v2** files still restore; their entries have no key.
-  The app only writes v3.
-- **Planned before release:**
-  - optional password encryption (`.vyaya`, AES-GCM, platform crypto), which adds authenticity;
-  - a `.zip` variant with receipts.
+- Changes from v3 (**v4**, split bills): a ledger entry carries `"paymentId"`: the payment a friend's share came
+  from, or `null`. It must name an entry in the backup. A v3 line carrying it is refused as edited.
+- **v1**, **v2** and **v3** files still restore: their entries have no key (v1, v2) and their ledger entries no
+  payment link. The app only writes v4.
+- Optional password encryption (`.vyaya`, AES-GCM, platform crypto; `docs/encrypted-backup-v1.md`) is built.
+- **Planned:** a `.zip` variant with receipts.
 - CSV columns are the same on both platforms (export only).
 
 ## Part E: Scale simulation harness

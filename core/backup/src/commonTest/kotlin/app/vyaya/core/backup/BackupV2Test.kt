@@ -129,7 +129,7 @@ class BackupV2Test {
 
     @Test
     fun a_newer_schema_is_refused_with_a_clear_message() {
-        val newer = goldenBody.toMutableList().apply { this[0] = this[0].replace("\"schemaVersion\":2", "\"schemaVersion\":4") }
+        val newer = goldenBody.toMutableList().apply { this[0] = this[0].replace("\"schemaVersion\":2", "\"schemaVersion\":${BackupCodec.SCHEMA_VERSION + 1}") }
         assertTrue(problems(signed(newer)).single().contains("newer version of Vyaya"))
     }
 

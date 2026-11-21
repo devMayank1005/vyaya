@@ -2,7 +2,12 @@ package app.vyaya.core.dedup
 
 import app.vyaya.core.filters.IgnoreReason
 import app.vyaya.core.filters.ReviewReason
+import app.vyaya.core.model.Account
+import app.vyaya.core.model.AccountKind
 import app.vyaya.core.model.CapturedAt
+import app.vyaya.core.model.Category
+import app.vyaya.core.model.CategoryKind
+import app.vyaya.core.model.MerchantRule
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
@@ -16,6 +21,7 @@ import kotlinx.datetime.YearMonth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
@@ -205,5 +211,104 @@ class CaptureTest {
         assertEquals(1, entries.size, outcomes.toString())
         // Two real spends of the same amount at the same shop, minutes apart, stay two.
         assertEquals(2, captureAll(listOf(axisCard(t0), axisCard(t0 + 10.minutes))).first.size)
+    }
+
+    @Test
+    fun catalog_flaw_004_a_captured_payment_goes_to_the_account_with_those_last_digits() {
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val sbi = Account(EntityId.random(), "SBI", AccountKind.BANK, "9876", now, false)
+        fun accountOf(accounts: List<Account>) =
+            assertIs<Outcome.Added>(Capture.process(hdfcSms("250.00", "429112345678"), emptyList(), now, accounts)).entry.accountId
+        assertEquals(hdfc.id, accountOf(listOf(hdfc, sbi)))
+        assertEquals(hdfc.id, accountOf(listOf(hdfc.copy(mask = "001234"), sbi)), "the user typed more digits than the bank shows")
+        assertEquals(hdfc.id, accountOf(listOf(hdfc.copy(mask = "234"), sbi)), "or fewer")
+        assertNull(accountOf(listOf(hdfc, sbi.copy(mask = "1234"))), "two accounts end in 1234: don't guess")
+        assertNull(accountOf(listOf(hdfc.copy(deleted = true))), "a deleted account")
+        assertNull(accountOf(listOf(hdfc.copy(mask = null))), "an account without last digits")
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, listOf(hdfc))).entry.accountId, "no digits in it")
+    }
+
+    @Test
+    fun catalog_flaw_004_the_bank_sms_after_the_app_notification_fills_in_the_account() {
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val fromApp = assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, listOf(hdfc))).entry
+        val dup = assertIs<Outcome.Duplicate>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(fromApp), now, listOf(hdfc)))
+        assertEquals(fromApp.id, dup.of)
+        assertEquals(fromApp.copy(accountId = hdfc.id, updatedAt = now), dup.update)
+        val typed = fromApp.copy(source = EntrySource.MANUAL)
+        assertIs<Outcome.Review>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(typed), now, listOf(hdfc)),
+            "an entry the user typed is only a possible duplicate, and is left as they made it")
+    }
+
+    @Test
+    fun merchant_memory_a_remembered_payee_gets_its_category() {
+        val food = Category(EntityId.random(), "Food", CategoryKind.EXPENSE, now, false)
+        val refunds = Category(EntityId.random(), "Refunds", CategoryKind.INCOME, now, false)
+        fun rule(payee: String, c: Category, at: Instant = now, deleted: Boolean = false) = MerchantRule(EntityId.random(), payee, c.id, at, deleted)
+        fun categoryOf(raw: RawMessage, memory: MerchantMemory) =
+            assertIs<Outcome.Added>(Capture.process(raw, emptyList(), now, merchants = memory)).entry.categoryId
+        val memory = MerchantMemory(listOf(rule("swiggy@axl", food)), listOf(food, refunds))
+        assertEquals(food.id, categoryOf(phonepe("250"), memory), "the app's 'Swiggy' is the rule's swiggy@axl")
+        assertEquals(food.id, categoryOf(hdfcSms("250.00", "429112345678"), memory), "the bank SMS too")
+        assertNull(categoryOf(phonepe("250", to = "Zomato"), memory), "another payee")
+        val refund = RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹250 from Swiggy", at(t0))
+        assertNull(categoryOf(refund, memory), "money from Swiggy is not spending on food")
+        assertEquals(refunds.id, categoryOf(refund, MerchantMemory(listOf(rule("Swiggy", refunds)), listOf(refunds))), "unless remembered as income")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food, deleted = true)), listOf(food))), "a forgotten rule")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food)), listOf(food.copy(deleted = true)))), "a deleted category")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory(listOf(rule("Swiggy", food)), emptyList())), "an unknown category")
+        val newer = MerchantMemory(listOf(rule("Swiggy", food, now - 1.hours), rule("SWIGGY", refunds.copy(kind = CategoryKind.EXPENSE), now)),
+            listOf(food, refunds.copy(kind = CategoryKind.EXPENSE)))
+        assertEquals(refunds.id, categoryOf(phonepe("250"), newer), "the latest change wins")
+        assertNull(categoryOf(phonepe("250"), MerchantMemory.NONE))
+    }
+
+    @Test
+    fun merchant_flaw_001_a_duplicate_fills_a_missing_payee_then_its_remembered_category() {
+        val refunds = Category(EntityId.random(), "Refunds", CategoryKind.INCOME, now, false)
+        val memory = MerchantMemory(listOf(MerchantRule(EntityId.random(), "Swiggy", refunds.id, now, false)), listOf(refunds))
+        val sbi = RawMessage(Source.SMS, "JD-SBIUPI-S", "Dear SBI UPI User, ur A/cX1234 credited by Rs250.00 on 26Oct26 by (Ref no 429112345678)", at(t0))
+        val first = assertIs<Outcome.Added>(Capture.process(sbi, emptyList(), now, merchants = memory)).entry
+        assertNull(first.payee, "the bank's SMS doesn't name who paid")
+        val app = RawMessage(Source.NOTIFICATION, "com.phonepe.app", "Received ₹250 from Swiggy", at(t0 + 1.minutes))
+        val dup = assertIs<Outcome.Duplicate>(Capture.process(app, listOf(first), now, merchants = memory))
+        assertEquals(first.copy(payee = "Swiggy", categoryId = refunds.id, updatedAt = now), dup.update)
+        // A category already on the entry (the user's, or memory's) stays.
+        val chosen = first.copy(categoryId = EntityId.random())
+        assertEquals(chosen.copy(payee = "Swiggy", updatedAt = now),
+            assertIs<Outcome.Duplicate>(Capture.process(app, listOf(chosen), now, merchants = memory)).update)
+        // Nothing to add: no update.
+        val complete = first.copy(payee = "Swiggy", categoryId = refunds.id)
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(app, listOf(complete), now, merchants = memory)).update)
+    }
+
+    @Test
+    fun merchant_edges_kinds_nameless_rules_and_what_a_duplicate_can_add() {
+        val income = Category(EntityId.random(), "Salary", CategoryKind.INCOME, now, false)
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now,
+            merchants = MerchantMemory(listOf(MerchantRule(EntityId.random(), "Swiggy", income.id, now, false)), listOf(income)))).entry.categoryId,
+            "a payment out is not put in an income category")
+        val nameless = MerchantMemory(listOf(MerchantRule(EntityId.random(), "@@", income.id, now, false)), listOf(income))
+        assertNull(assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, merchants = nameless)).entry.categoryId)
+        // The same SMS read again adds nothing: no update.
+        val sms = hdfcSms("250.00", "429112345678")
+        val first = assertIs<Outcome.Added>(Capture.process(sms, emptyList(), now)).entry
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(sms, listOf(first), now)).update)
+        // An entry that already has an account and a payee keeps them.
+        val hdfc = Account(EntityId.random(), "HDFC", AccountKind.BANK, "1234", now, false)
+        val own = first.copy(accountId = EntityId.random())
+        assertNull(assertIs<Outcome.Duplicate>(Capture.process(sms, listOf(own), now, listOf(hdfc))).update)
+    }
+
+    @Test
+    fun merchant_two_rules_changed_at_the_same_moment_resolve_the_same_way_in_any_order() {
+        val food = Category(EntityId.random(), "Food", CategoryKind.EXPENSE, now, false)
+        val treats = Category(EntityId.random(), "Treats", CategoryKind.EXPENSE, now, false)
+        val a = MerchantRule(EntityId.parse("00000000-0000-4000-8000-00000000000a")!!, "Swiggy", food.id, now, false)
+        val b = MerchantRule(EntityId.parse("00000000-0000-4000-8000-00000000000b")!!, "swiggy", treats.id, now, false)
+        for (rules in listOf(listOf(a, b), listOf(b, a))) {
+            val e = assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, merchants = MerchantMemory(rules, listOf(food, treats)))).entry
+            assertEquals(treats.id, e.categoryId, "the larger id wins a tie, whatever the order")
+        }
     }
 }

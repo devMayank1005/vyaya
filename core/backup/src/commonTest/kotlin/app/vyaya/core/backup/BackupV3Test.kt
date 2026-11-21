@@ -47,8 +47,8 @@ class BackupV3Test {
 
     @Test
     fun writes_exactly_the_v3_golden_lines() {
-        // Runs on the JVM (Android) and the iOS simulator in CI: identical bytes, and identical derived ids.
-        assertEquals(signed(golden), BackupCodec.encode(GOLDEN_V3_SNAPSHOT, META))
+        // v3 is frozen (the app writes v4); the fixture writer still makes exactly these bytes, on the JVM and iOS.
+        assertEquals(signed(golden), BackupCodec.encodeV3(GOLDEN_V3_SNAPSHOT, META))
     }
 
     @Test

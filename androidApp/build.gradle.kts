@@ -4,6 +4,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kover)
 }
 
 android {
@@ -28,8 +29,22 @@ android {
         }
     }
 
+    // Launch prep: the upload key comes only from the developer's own ~/.gradle/gradle.properties (or -P on the command
+    // line), never from the repository. Without it, release builds stay unsigned (CI, and the checks there).
+    val signing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .associateWith { providers.gradleProperty("vyaya.signing.$it").orNull }
+    if (signing.values.all { it != null }) {
+        signingConfigs.create("release") {
+            storeFile = file(signing.getValue("storeFile")!!)
+            storePassword = signing.getValue("storePassword")
+            keyAlias = signing.getValue("keyAlias")
+            keyPassword = signing.getValue("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -73,4 +88,28 @@ java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
 // Robolectric 4.17 needs Java 21 or newer to run.
 tasks.withType<Test>().configureEach {
     javaLauncher.set(javaToolchains.launcherFor { languageVersion.set(JavaLanguageVersion.of(providers.gradleProperty("vyaya.testJdk").getOrElse("24").toInt())) })
+}
+
+// Coverage gate from CLAUDE.md (branch review 2026-11-18 #4): platform adapters (app.vyaya.android) and the shared
+// screens (app.vyaya.ui, app.vyaya.shared) each >= 70 % of lines, measured by the app's unit and screen tests with the
+// shared module's own tests. `./gradlew :androidApp:koverVerify`.
+dependencies {
+    kover(project(":shared"))
+}
+
+kover {
+    reports {
+        filters {
+            excludes {
+                // Generated code: Compose's singletons and resources, and BuildConfig.
+                classes("*ComposableSingletons*", "*.BuildConfig", "*.R", "*.R$*", "vyaya.shared.generated.resources.*")
+            }
+        }
+        verify {
+            rule("Platform adapters and screens, each package") {
+                groupBy = kotlinx.kover.gradle.plugin.dsl.GroupingEntityType.PACKAGE
+                minBound(70, kotlinx.kover.gradle.plugin.dsl.CoverageUnit.LINE)
+            }
+        }
+    }
 }

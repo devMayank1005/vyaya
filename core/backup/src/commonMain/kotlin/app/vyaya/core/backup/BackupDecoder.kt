@@ -102,7 +102,7 @@ class BackupDecoder(
         if (version > BackupCodec.SCHEMA_VERSION) {
             return BackupCodec.fail("This backup was made by a newer version of Vyaya (schema $version). Update the app to restore it.")
         }
-        if (version != 2 && version != 3) return BackupCodec.fail("Unsupported backup schema version $version")
+        if (version !in 2..BackupCodec.SCHEMA_VERSION) return BackupCodec.fail("Unsupported backup schema version $version")
         val h = BackupLines.decode(HeaderV2.serializer(), obj) ?: return BackupCodec.fail("Line 1 is damaged or was edited")
         sha.update(first + "\n")
         // Each record becomes a domain record as soon as it is read; nothing else is kept (PEN-003).
@@ -139,7 +139,9 @@ class BackupDecoder(
             "recurring" -> (if (version == 2) BackupLines.decode(RecurringV1.serializer(), obj)?.toV3() else BackupLines.decode(RecurringV3.serializer(), obj))
                 ?.let { reader.recurring(it); 3 }
             "person" -> BackupLines.decode(PersonV1.serializer(), obj)?.let { reader.person(it); 4 }
-            "ledger" -> BackupLines.decode(LedgerV1.serializer(), obj)?.let { reader.ledger(it); 5 }
+            // v2 and v3 are frozen: their ledger lines have no payment link (migrated to v4 without one).
+            "ledger" -> (if (version < 4) BackupLines.decode(LedgerV1.serializer(), obj)?.toV4() else BackupLines.decode(LedgerV4.serializer(), obj))
+                ?.let { reader.ledger(it); 5 }
             "budget" -> BackupLines.decode(BudgetV1.serializer(), obj)?.let { reader.budget(it); 6 }
             "merchantRule" -> BackupLines.decode(MerchantRuleV1.serializer(), obj)?.let { reader.merchantRule(it); 7 }
             else -> return BackupCodec.fail("Line $number has an unknown record type '${type?.take(30)}'")

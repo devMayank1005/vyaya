@@ -45,7 +45,9 @@ private fun people(n: Notification): List<String> {
     }
     @Suppress("DEPRECATION")
     val legacy = extras.getStringArray(Notification.EXTRA_PEOPLE).orEmpty().toList()
-    return list.orEmpty().mapNotNull { it.uri } + legacy
+    // Widget report #6 (lint NewApi): Person and its uri exist from Android 9; on Android 8 only the legacy strings.
+    val people = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) list.orEmpty().mapNotNull { it.uri } else emptyList()
+    return people + legacy
 }
 
 /**

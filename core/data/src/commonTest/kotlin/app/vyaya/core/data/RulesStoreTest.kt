@@ -93,4 +93,20 @@ class RulesStoreTest {
         assertEquals(Money(15_000_00), EntryStore(db).all().single { it.generatedBy?.month == YearMonth(2026, 10) }.amount, "October stays")
         db.close()
     }
+
+    @Test
+    fun safe_to_spend_the_months_a_rule_already_made_or_skipped() = runTest {
+        val db = inMemoryDatabase()
+        val rules = RulesStore(db)
+        val gym = rules.add(EntryType.EXPENSE, Money(1_500_00), 1, null, "Gym", sep1, ist)
+        AppOpen(db).run(sep1) // September's made
+        rules.pause(gym, Instant.parse("2026-09-10T04:30:00Z"))
+        val nov6 = Instant.parse("2026-11-06T04:30:00Z")
+        rules.resume(rules.all().single(), addMissed = false, now = nov6, zone = ist) // October and November skipped
+        assertEquals(
+            setOf(YearMonth(2026, 9), YearMonth(2026, 10), YearMonth(2026, 11)),
+            rules.madeKeys().filter { it.ruleId == gym.id }.map { it.month }.toSet(),
+        )
+        db.close()
+    }
 }

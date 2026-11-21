@@ -11,6 +11,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -57,6 +58,18 @@ fun BackupScreen(
     lockEnabled: Boolean = false,
     onLockEnabled: (Boolean) -> Unit = {},
     deviceSecure: Boolean = true,
+    onCategories: () -> Unit = {},
+    onAccounts: () -> Unit = {},
+    onExportCsv: () -> Unit = {},
+    onPayees: () -> Unit = {},
+    onBudgets: () -> Unit = {},
+    /** The current month's start day, a change to come (from, day), and how to set it (safe-to-spend FLAW-002). */
+    startDay: Int? = null,
+    nextStart: Pair<kotlinx.datetime.LocalDate, Int>? = null,
+    onStartDay: (Int) -> Unit = {},
+    /** Phase 3: whether the home-screen widget shows safe to spend (off by default; never while the lock is on). */
+    widgetAmounts: Boolean = false,
+    onWidgetAmounts: (Boolean) -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -118,6 +131,62 @@ fun BackupScreen(
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }
+        if (startDay != null) {
+            var asking by remember { mutableStateOf(false) }
+            var dayText by remember { mutableStateOf("") }
+            var dayProblem by remember { mutableStateOf<String?>(null) }
+            Text("Your month", style = MaterialTheme.typography.titleMedium)
+            Text("Your month starts on the ${ordinal(startDay)}" +
+                (nextStart?.let { (from, d) -> ". From $from, on the ${ordinal(d)}" } ?: ""), style = MaterialTheme.typography.bodyMedium)
+            Text("Start it on your salary day, so each month begins with its money. A change starts with your next month; " +
+                "the month in between is shorter or longer, so nothing is counted twice.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton({ asking = true; dayText = ""; dayProblem = null }) { Text("Change start day") }
+            if (asking) AlertDialog(
+                onDismissRequest = { asking = false },
+                title = { Text("Month start day") },
+                text = {
+                    Column {
+                        OutlinedTextField(dayText, { dayText = it.filter(Char::isDigit).take(2); dayProblem = null }, label = { Text("Start day (1–31)") },
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                            singleLine = true)
+                        dayProblem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                },
+                confirmButton = {
+                    TextButton({
+                        val d = dayText.toIntOrNull()
+                        if (d == null || d !in 1..31) dayProblem = "A day from 1 to 31 (in shorter months, the last day)"
+                        else { onStartDay(d); asking = false }
+                    }) { Text("Save start day") }
+                },
+                dismissButton = { TextButton({ asking = false }) { Text("Cancel") } },
+            )
+        }
+        Text("Spreadsheet", style = MaterialTheme.typography.titleMedium)
+        Text("All your entries as a CSV file for Excel or Google Sheets. No password: anyone with the file can read it. " +
+            "It can't be restored; use a backup for that.", style = MaterialTheme.typography.bodySmall)
+        var csvAsk by remember { mutableStateOf(false) }
+        // csv report #4: with no screen lock the phone can't confirm it's you, so say plainly what leaves.
+        OutlinedButton({ if (deviceSecure) onExportCsv() else csvAsk = true }, enabled = !busy) { Text("Export spreadsheet (CSV)") }
+        if (csvAsk) AlertDialog(
+            onDismissRequest = { csvAsk = false },
+            title = { Text("Export without a check?") },
+            text = {
+                Text("This phone has no screen lock, so anyone holding it can make this file. It lists every payee, amount and " +
+                    "UPI reference in plain text, with no password.")
+            },
+            confirmButton = { TextButton({ csvAsk = false; onExportCsv() }) { Text("Export anyway") } },
+            dismissButton = { TextButton({ csvAsk = false }) { Text("Cancel") } },
+        )
+        Text("Your lists", style = MaterialTheme.typography.titleMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onCategories) { Text("Categories") }
+            OutlinedButton(onAccounts) { Text("Accounts") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onBudgets) { Text("Budgets") }
+            OutlinedButton(onPayees) { Text("Remembered payees") }
+        }
         Text("Privacy", style = MaterialTheme.typography.titleMedium)
         Row(Modifier.fillMaxWidth().toggleable(lockEnabled, role = Role.Switch, onValueChange = onLockEnabled), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -126,6 +195,17 @@ fun BackupScreen(
                     style = MaterialTheme.typography.bodySmall)
             }
             Switch(lockEnabled, onCheckedChange = null)
+        }
+        // Anyone who sees the home screen sees the widget, so the lock keeps amounts off it.
+        Row(Modifier.fillMaxWidth().toggleable(widgetAmounts && !lockEnabled, enabled = !lockEnabled, role = Role.Switch, onValueChange = onWidgetAmounts),
+            verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Show amounts on the home-screen widget")
+                Text(if (lockEnabled) "Hidden while the app lock is on. The widget shows only an Add button."
+                    else "Off: the widget shows only an Add button. On: it also shows what's safe to spend today, to anyone who sees your home screen.",
+                    style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(widgetAmounts && !lockEnabled, onCheckedChange = null, enabled = !lockEnabled)
         }
         if (!deviceSecure) {
             Text("This phone has no screen lock, so the app lock has nothing to ask. Set a screen lock in the phone's Settings first.",

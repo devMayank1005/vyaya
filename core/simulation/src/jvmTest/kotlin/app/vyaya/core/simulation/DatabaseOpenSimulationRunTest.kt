@@ -22,6 +22,7 @@ import app.vyaya.core.model.RecurringRule
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.daysUntil
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.yearMonth
 import java.io.File
@@ -44,7 +45,7 @@ class DatabaseOpenSimulationRunTest {
     fun run_database_open_simulation(): Unit = runBlocking {
         val users = (System.getProperty("sim.engine.users")?.toIntOrNull() ?: 100).coerceAtMost(1_000)
         val random = Random(21)
-        var opens = 0; var mismatches = 0; var duplicates = 0; var missing = 0; var refused = 0; var clockJumps = 0
+        var opens = 0; var mismatches = 0; var duplicates = 0; var missing = 0; var refused = 0; var clockJumps = 0; var paidEarly = 0; var doubled = 0; var linkedKeys = 0
         val notes = mutableListOf<String>()
         val started = System.nanoTime()
         repeat(users) { u ->
@@ -79,6 +80,16 @@ class DatabaseOpenSimulationRunTest {
                             rules = rules - r + changed
                             memory = memory.copy(recurring = rules); SnapshotStore(db).save(memory.copy(entries = emptyList()))
                         }
+                        3, 4 -> rules.filter { !it.deleted && !it.paused }.randomOrNull(random)?.let { r -> // a bill paid a few days early by UPI
+                            val today = clock.toLocalDateTime(ist).date
+                            val due = Recurring.dueOn(r, today.yearMonth)
+                            if (due > today && today.daysUntil(due) <= Recurring.PAID_NEARBY_DAYS && due >= r.startsOn) {
+                                paidEarly++
+                                val e = Entry(EntityId.random(), r.type, r.amount, CapturedAt(clock, ist), null, null, null, "Payee", "", emptyList(),
+                                    EntrySource.NOTIFICATION, null, emptyList(), null, clock, clock, false)
+                                memory = memory.copy(entries = memory.entries + e); SnapshotStore(db).save(memory.copy(entries = listOf(e)))
+                            }
+                        }
                         else -> {}
                     }
                     // The app opens with this clock: on the database, and in memory.
@@ -86,13 +97,19 @@ class DatabaseOpenSimulationRunTest {
                     AppOpen(db).run(clock)
                     val repaired = ClockRepair.repair(memory, clock)
                     val today = clock.toLocalDateTime(ist).date
-                    memory = repaired.copy(entries = repaired.entries + Recurring.catchUp(repaired.recurring, repaired.entries, today, ist, clock)).normalized()
+                    val due = Recurring.catchUp(repaired.recurring, repaired.entries, today, ist, clock)
+                    // As AppOpen: linked when clear; a payment in another category is a question (nothing saved yet).
+                    val made = Recurring.linkPaidOrAsk(due, repaired.entries, repaired.entries.filter { it.generatedBy != null }, clock).save
+                    memory = repaired.copy(entries = (repaired.entries.associateBy { it.id } + made.associateBy { it.id }).values.toList()).normalized()
                     rules = memory.recurring
                     val onDb = SnapshotStore(db).load()
                     if (onDb != memory) { mismatches++; if (notes.size < 5) notes += "user $u open $opens: the database differs from the engine" }
                     // Invariant 4: one entry per rule and calendar month; every due month of an active rule has one.
                     val keys = onDb.entries.mapNotNull { it.generatedBy }
                     duplicates += keys.size - keys.toSet().size
+                    // Safe-to-spend DATA-001: a payment standing for a rule's month, and that month's own entry too.
+                    val linked = onDb.entries.filter { it.generatedBy != null && it.linkedEntryId != null }
+                    doubled += linked.count { l -> onDb.entries.any { it.generatedBy == l.generatedBy && !it.deleted } }
                     onDb.recurring.filter { !it.deleted && !it.paused }.forEach { r ->
                         if (onDb.entries.none { it.generatedBy?.ruleId == r.id && it.generatedBy?.month == today.yearMonth } &&
                             Recurring.dueOn(r, today.yearMonth) <= today) missing++
@@ -100,12 +117,14 @@ class DatabaseOpenSimulationRunTest {
                     // A backup made now is accepted (once the clock is right again, the repair made it so).
                     if (!ahead && BackupCodec.write(onDb, ExportMeta("1", "android", clock)) {} is EncodeResult.Failure) refused++
                 }
+                linkedKeys += SnapshotStore(db).load().entries.count { it.generatedBy != null && it.linkedEntryId != null }
             } finally { db.close() }
         }
         val report = buildString {
             appendLine("Database open simulation: $users users, $opens opens, $clockJumps clock jumps (${"%.1f".format((System.nanoTime() - started) / 1e9)} s)")
             appendLine("database = engine: ${opens - mismatches} same, $mismatches differ")
             appendLine("DUPLICATES=$duplicates MISSING=$missing backups refused=$refused")
+            appendLine("bills paid early $paidEarly; linked to their month $linkedKeys; paid AND made (must be 0): $doubled")
             notes.forEach { appendLine("  $it") }
         }
         println(report)

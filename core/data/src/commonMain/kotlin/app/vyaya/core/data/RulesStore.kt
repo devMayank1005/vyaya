@@ -27,9 +27,12 @@ class RulesStore(private val db: VyayaDatabase) {
     suspend fun active(): List<RecurringRule> = all().filter { !it.deleted }
 
     /** A new rule; it starts on its next due day from today (this month's, if that hasn't passed). */
-    suspend fun add(type: EntryType, amount: Money, dayOfMonth: Int, categoryId: EntityId?, note: String, now: Instant, zone: TimeZone): RecurringRule {
+    suspend fun add(
+        type: EntryType, amount: Money, dayOfMonth: Int, categoryId: EntityId?, note: String, now: Instant, zone: TimeZone,
+        accountId: EntityId? = null,
+    ): RecurringRule {
         val today = now.toLocalDateTime(zone).date
-        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, null, note, false, Recurring.startsOnFor(today, dayOfMonth), now, false)
+        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, accountId, note, false, Recurring.startsOnFor(today, dayOfMonth), now, false)
         save(rule)
         return rule
     }
@@ -39,6 +42,15 @@ class RulesStore(private val db: VyayaDatabase) {
     suspend fun pause(rule: RecurringRule, now: Instant) = save(rule.copy(paused = true, updatedAt = now))
 
     suspend fun delete(rule: RecurringRule, now: Instant) = save(rule.copy(deleted = true, updatedAt = now))
+
+    /**
+     * Every rule-month that has its entry, made or skipped (a skipped month is a deleted entry with its key): for safe to
+     * spend, a bill is still due only when its month isn't here.
+     */
+    suspend fun madeKeys(): Set<app.vyaya.core.model.Generation> = entries.generated().mapNotNull { it.generatedBy }.toSet()
+
+    /** Payments that stand for a rule's month (paid a few days early or late, safe-to-spend DATA-001). */
+    suspend fun linkedPayments(): Set<app.vyaya.core.model.EntityId> = entries.generated().mapNotNull { it.linkedEntryId }.toSet()
 
     /** The months [rule] was due while paused and has no entry for: the app asks whether to add them (FLAW-003). */
     suspend fun missedWhilePaused(rule: RecurringRule, now: Instant, zone: TimeZone): List<YearMonth> =

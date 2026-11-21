@@ -4,6 +4,7 @@ import app.vyaya.core.filters.Filters
 import app.vyaya.core.filters.IgnoreReason
 import app.vyaya.core.filters.ReviewReason
 import app.vyaya.core.filters.Verdict
+import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
@@ -26,8 +27,11 @@ sealed interface Outcome {
     /** A new entry, to be saved. */
     data class Added(val entry: Entry) : Outcome
 
-    /** The same payment is already there (another app's notification, the bank SMS, or this message read again). */
-    data class Duplicate(val of: EntityId) : Outcome
+    /**
+     * The same payment is already there (another app's notification, the bank SMS, or this message read again).
+     * [update] is that entry with what this message adds (the account, from the bank SMS's last digits), to be saved.
+     */
+    data class Duplicate(val of: EntityId, val update: Entry? = null) : Outcome
 
     /** Waits in the review inbox: an unknown sender ([reason]) or a manual or recurring entry that may be the same payment. */
     data class Review(val draft: Entry, val reason: ReviewReason?, val possibleDuplicateOf: EntityId?) : Outcome
@@ -73,27 +77,36 @@ object Capture {
      * Captures every payment in [raw]: one, or several when the message lists several (a card summary SMS, see
      * [MessageSplitter]). Each later part is checked against the entries the earlier parts added.
      */
-    fun processAll(raw: RawMessage, existing: List<Entry>, now: Instant): List<Outcome> {
+    fun processAll(
+        raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(), merchants: MerchantMemory = MerchantMemory.NONE,
+    ): List<Outcome> {
         var entries = existing
         return MessageSplitter.split(raw).map { part ->
-            process(part, entries, now).also { if (it is Outcome.Added) entries = entries + it.entry }
+            process(part, entries, now, accounts, merchants).also { if (it is Outcome.Added) entries = entries + it.entry }
         }
     }
 
-    fun process(raw: RawMessage, existing: List<Entry>, now: Instant): Outcome = process(raw, MessageParser.parse(raw), existing, now)
+    fun process(
+        raw: RawMessage, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(), merchants: MerchantMemory = MerchantMemory.NONE,
+    ): Outcome = process(raw, MessageParser.parse(raw), existing, now, accounts, merchants)
 
     /** As [process], for a message already parsed (the database store parses once, to look up by reference). */
-    fun process(raw: RawMessage, parsed: ParseResult, existing: List<Entry>, now: Instant): Outcome {
+    fun process(
+        raw: RawMessage, parsed: ParseResult, existing: List<Entry>, now: Instant, accounts: List<Account> = emptyList(),
+        merchants: MerchantMemory = MerchantMemory.NONE,
+    ): Outcome {
         val verdict = Filters.judge(raw, parsed)
         val txn = when (verdict) {
             is Verdict.Ignore -> return Outcome.Ignored(verdict.reason)
             is Verdict.Accept -> verdict.txn
             is Verdict.Review -> verdict.txn
         }
-        val entry = toEntry(txn, raw.source, now) ?: return Outcome.Ignored(IgnoreReason.NOT_A_TRANSACTION)
+        val entry = toEntry(txn, raw.source, now)?.copy(accountId = accountFor(txn.accountMask, accounts))
+            ?.let { it.copy(categoryId = merchants.categoryFor(it)) }
+            ?: return Outcome.Ignored(IgnoreReason.NOT_A_TRANSACTION)
         if (verdict is Verdict.Accept) {
             otherSideOf(entry, existing)?.let { return Outcome.Transfer(it.copy(type = EntryType.TRANSFER, updatedAt = now)) }
-            duplicateOf(entry, existing)?.let { return Outcome.Duplicate(it) }
+            duplicateOf(entry, existing)?.let { id -> return Outcome.Duplicate(id, filledFrom(entry, existing.first { it.id == id }, now, merchants)) }
         }
         // DATA-003: a review item for a payment already captured points at it, so confirming can't log it twice.
         val possible = (if (verdict is Verdict.Review) duplicateOf(entry, existing) else null) ?: possibleDuplicateOf(entry, existing)
@@ -102,6 +115,28 @@ object Capture {
             possible != null -> Outcome.Review(entry, null, possible)
             else -> Outcome.Added(entry)
         }
+    }
+
+    /**
+     * The one account (not deleted) whose last digits match the message's masked number (catalog report #4). The user
+     * may have typed more or fewer digits than the bank shows, so one may end with the other. Two matches: no guess.
+     */
+    fun accountFor(mask: String?, accounts: List<Account>): EntityId? {
+        if (mask == null || mask.length < 3) return null
+        return accounts.filter { a -> !a.deleted && a.mask?.let { it.endsWith(mask) || mask.endsWith(it) } == true }.singleOrNull()?.id
+    }
+
+    /**
+     * What a later message for the same payment adds to [existing] (only captured entries are duplicates): the account
+     * (catalog report #4) and the payee when it had none; then, with no category yet, the payee's remembered one
+     * (merchant memory report #1). Null when it adds nothing.
+     */
+    private fun filledFrom(entry: Entry, existing: Entry, now: Instant, merchants: MerchantMemory): Entry? {
+        var filled = existing
+        if (filled.accountId == null && entry.accountId != null) filled = filled.copy(accountId = entry.accountId)
+        if (filled.payee == null && entry.payee != null) filled = filled.copy(payee = entry.payee)
+        if (filled.categoryId == null) merchants.categoryFor(filled)?.let { filled = filled.copy(categoryId = it) }
+        return if (filled == existing) null else filled.copy(updatedAt = now)
     }
 
     /** The entry a parsed payment becomes; null if it can't be a valid entry. */

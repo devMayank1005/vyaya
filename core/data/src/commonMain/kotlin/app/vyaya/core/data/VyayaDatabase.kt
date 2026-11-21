@@ -21,7 +21,7 @@ import androidx.room.Upsert
  */
 @Entity(
     tableName = "entries",
-    indices = [Index("occurredAtMs"), Index("upiRef"), Index("ruleId", "month"), Index("updatedAtMs")],
+    indices = [Index("occurredAtMs", "id"), Index("upiRef"), Index("ruleId", "month"), Index("updatedAtMs")],
 )
 data class EntryRow(
     @PrimaryKey val id: String,
@@ -39,7 +39,19 @@ data class EntryRow(
     val updatedAtMs: Long,
     /** For clock repair on open: entries made while the clock was ahead (FLAW-004, core-data report). */
     val createdAtMs: Long,
+    /** To count what uses a category or an account before it's deleted (catalog report #5). */
+    val categoryId: String? = null,
+    val accountId: String? = null,
+    val toAccountId: String? = null,
 )
+
+/**
+ * Entries not deleted, by time then id, after the last one read: keyset pages for the spreadsheet export. The row-value
+ * condition reads straight from the (occurredAtMs, id) index; an OR of the two columns sorted the rest of the table for
+ * every page, so the export took time growing with the square of the entries (csv report #1).
+ */
+internal const val PAGE_BY_TIME =
+    "SELECT * FROM entries WHERE (occurredAtMs, id) > (:afterMs, :afterId) AND deleted = 0 ORDER BY occurredAtMs, id LIMIT :limit"
 
 @Dao
 interface EntryDao {
@@ -62,6 +74,18 @@ interface EntryDao {
     @Query("SELECT * FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
     fun watchRange(fromMs: Long, toMs: Long): Flow<List<EntryRow>>
 
+    /** What changes when any entry in [fromMs, toMs) is added, edited, deleted or removed (MVP2 FLAW-001). */
+    @Query("SELECT COUNT(*) AS n, COALESCE(SUM(updatedAtMs), 0) AS changed, COALESCE(SUM(createdAtMs), 0) AS made FROM entries WHERE occurredAtMs >= :fromMs AND occurredAtMs < :toMs")
+    suspend fun fingerprint(fromMs: Long, toMs: Long): RangeFingerprint
+
+    /** When the earliest entry not deleted happened; null when there is none. */
+    @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0")
+    suspend fun earliestMs(): Long?
+
+    /** When [categoryId] was first used (budgets report #4). A split's own category isn't a column, so not counted here. */
+    @Query("SELECT MIN(occurredAtMs) FROM entries WHERE deleted = 0 AND categoryId = :categoryId")
+    suspend fun earliestWithCategoryMs(categoryId: String): Long?
+
     /** Entries a recurring rule made (catch-up and clock repair look at these only). */
     @Query("SELECT * FROM entries WHERE ruleId IS NOT NULL")
     suspend fun generated(): List<EntryRow>
@@ -79,6 +103,26 @@ interface EntryDao {
 
     @Query("SELECT COUNT(*) FROM entries")
     suspend fun count(): Int
+
+    /** Entries not deleted, by time then id, after the last one read (keyset pages for the spreadsheet export). */
+    @Query(PAGE_BY_TIME)
+    suspend fun pageByTime(afterMs: Long, afterId: String, limit: Int): List<EntryRow>
+
+    /** Entries (not deleted) of [type] to one payee (by its key): how many, and how many have no category. */
+    @Query(
+        "SELECT COUNT(*) AS total, COALESCE(SUM(categoryId IS NULL), 0) AS uncategorised FROM entries " +
+            "WHERE payeeKey = :key AND type = :type AND deleted = 0",
+    )
+    suspend fun payeeCounts(key: String, type: String): PayeeCounts
+
+    @Query("SELECT * FROM entries WHERE payeeKey = :key AND type = :type AND categoryId IS NULL AND deleted = 0")
+    suspend fun uncategorisedFor(key: String, type: String): List<EntryRow>
+
+    @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND categoryId = :id")
+    suspend fun countWithCategory(id: String): Int
+
+    @Query("SELECT COUNT(*) FROM entries WHERE deleted = 0 AND (accountId = :id OR toAccountId = :id)")
+    suspend fun countWithAccount(id: String): Int
 
     @Query("DELETE FROM entries")
     suspend fun clear()
@@ -132,6 +176,10 @@ interface DetectedDao {
     /** The item about [entryId] now shows [line] as [kind] (an added payment that became a transfer). */
     @Query("UPDATE detected SET kind = :kind, entryLine = :line WHERE entryId = :entryId")
     suspend fun updateEntry(entryId: String, kind: String, line: String)
+
+    /** The item's entry as it is now, its kind unchanged (a later message filled in the payee or account). */
+    @Query("UPDATE detected SET entryLine = :line WHERE entryId = :entryId")
+    suspend fun updateLine(entryId: String, line: String)
 }
 
 /**
@@ -152,6 +200,19 @@ interface RecordDao {
     @Query("SELECT id, line FROM records WHERE kind = :kind AND id > :afterId ORDER BY id LIMIT :limit")
     suspend fun pageAfter(kind: String, afterId: String, limit: Int): List<IdLine>
 
+    @Query("SELECT * FROM records WHERE kind = :kind")
+    suspend fun ofKind(kind: String): List<RecordRow>
+
+    /**
+     * A cheap check of what capture reads (accounts, categories, merchant rules): how many, the sum of their change
+     * times, and the sum of their lengths. Any add, edit, delete or restore changes it (merchant memory report #5).
+     */
+    @Query(
+        "SELECT COUNT(*) AS n, COALESCE(SUM(updatedAtMs), 0) AS changed, COALESCE(SUM(LENGTH(line)), 0) AS made " +
+            "FROM records WHERE kind IN ('account', 'category', 'merchantRule')",
+    )
+    suspend fun captureFingerprint(): RangeFingerprint
+
     @Query("SELECT COUNT(*) FROM records WHERE kind = :kind")
     suspend fun count(kind: String): Int
 
@@ -159,12 +220,66 @@ interface RecordDao {
     suspend fun clear()
 }
 
-@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class], version = 1)
+/**
+ * Small values for this phone only (never in a backup): what the user put off ("not now"). Not records: nothing
+ * about the money, and losing them only means a suggestion may be shown again.
+ */
+@Entity(tableName = "prefs")
+data class PrefRow(@PrimaryKey val key: String, val value: String)
+
+@Dao
+interface PrefDao {
+    @Query("SELECT value FROM prefs WHERE `key` = :key")
+    suspend fun get(key: String): String?
+
+    @Upsert
+    suspend fun put(row: PrefRow)
+}
+
+/**
+ * A message capture skipped that showed an amount (the Ignored tab, Phase 3): a summary only, never its text (the
+ * user's choice). [sender] is masked when it is a phone number. Kept 30 days; never in a backup.
+ */
+@Entity(tableName = "ignored", indices = [Index("receivedAtMs")])
+data class IgnoredRow(
+    /** The message's id (as the Detected inbox's): the same message read again is one row. */
+    @PrimaryKey val id: String,
+    val sender: String,
+    val amountPaise: Long,
+    val reason: String,
+    val receivedAtMs: Long,
+    /** OPEN, PAYMENT (the user said it was one, and added it) or NOT_PAYMENT. */
+    val status: String,
+    /** Money came in (the message's first direction word was a credit), so adding it starts as income (FLAW-004). */
+    val credit: Boolean = false,
+)
+
+@Dao
+interface IgnoredDao {
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun add(row: IgnoredRow)
+
+    @Query("SELECT * FROM ignored WHERE status = 'OPEN' ORDER BY receivedAtMs DESC")
+    suspend fun open(): List<IgnoredRow>
+
+    @Query("UPDATE ignored SET status = :status WHERE id = :id")
+    suspend fun setStatus(id: String, status: String)
+
+    @Query("DELETE FROM ignored WHERE receivedAtMs < :beforeMs")
+    suspend fun purge(beforeMs: Long)
+
+    @Query("SELECT * FROM ignored")
+    suspend fun all(): List<IgnoredRow>
+}
+
+@Database(entities = [EntryRow::class, DetectedRow::class, RecordRow::class, PrefRow::class, IgnoredRow::class], version = 1)
 @ConstructedBy(VyayaDatabaseConstructor::class)
 abstract class VyayaDatabase : RoomDatabase() {
     abstract fun entries(): EntryDao
     abstract fun detected(): DetectedDao
     abstract fun records(): RecordDao
+    abstract fun prefs(): PrefDao
+    abstract fun ignored(): IgnoredDao
 }
 
 // Room's compiler supplies the actual implementations for each platform.
@@ -175,3 +290,8 @@ expect object VyayaDatabaseConstructor : RoomDatabaseConstructor<VyayaDatabase> 
 
 /** A row's id and backup line, for paging in id order. */
 data class IdLine(val id: String, val line: String)
+
+/** Count and change times of a range of entries: equal fingerprints mean nothing in the range changed. */
+data class PayeeCounts(val total: Int, val uncategorised: Int)
+
+data class RangeFingerprint(val n: Long, val changed: Long, val made: Long)
