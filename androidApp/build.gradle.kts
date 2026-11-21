@@ -29,8 +29,22 @@ android {
         }
     }
 
+    // Launch prep: the upload key comes only from the developer's own ~/.gradle/gradle.properties (or -P on the command
+    // line), never from the repository. Without it, release builds stay unsigned (CI, and the checks there).
+    val signing = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        .associateWith { providers.gradleProperty("vyaya.signing.$it").orNull }
+    if (signing.values.all { it != null }) {
+        signingConfigs.create("release") {
+            storeFile = file(signing.getValue("storeFile")!!)
+            storePassword = signing.getValue("storePassword")
+            keyAlias = signing.getValue("keyAlias")
+            keyPassword = signing.getValue("keyPassword")
+        }
+    }
+
     buildTypes {
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

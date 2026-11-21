@@ -21,6 +21,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       # :koverVerify is the shared-core gate (root project); the Android gate runs in the android job.
       - run: ./gradlew compileCommonMainKotlinMetadata jvmTest :koverVerify --console=plain
+      # Launch prep: Room writes the database schema it compiled to core/data/schemas; it must be the one committed, so a
+      # schema change is always seen in review (and, from the first beta, comes with a version bump and a migration).
+      - name: Database schema is committed
+        run: |
+          git status --porcelain core/data/schemas
+          test -z "$(git status --porcelain core/data/schemas)" || { echo "::error::core/data/schemas changed: commit it (from the beta: bump the version and add a migration)"; exit 1; }
       - if: always()
         run: python3 scripts/test-summary.py jvmTest
 
@@ -64,3 +70,10 @@ jobs:
           -Pvyaya.testJdk=21 --console=plain
       - if: always()
         run: python3 scripts/test-summary.py testPlayDebugUnitTest && python3 scripts/test-summary.py testFullDebugUnitTest
+      # Launch prep: neither release build is debuggable, backs up, asks for the network, exports anything new, or ships
+      # unobfuscated; the classes found by name survive R8.
+      - name: Release build checks
+        run: |
+          for f in play full; do
+            python3 scripts/check-release.py androidApp/build/outputs/apk/$f/release/androidApp-$f-release-unsigned.apk androidApp/build/outputs/mapping/${f}Release/mapping.txt
+          done

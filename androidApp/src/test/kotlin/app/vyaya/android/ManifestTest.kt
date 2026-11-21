@@ -97,6 +97,18 @@ class ManifestTest {
         val other = context.packageManager.queryBroadcastReceivers(android.content.Intent("app.vyaya.action.ADD").setPackage(context.packageName), 0)
         assertTrue(other.isEmpty())
     }
+
+    @Test
+    fun launch_the_app_has_an_adaptive_launcher_icon_with_a_themed_version() {
+        val app = context.applicationInfo
+        assertTrue("no launcher icon", app.icon != 0)
+        assertEquals("mipmap", context.resources.getResourceTypeName(app.icon))
+        val icon = context.resources.getXml(app.icon)
+        val layers = mutableListOf<String>()
+        while (icon.next() != XmlPullParser.END_DOCUMENT) if (icon.eventType == XmlPullParser.START_TAG) layers += icon.name
+        assertEquals(listOf("adaptive-icon", "background", "foreground", "monochrome"), layers)
+    }
 }
+
 
 private object AppWidgetManagerActions { const val UPDATE = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE }
