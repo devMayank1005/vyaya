@@ -110,4 +110,16 @@ class DetectedScreenTest {
         compose.onNodeWithText("No, it's income").performClick()
         assertEquals(listOf("r") to listOf("r"), yes.toList() to no.toList())
     }
+
+    @Test
+    fun launch_sec_001_before_asking_it_says_what_is_read_what_isnt_and_that_nothing_leaves() {
+        compose.setContent { SetupCard(Setup(notificationAccess = false, smsAvailable = false, smsGranted = false), {}, {}, {}) }
+        listOf(
+            "the amount, payee and time",
+            "Notifications from other apps are dropped without being read",
+            "message text isn't kept",
+            "Vyaya has no internet access",
+        ).forEach { compose.onNodeWithText(it, substring = true).assertExists() }
+        compose.onNodeWithText("Allow notification access").assertExists()
+    }
 }

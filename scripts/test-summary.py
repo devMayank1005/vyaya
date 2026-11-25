@@ -8,7 +8,9 @@ import xml.etree.ElementTree as ET
 
 target = sys.argv[1]
 tests = failures = errors = skipped = 0
-for path in glob.glob(f"core/*/build/test-results/{target}/*.xml") + glob.glob(f"androidApp/build/test-results/{target}/*.xml") + glob.glob(f"shared/build/test-results/{target}/*.xml"):
+# connectedAndroidTest writes its results elsewhere (instrumented tests on the minified build, launch report FLAW-001).
+connected = glob.glob("androidApp/build/outputs/androidTest-results/connected/**/*.xml", recursive=True) if target == "connected" else []
+for path in connected + glob.glob(f"core/*/build/test-results/{target}/*.xml") + glob.glob(f"androidApp/build/test-results/{target}/*.xml") + glob.glob(f"shared/build/test-results/{target}/*.xml"):
     suite = ET.parse(path).getroot()
     tests += int(suite.get("tests", 0))
     failures += int(suite.get("failures", 0))

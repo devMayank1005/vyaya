@@ -17,7 +17,10 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // Launch report FLAW-001: instrumented tests run against `staging`, the release setup (R8) signed with the debug key.
+    testBuildType = "staging"
 
     flavorDimensions += "channel"
     productFlavors {
@@ -48,6 +51,13 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("staging") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            proguardFile("staging-rules.pro")
+            testProguardFiles("test-proguard-rules.pro")
         }
     }
 
@@ -80,6 +90,18 @@ dependencies {
     testImplementation(platform(libs.compose.bom))
     testImplementation(libs.compose.ui.test.junit4)
     debugImplementation(libs.compose.ui.test.manifest)
+
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.junit)
+}
+
+// testBuildType = "staging" is for the instrumented tests; AGP 9 would also move the unit tests there. They stay on
+// debug, as before (Robolectric and the screen tests).
+androidComponents {
+    beforeVariants { variant ->
+        variant.hostTests[com.android.build.api.variant.HostTestBuilder.UNIT_TEST_TYPE]?.enable = variant.buildType == "debug"
+    }
 }
 
 // Compile with a full JDK 17 (javac and jlink), whatever JVM runs Gradle.

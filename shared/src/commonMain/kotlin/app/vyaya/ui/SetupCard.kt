@@ -33,8 +33,12 @@ fun SetupCard(
     Card(modifier.fillMaxWidth().padding(16.dp)) {
         Column(Modifier.padding(16.dp)) {
             if (!setup.notificationAccess) {
-                Text("Vyaya reads payment notifications from UPI and bank apps on this phone. Nothing leaves the phone.",
-                    style = MaterialTheme.typography.bodyMedium)
+                // Launch report SEC-001: what notification access is for, before the system's screen (Play's prominent
+                // disclosure). Draft wording, for the user's approval.
+                Text("Vyaya finds your payments in notifications from UPI and bank apps (PhonePe, Google Pay, Paytm, your bank) " +
+                    "and your SMS app. From each, it keeps the amount, payee and time.", style = MaterialTheme.typography.bodyMedium)
+                Text("Notifications from other apps are dropped without being read, and message text isn't kept. " +
+                    "Nothing leaves the phone: Vyaya has no internet access.", Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall)
                 Button(onNotificationAccess, Modifier.padding(top = 8.dp)) { Text("Allow notification access") }
             }
             if (setup.notificationAccess && setup.listenerStopped) {

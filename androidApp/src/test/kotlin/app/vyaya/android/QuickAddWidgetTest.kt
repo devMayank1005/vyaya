@@ -39,7 +39,11 @@ class QuickAddWidgetTest {
     private val now = Instant.parse("2026-11-18T06:30:00Z")
     private val manager = AppWidgetManager.getInstance(context)
 
-    @After fun close() = db.close()
+    /** The redraw a placed widget starts in the background is over before the test goes on, or ends. */
+    @After fun close() { runBlocking { QuickAddWidget.awaitIdle() }; db.close() }
+
+    private fun place(): Int = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        .also { runBlocking { QuickAddWidget.awaitIdle() } }
 
     /** What the widget would show, drawn into a view as the launcher draws it. */
     private fun lineShown(locked: Boolean): String {
@@ -93,7 +97,7 @@ class QuickAddWidgetTest {
 
     @Test
     fun a_placed_widget_is_drawn_by_the_systems_update() {
-        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        val id = place()
         runBlocking { QuickAddWidget.update(context, manager, intArrayOf(id), db, locked = true, now = now) }
         assertEquals(WidgetText.HIDDEN, shadowOf(manager).getViewFor(id).findViewById<TextView>(R.id.widget_line).text.toString())
         assertTrue(shadowOf(manager).getViewFor(id).findViewById<android.view.View>(R.id.widget_add) != null)
@@ -103,7 +107,7 @@ class QuickAddWidgetTest {
 
     @Test
     fun widget_flaw_001_a_redraw_is_booked_for_the_next_midnight_at_home() {
-        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        val id = place()
         runBlocking { QuickAddWidget.update(context, manager, intArrayOf(id), db, locked = false, now = now) }
         val alarms = context.getSystemService(android.app.AlarmManager::class.java)
         val next = shadowOf(alarms).scheduledAlarms.single()
@@ -126,7 +130,7 @@ class QuickAddWidgetTest {
 
     @Test
     fun widget_sec_001_turning_the_lock_on_hides_the_amount_at_once_and_a_failed_update_draws_it_hidden() {
-        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        val id = place()
         fun shown() = shadowOf(manager).getViewFor(id).findViewById<TextView>(R.id.widget_line).text.toString()
         manager.updateAppWidget(intArrayOf(id), QuickAddWidget.views(context, "₹500 left for today"))
         QuickAddWidget.hideNow(context) // synchronous: no database read, nothing to wait for
@@ -145,7 +149,7 @@ class QuickAddWidgetTest {
         gate.complete(Unit)
         runBlocking { jobs.forEach { it.join() } }
         assertTrue("$reads", reads in 1..2)
-        val id = shadowOf(manager).createWidget(QuickAddWidget::class.java, R.layout.widget_quick_add)
+        val id = place()
         assertEquals(listOf(id), QuickAddWidget.placed(context, manager).toList())
     }
 

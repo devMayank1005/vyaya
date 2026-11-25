@@ -8,7 +8,8 @@ for side-loading only: Play allows SMS permissions only for default SMS apps.
       network permission, and export only the allowed components (`scripts/check-release.py`).
 - [x] The classes found by name at run time survive R8: the database, the app class and the activity.
 - [x] The minified release runs (`scripts/release-smoke.sh` on an emulator: Home, Add from the widget's intent, the
-      widget's redraw, the Quick Settings tile). It runs locally for now; it's not in CI.
+      widget's redraw, the Quick Settings tile, one copy of the screen). The backup, CSV, capture, lock and alert
+      paths run as instrumented tests on the minified `staging` build. Both run on release tags (CI) and by hand.
 - [x] Lint passes on both flavors.
 - [x] An adaptive launcher icon with a themed version. **It is a placeholder: replace it with a designed one.**
 - [x] The database schema Room compiled must be the one committed (`core/data/schemas`).
@@ -44,13 +45,16 @@ for side-loading only: Play allows SMS permissions only for default SMS apps.
 
 ## Each release
 1. Bump `versionCode` (by 1 every upload) and `versionName` in `androidApp/build.gradle.kts`.
-2. Build with your key: `./gradlew :androidApp:bundlePlayRelease`. Play takes the `.aab` from
-   `androidApp/build/outputs/bundle/playRelease/`.
-3. Run the checks:
-   - `./gradlew :androidApp:assemblePlayRelease`;
-   - `python3 scripts/check-release.py androidApp/build/outputs/apk/play/release/androidApp-play-release.apk androidApp/build/outputs/mapping/playRelease/mapping.txt`;
-   - `scripts/release-smoke.sh`.
-4. Upload the `.aab` and its `mapping.txt` (so Play's crash reports, which stay in your console, can be read).
+2. Run the minified build on a phone or emulator:
+   - `./gradlew :androidApp:connectedPlayStagingAndroidTest` (backup with and without a password, CSV, capture,
+     app lock and budget alert, on the release setup);
+   - `./gradlew :androidApp:assemblePlayRelease && scripts/release-smoke.sh`.
+
+   Pushing a `v*` tag runs both on CI too (`.github/workflows/release-check.yml`).
+3. `scripts/release.sh` builds the signed `.aab` and runs the release checks on it. It files the `.aab`, its
+   `mapping.txt` and the commit in `~/vyaya-releases/<versionCode>/`, and refuses a `versionCode` already released.
+4. Upload the `.aab` and its `mapping.txt` (Play Console > App bundle explorer), so Play's crash reports, which stay
+   in your console, can be read. Keep `~/vyaya-releases` backed up.
 5. **From the first beta on** (your decision, branch review 2026-11-18): any database change bumps the Room
    version, adds a migration and a migration test. Any change to what a restore accepts follows CLAUDE.md rule 8.7.
 

@@ -108,7 +108,12 @@ class ManifestTest {
         while (icon.next() != XmlPullParser.END_DOCUMENT) if (icon.eventType == XmlPullParser.START_TAG) layers += icon.name
         assertEquals(listOf("adaptive-icon", "background", "foreground", "monochrome"), layers)
     }
-}
 
+    @Test
+    fun launch_pen_001_the_main_screen_is_opened_once_not_stacked() {
+        val main = info.activities.orEmpty().single { it.name == MainActivity::class.java.name }
+        assertEquals(android.content.pm.ActivityInfo.LAUNCH_SINGLE_TOP, main.launchMode)
+    }
+}
 
 private object AppWidgetManagerActions { const val UPDATE = android.appwidget.AppWidgetManager.ACTION_APPWIDGET_UPDATE }

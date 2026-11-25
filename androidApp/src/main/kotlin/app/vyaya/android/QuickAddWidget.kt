@@ -147,6 +147,11 @@ class QuickAddWidget : AppWidgetProvider() {
             }.also { running = it }
         }
 
+        /** Waits until no redraw is running or waiting (tests: a redraw left running would touch the next test's state). */
+        internal suspend fun awaitIdle() {
+            while (true) (synchronized(lock) { running?.takeIf { it.isActive } } ?: return).join()
+        }
+
         /** Redraws this app's placed widgets (after a change in the app, a capture, the setting, or the system asking). */
         fun refresh(context: Context): Job {
             val app = context.applicationContext as VyayaApp

@@ -47,12 +47,22 @@ echo "ok: Add (widget and tile)"
 echo "ok: widget redraw on leaving the app"
 "$ADB" shell cmd statusbar add-tile "$PKG/app.vyaya.android.QuickAddTile" >/dev/null 2>&1 || true
 sleep 4 # the system binds the new tile before it takes clicks
-"$ADB" shell cmd statusbar click-tile "$PKG/app.vyaya.android.QuickAddTile" >/dev/null 2>&1 || fail "the tile couldn't be clicked"
-sleep 3; "$ADB" shell cmd statusbar collapse >/dev/null 2>&1 || true
-UI="$(screen 2)"; echo "$UI" | grep -q 'Add entry' || fail "the tile didn't open the add form: $(echo "$UI" | grep -o 'text="[^"]\+"' | head -8 | tr '\n' ' ')"
+# A freshly booted emulator binds a new tile slowly: try the click a few times.
+OPENED=""
+for attempt in 1 2 3 4; do
+  "$ADB" shell cmd statusbar click-tile "$PKG/app.vyaya.android.QuickAddTile" >/dev/null 2>&1 || true
+  sleep 4; "$ADB" shell cmd statusbar collapse >/dev/null 2>&1 || true
+  UI="$(screen 2)"
+  if echo "$UI" | grep -q 'Add entry'; then OPENED=yes; break; fi
+  "$ADB" shell input keyevent KEYCODE_HOME; sleep 4
+done
+[ -n "$OPENED" ] || fail "the tile didn't open the add form: $(echo "$UI" | grep -o 'text="[^"]\+"' | head -8 | tr '\n' ' ')"
 "$ADB" shell cmd statusbar remove-tile "$PKG/app.vyaya.android.QuickAddTile" >/dev/null 2>&1 || true
+# Launch report PEN-001: an intent with no flags (as another app could send) reuses the screen, never stacks one.
+"$ADB" shell am start -W -a app.vyaya.action.ADD -n "$PKG/app.vyaya.android.MainActivity" >/dev/null
 TASKS="$("$ADB" shell dumpsys activity activities | grep -c "Hist .*$PKG/.android.MainActivity" || true)"
 [ "$TASKS" -le 1 ] || fail "$TASKS copies of the app's screen are stacked"
+echo "ok: one copy of the screen"
 echo "ok: Quick Settings tile"
 
 if "$ADB" logcat -d -b crash | grep -q "$PKG"; then fail "a crash was logged"; fi

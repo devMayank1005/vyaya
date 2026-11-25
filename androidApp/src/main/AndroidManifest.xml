@@ -50,9 +50,12 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- singleTop: an intent to open it (the widget, the tile, another app) reuses the screen on top rather than
+             stacking another copy (launch report PEN-001). -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
