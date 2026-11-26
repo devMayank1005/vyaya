@@ -89,7 +89,7 @@ Your decision: go with the recommendations. Fix 1–7 and 9 before merging; 8 st
 | 5 DATA-005 | ✅ Fixed | `84665d8` | Notifications dated by `Notification.when` when plausible, so an app's update is the same message |
 | 6 FLAW-006 | ✅ Fixed | `0b6e8cb` | Listener state in process memory; rebind on open, checked again after 3 s |
 | 7 SEC-007 | ✅ Fixed | `d323647` | Package checked before any content is read |
-| 8 FLAW-008 | ⏳ Open (Low) | | Reader mode without export-time checks |
+| 8 FLAW-008 | ✅ Fixed | `9e4e73c` | The database's rows are read without export-time checks |
 | 9 FLAW-009 | ✅ Fixed | `bc8da57` | Keyset paging |
 
 **After the fixes:**

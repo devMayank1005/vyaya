@@ -127,4 +127,4 @@ Your decision: go with the recommendations.
 | 6 DATA-006 | ✅ Decided: income (2026-11-26) | Kept as income, as now: spending from the wallet comes as a PhonePe payment (an expense), so the cashback balances it |
 | 7 DATA-007 | ✅ Fixed | A live SMS is dated at receive time, like the import |
 | 8 SEC-008 | ⚠️ Accepted risk | Accepted risk for the beta (your decision, 2026-11-26): the Android sandbox, the phone's own encryption, Auto Backup and device transfer off, and a non-debuggable release (checked by `scripts/check-release.py`) protect it. Revisit before production if the listing is to say "encrypted on your phone" (SQLCipher with a Keystore key) |
-| 9 FLAW-009 | ⏳ Open | Import message counts |
+| 9 FLAW-009 | ✅ Fixed (`4435740`) | "12 added, 3 to check in Detected" |

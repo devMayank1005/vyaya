@@ -170,7 +170,7 @@ duplicate keys and accept a BOM, and encryption before release. Every fix starte
 | 5 SEC-005 | ✅ Fixed `597557a` | Records newer than the export, or an export from the future, are refused (side effect: v2 report FLAW-004) |
 | 6 FLAW-006 | ✅ Fixed `597557a` | Duplicate keys refused in v1 and v2, comparing keys after unescaping |
 | 7 FLAW-007 | ✅ Fixed `597557a` | A leading BOM and CRLF line endings are accepted |
-| 8 FLAW-008 | ⏳ Open | Which settings a merge keeps |
+| 8 FLAW-008 | ✅ Fixed (`34d6a35`) | A merge onto a phone not set up yet takes the backup's settings (backlog 2026-11-26 #2: also when payments were captured first) |
 | 9 SEC-009 | 📅 Agreed: before release | Encrypted backups, built with the app modules (needs platform crypto) |
-| 10–12 | ⏳ Open | Awaiting decision |
+| 10–12 | ✅ Fixed (`9e4e73c`) | SEC-010 invisible and control characters removed wherever text enters and from the CSV; FLAW-011 header labels at most 64 plain characters; FLAW-012 no self-link, no transfer to the same account (the others accepted: the app handles them) |
 | 14 FLAW-014 | ✅ Fixed `597557a` | Compact JSON lines (100k entries: 62 M chars → 46 MB) |

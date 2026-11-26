@@ -188,7 +188,7 @@ Every fix started with a failing test.
 | 11 DATA-011 | ✅ Fixed `f4f84a2` | `TextNormalizer` converts Unicode digits to ASCII |
 | 12 FLAW-012 | ✅ Fixed `f4f84a2` | `AmountReader` drops ₹0 |
 | 13–14 FLAW | ⚠️ Accepted risk (2026-11-26) | No screen parses a negative formatted amount, and `ofRupees` isn't used with negative values |
-| 15–18 | ⏳ Being fixed (backlog 2026-11-26) | FLAW-015 BudgetMonth checks, SEC-016 a no-logging test, SEC-017 supply-chain pinning, FLAW-018 the comment |
+| 15–18 | ✅ Fixed (backlog 2026-11-26) | FLAW-015 `BudgetMonth` refuses an end before its start and a start day outside 1–31 (`9e4e73c`). SEC-016: the policy is no logging, checked in CI (`check-no-logging.py`, `9e4e73c`). SEC-017: actions pinned to SHAs, the wrapper checksum, sha256 dependency verification (`26e346e`, `50f6eb8`, `2466031`). FLAW-018: the comment (`9e4e73c`) |
 | 19 FLAW-019 | ✅ Closed | Safe to spend spreads over the days actually left in the month, whatever its length |
 | 20 SIM-020 | ⏳ Open | rerun once the real anonymised corpus exists |
 
