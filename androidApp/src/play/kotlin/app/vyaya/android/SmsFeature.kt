@@ -8,5 +8,5 @@ object SmsFeature {
     fun available(context: Context): Boolean = false
     val permissions: Array<String> = emptyArray()
     @Suppress("UNUSED_PARAMETER")
-    suspend fun import(context: Context): Int = 0
+    suspend fun import(context: Context): Imported = Imported(0, 0)
 }

@@ -252,8 +252,8 @@ class MainActivity : FragmentActivity() {
 
     private fun importSms() {
         lifecycleScope.launch {
-            val added = SmsFeature.import(applicationContext)
-            Toast.makeText(this@MainActivity, "Added $added payments from the last 30 days", Toast.LENGTH_SHORT).show()
+            val imported = SmsFeature.import(applicationContext)
+            Toast.makeText(this@MainActivity, imported.message(), Toast.LENGTH_SHORT).show()
         }
     }
 }

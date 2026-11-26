@@ -47,15 +47,16 @@ object SmsParts {
 /** SMS through capture. Never throws and logs nothing (an SMS log would hold the user's messages). */
 class SmsCapture(private val capture: CaptureStore, private val clock: () -> Instant, private val zone: () -> TimeZone) {
 
-    /** One arriving SMS (its parts); the number of entries added. */
-    suspend fun handle(parts: List<SmsParts.Part>): Int = process(SmsParts.join(parts, zone()))
+    /** One arriving SMS (its parts): what was added and what waits to be checked. */
+    suspend fun handle(parts: List<SmsParts.Part>): Imported = process(SmsParts.join(parts, zone()))
 
-    /** Whole messages; the number of entries added. */
-    suspend fun process(raws: List<RawMessage>): Int {
-        var added = 0
+    /** Whole messages: entries added, and payments waiting in Detected to be checked (FLAW-009). */
+    suspend fun process(raws: List<RawMessage>): Imported {
+        var added = Imported(0, 0)
         for (raw in raws) {
             try {
-                added += capture.process(raw, clock()).count { it is Outcome.Added }
+                val outcomes = capture.process(raw, clock())
+                added += Imported(outcomes.count { it is Outcome.Added }, outcomes.count { it is Outcome.Review })
             } catch (e: CancellationException) {
                 currentCoroutineContext().ensureActive()
             } catch (e: Exception) {
@@ -93,8 +94,8 @@ class ContentResolverSmsSource(private val resolver: ContentResolver) : SmsSourc
 /** Reads the last [DAYS] days of SMS into capture; reading again adds nothing (de-dup). */
 class SmsImport(private val source: SmsSource, private val capture: SmsCapture, private val io: CoroutineDispatcher = Dispatchers.IO) {
 
-    /** The number of entries added. */
-    suspend fun run(now: Instant): Int {
+    /** What was added, and what waits to be checked. */
+    suspend fun run(now: Instant): Imported {
         val since = (now - DAYS.days).toEpochMilliseconds()
         // FLAW-002: a month of SMS can be thousands of rows; never read them on the main thread. Each stored SMS is whole.
         val messages = withContext(io) { source.inbox(since).flatMap { SmsParts.join(listOf(it), TimeZone.currentSystemDefault()) }.toList() }

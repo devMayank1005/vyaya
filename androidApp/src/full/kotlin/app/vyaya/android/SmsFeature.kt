@@ -10,5 +10,5 @@ object SmsFeature {
     /** Widget report FLAW-004: a tablet or Chromebook without a phone radio installs it, but has no SMS to offer. */
     fun available(context: Context): Boolean = context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY)
     val permissions: Array<String> = arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
-    suspend fun import(context: Context): Int = SmsImport.forApp(context).run(Clock.System.now())
+    suspend fun import(context: Context): Imported = SmsImport.forApp(context).run(Clock.System.now())
 }

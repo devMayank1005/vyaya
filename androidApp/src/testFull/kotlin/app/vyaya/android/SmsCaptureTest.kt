@@ -74,9 +74,9 @@ class SmsCaptureTest {
             }
         }
         val import = SmsImport(source, SmsCapture(capture, { now }, { ist }))
-        assertEquals(1, import.run(now))
+        assertEquals(Imported(added = 1, toCheck = 0), import.run(now))
         assertEquals(ms - 30.days.inWholeMilliseconds, source.since)
-        assertEquals("importing again adds nothing", 0, import.run(now))
+        assertEquals("importing again adds nothing", Imported(0, 0), import.run(now))
         assertEquals(1, EntryStore(db).all().size)
     }
 
@@ -124,6 +124,18 @@ class SmsCaptureTest {
         assertEquals(listOf(ms, ms), parts.map { it.timeMs })
         assertEquals(hdfc, SmsParts.join(parts, ist).single().text)
     }
+    @Test
+    fun capture_flaw_009_the_import_counts_what_waits_to_be_checked_too() = runTest {
+        // From a sender not on the bank list: it waits in Detected to be checked, and the import says so.
+        val unknownBank = hdfc.replace("HDFC Bank", "Some Bank")
+        val source = object : SmsSource {
+            override fun inbox(sinceMs: Long) = sequenceOf(SmsParts.Part("VM-HDFCBK-S", hdfc, ms - 2.days.inWholeMilliseconds),
+                SmsParts.Part("VM-SOMEBK-S", unknownBank, ms - 1.days.inWholeMilliseconds))
+        }
+        val imported = SmsImport(source, SmsCapture(capture, { now }, { ist })).run(now)
+        assertEquals(Imported(added = 1, toCheck = 1), imported)
+        assertEquals("1 added, 1 to check in Detected", imported.message())
+    }
 }
 
 /** A stand-in for the system's SMS provider, honouring the `date >= ?` selection. */
@@ -141,4 +153,5 @@ class FakeSmsProvider(var rows: List<Triple<String, String, Long>> = emptyList()
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, args: Array<out String>?) = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, args: Array<out String>?) = 0
+
 }
