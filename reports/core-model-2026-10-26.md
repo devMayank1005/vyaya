@@ -182,12 +182,14 @@ Every fix started with a failing test.
 | 5 DATA-005 | ✅ Fixed `f4f84a2` | `INR.`, `Rs:` and `₨` are accepted |
 | 6 DATA-006 | ✅ Fixed `f4f84a2` | one trailing `.` or `,` is ignored |
 | 7 DATA-007 | ✅ Verified for tested inputs | normalisation uses common Unicode tables; the same 47 tests (incl. Devanagari/fullwidth digits and NBSP) pass on the iOS simulator in CI (run on `4952b91`) |
-| 8 SEC-008 | ⏳ Open | carried into the `core/backup` threat model |
-| 9 PEN-009 | ⏳ Open | awaiting decision |
+| 8 SEC-008 | ✅ Closed (2026-11-26) | An unknown zone is refused where backups and database rows are read (`Backup.kt` settings and entry zones), so it can't crash a restore or a launch (core-backup SIM-017) |
+| 9 PEN-009 | ✅ Decided (2026-11-26) | Valid dates and times are 2000–2100, refused outside that range at every boundary (`Consistency`); the date picker can't reach beyond it |
 | 10 PEN-010 | ✅ Fixed `53af741` | `MessageParser` rejects texts over 2,000 characters before normalising (`NotTransaction(TOO_LONG)`) |
 | 11 DATA-011 | ✅ Fixed `f4f84a2` | `TextNormalizer` converts Unicode digits to ASCII |
 | 12 FLAW-012 | ✅ Fixed `f4f84a2` | `AmountReader` drops ₹0 |
-| 13–19 | ⏳ Open | awaiting decision (accept the risk or fix with related work) |
+| 13–14 FLAW | ⚠️ Accepted risk (2026-11-26) | No screen parses a negative formatted amount, and `ofRupees` isn't used with negative values |
+| 15–18 | ⏳ Being fixed (backlog 2026-11-26) | FLAW-015 BudgetMonth checks, SEC-016 a no-logging test, SEC-017 supply-chain pinning, FLAW-018 the comment |
+| 19 FLAW-019 | ✅ Closed | Safe to spend spreads over the days actually left in the month, whatever its length |
 | 20 SIM-020 | ⏳ Open | rerun once the real anonymised corpus exists |
 
 New design choice to confirm:

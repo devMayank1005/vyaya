@@ -1,6 +1,6 @@
 # Vyaya privacy policy
 
-**Draft for approval.** Effective: <date of the first beta>.
+**Approved 2026-11-26.** Effective: <date of the first beta>. Fill in the contact email before publishing.
 
 Vyaya is an expense tracker that works entirely on your phone.
 

@@ -1,6 +1,6 @@
 # Play Console: Data safety answers (play build)
 
-**Draft for approval.** Play counts data as "collected" only when it is sent off the device. Data processed only on
+**Approved 2026-11-26.** Play counts data as "collected" only when it is sent off the device. Data processed only on
 the device isn't collected ([Play's definitions](https://support.google.com/googleplay/android-developer/answer/10787469)).
 
 | Question | Answer | Why |

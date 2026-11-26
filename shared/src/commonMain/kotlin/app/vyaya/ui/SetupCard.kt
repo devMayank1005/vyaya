@@ -34,7 +34,7 @@ fun SetupCard(
         Column(Modifier.padding(16.dp)) {
             if (!setup.notificationAccess) {
                 // Launch report SEC-001: what notification access is for, before the system's screen (Play's prominent
-                // disclosure). Draft wording, for the user's approval.
+                // disclosure). Wording approved 2026-11-26.
                 Text("Vyaya finds your payments in notifications from UPI and bank apps (PhonePe, Google Pay, Paytm, your bank) " +
                     "and your SMS app. From each, it keeps the amount, payee and time.", style = MaterialTheme.typography.bodyMedium)
                 Text("Notifications from other apps are dropped without being read, and message text isn't kept. " +

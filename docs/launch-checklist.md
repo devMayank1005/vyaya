@@ -1,6 +1,6 @@
 # Launch checklist: Android beta, then the Play Store
 
-Status: **draft for approval** (2026-11-21). The play build ships to the Play Store. The full build (it reads SMS) is
+Status: **approved 2026-11-26**. The play build ships to the Play Store. The full build (it reads SMS) is
 for side-loading only: Play allows SMS permissions only for default SMS apps.
 
 ## Done in the repository (checked by CI on every PR)
@@ -59,7 +59,7 @@ for side-loading only: Play allows SMS permissions only for default SMS apps.
    version, adds a migration and a migration test. Any change to what a restore accepts follows CLAUDE.md rule 8.7.
 
 ## Before the first beta (open)
-- [ ] You approve the privacy policy and the data-safety answers.
+- [x] You approved the privacy policy and the data-safety answers (2026-11-26). Still to fill in: the contact email.
 - [ ] A designed launcher icon (the placeholder is a white rupee mark on the app's teal).
 - [ ] Your phone check: export a backup from the 7-Nov build, uninstall, install the new build, restore.
 - [ ] Real SMS and UPI samples for the parser's accuracy (the Phase 2 gate: at least 95 %).
