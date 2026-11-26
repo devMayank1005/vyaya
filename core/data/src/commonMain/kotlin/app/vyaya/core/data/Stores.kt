@@ -28,28 +28,29 @@ class EntryStore(private val db: VyayaDatabase) {
 
     suspend fun byId(id: EntityId): Entry? = db.entries().byId(id.value)?.let(::entryOf)
 
-    suspend fun all(): List<Entry> = db.entries().all().map(::entryOf)
+    suspend fun all(): List<Entry> = db.entries().all().mapNotNull(::entryOf)
 
     /** Entries dated between [from] and [to], or carrying one of [refs]. */
     suspend fun nearOrWithRef(from: Instant, to: Instant, refs: List<String>): List<Entry> =
-        db.entries().nearOrWithRef(from.toEpochMilliseconds(), to.toEpochMilliseconds(), refs).map(::entryOf)
+        db.entries().nearOrWithRef(from.toEpochMilliseconds(), to.toEpochMilliseconds(), refs).mapNotNull(::entryOf)
 
     /** Entries dated from [from] (inclusive) to [to] (exclusive). */
     suspend fun inRange(from: Instant, to: Instant): List<Entry> =
-        db.entries().inRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map(::entryOf)
+        db.entries().inRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).mapNotNull(::entryOf)
 
     /** [inRange], again each time the entries change. */
     fun watchRange(from: Instant, to: Instant): Flow<List<Entry>> =
-        db.entries().watchRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map { rows -> rows.map(::entryOf) }
+        db.entries().watchRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map { rows -> rows.mapNotNull(::entryOf) }
 
-    internal suspend fun generated(): List<Entry> = db.entries().generated().map(::entryOf)
+    internal suspend fun generated(): List<Entry> = db.entries().generated().mapNotNull(::entryOf)
 
-    internal suspend fun changedAfter(t: Instant): List<Entry> = db.entries().changedAfter(t.toEpochMilliseconds()).map(::entryOf)
+    internal suspend fun changedAfter(t: Instant): List<Entry> = db.entries().changedAfter(t.toEpochMilliseconds()).mapNotNull(::entryOf)
 
     internal suspend fun delete(ids: List<EntityId>) = BackupStore.lookupChunks(ids.map { it.value }).forEach { db.entries().delete(it) }
 
-    internal fun entryOf(row: EntryRow): Entry =
-        RecordLines.entryOf(row.line) ?: error("entry ${row.id}: its stored line is not a valid entry") // written only by save()
+    /** Null, and reported as damage (DATA-006), when the stored line doesn't read back: only save() writes rows. */
+    internal fun entryOf(row: EntryRow): Entry? =
+        RecordLines.entryOf(row.line) ?: null.also { db.reportDamaged("entry:${row.id}") }
 
     companion object {
         fun row(e: Entry) = EntryRow(

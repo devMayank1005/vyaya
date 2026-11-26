@@ -91,9 +91,11 @@ class SnapshotStoreTest {
 
     @Test
     fun a_damaged_row_is_reported_not_hidden() = runTest {
+        // core-data DATA-006: reported (the database's damaged rows, shown on Home), left out, and no longer fatal.
         val db = inMemoryDatabase()
         db.records().upsert(listOf(RecordRow("person", "x", "{not a person", false, 0)))
-        kotlin.test.assertFailsWith<IllegalStateException> { SnapshotStore(db).load() }
+        assertEquals(emptyList(), SnapshotStore(db).load().people)
+        assertEquals(setOf("person:x"), db.damaged.value)
         db.close()
     }
 }

@@ -147,6 +147,8 @@ private fun VyayaRootContent(
     /** A split payment being deleted, and the shares friends owe for it: the question whether those go too. */
     var takingBack by remember { mutableStateOf<Pair<Entry, List<app.vyaya.core.model.LedgerEntry>>?>(null) }
     var adding by remember { mutableStateOf(false) }
+    // core-data DATA-006: rows found damaged by any read; Home says so.
+    val damaged by remember(db) { app.vyaya.core.data.DamageReport(db).rows }.collectAsState()
     val quickLook = remember(db) { app.vyaya.core.data.QuickLookStore(db) }
     var widgetAmounts by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(db) { widgetAmounts = quickLook.showAmounts() }
@@ -508,6 +510,7 @@ private fun VyayaRootContent(
                     HomeScreen(v, categories.associate { it.id to it.name }, { monthOffset-- }, { monthOffset++ },
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings, safe = safe,
                         salaryDay = salaryDay,
+                        damaged = damaged.size, onRepair = { tab = Tab.BACKUP },
                         onStartOn = { d -> safely { monthStarts.setStartDay(d, today); monthStartVersion++; catalogVersion++ } },
                         onNotNow = { d -> safely { monthStarts.notNow(d); monthStartVersion++ } },
                         // Budgets report #3: only the current month; a past month would be shown against today's limits.

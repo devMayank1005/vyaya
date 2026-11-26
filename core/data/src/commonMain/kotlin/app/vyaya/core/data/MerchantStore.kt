@@ -58,7 +58,7 @@ class MerchantStore(private val db: VyayaDatabase, private val limits: BackupLim
         val entries = EntryStore(db)
         return db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
-                val open = db.entries().uncategorisedFor(key, type.name).map(entries::entryOf)
+                val open = db.entries().uncategorisedFor(key, type.name).mapNotNull(entries::entryOf)
                 entries.save(open.map { it.copy(categoryId = categoryId, updatedAt = now) })
                 open.size
             }

@@ -1,6 +1,7 @@
 package app.vyaya.core.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.update
 
 import androidx.room.ConstructedBy
 import androidx.room.Dao
@@ -280,6 +281,21 @@ abstract class VyayaDatabase : RoomDatabase() {
     abstract fun records(): RecordDao
     abstract fun prefs(): PrefDao
     abstract fun ignored(): IgnoredDao
+
+    /**
+     * core-data DATA-006: rows found not to read back ("kind:id"; "entry:<id>", "category:<id>", "settings:settings").
+     * They are left out of every read, and Home says so; rows are written only by this app, so this means damage.
+     */
+    val damaged: kotlinx.coroutines.flow.StateFlow<Set<String>> get() = damagedRows
+
+    private val damagedRows = kotlinx.coroutines.flow.MutableStateFlow(emptySet<String>())
+
+    internal fun reportDamaged(key: String) {
+        if (key !in damagedRows.value) damagedRows.update { it + key }
+    }
+
+    /** After a restore: forget what was found; the next reads report whatever is still damaged. */
+    internal fun clearDamaged() { damagedRows.value = emptySet() }
 }
 
 // Room's compiler supplies the actual implementations for each platform.

@@ -10,6 +10,7 @@ import app.vyaya.core.backup.DecodeResult
 import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.ExportMeta
 import app.vyaya.core.backup.RecordCounts
+import app.vyaya.core.backup.BackupCodec
 import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.backup.Restore
 import app.vyaya.core.backup.RestoreMode
@@ -42,7 +43,27 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
 
     private val snapshots = SnapshotStore(db)
 
-    suspend fun export(meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult =
+    suspend fun export(meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult {
+        // DATA-006: a damaged row would make the streaming writer refuse the whole backup. When a quick pass finds one,
+        // the readable rest is written instead, with references to what was lost detached (rare: held in memory).
+        if (damageFound()) return BackupCodec.write(snapshots.loadForExport(), meta, limits, sink)
+        return streamed(meta, limits, sink)
+    }
+
+    /** Whether any stored row doesn't read back (records, then entries page by page); found rows are reported. */
+    private suspend fun damageFound(): Boolean {
+        snapshots.loadRecords()
+        var after = ""
+        while (true) {
+            val rows = db.entries().pageAfter(after, pageSize)
+            rows.forEach { row -> if (RecordLines.entryOf(row.line) == null) db.reportDamaged("entry:${row.id}") }
+            if (rows.size < pageSize) break
+            after = rows.last().id
+        }
+        return db.damaged.value.isNotEmpty()
+    }
+
+    private suspend fun streamed(meta: ExportMeta, limits: BackupLimits, sink: (String) -> Unit): EncodeResult =
         db.useReaderConnection { transactor ->
             transactor.deferredTransaction {
                 val records = db.records()
@@ -82,6 +103,8 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
         return try {
             db.useWriterConnection { transactor ->
                 transactor.immediateTransaction {
+                    // FLAW-008: asked before the backup's entries are written (they are, while the file is read).
+                    val hadEntries = db.entries().count() > 0
                     if (mode == RestoreMode.REPLACE) {
                         db.records().clear()
                         db.entries().clear()
@@ -105,8 +128,10 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
                     snapshots.saveInTransaction(
                         if (mode == RestoreMode.REPLACE) records
                         // The other records are few: merged in memory by the same rule (entries were merged above).
-                        else Restore.apply(snapshots.loadInTransaction(withEntries = false), records, mode),
+                        else Restore.apply(snapshots.loadInTransaction(withEntries = false), records, mode, currentHasEntries = hadEntries),
                     )
+                    // DATA-006: what was found damaged may be repaired now; reads find whatever still is.
+                    db.clearDamaged()
                     RestoreResult.Restored(result.meta)
                 }
             }
@@ -118,10 +143,11 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
     /** Replace writes them all; merge keeps the current copy unless the backup's is newer ([Restore.apply]'s rule). */
     private suspend fun writeEntries(entries: List<Entry>, mode: RestoreMode) {
         val incoming = if (mode == RestoreMode.REPLACE) entries else {
-            val current = lookupChunks(entries.map { it.id.value }).flatMap { db.entries().byIds(it) }.associate { row ->
-                // Compared exactly (the line keeps the full time), not by the millisecond column.
-                row.id to (RecordLines.entryOf(row.line) ?: error("the database holds a record that is not valid")).updatedAt
-            }
+            // Compared exactly (the line keeps the full time), not by the millisecond column. A stored row that can't be
+            // read (DATA-006) counts as absent: the backup's copy repairs it.
+            val current = lookupChunks(entries.map { it.id.value }).flatMap { db.entries().byIds(it) }.mapNotNull { row ->
+                RecordLines.entryOf(row.line)?.let { row.id to it.updatedAt }
+            }.toMap()
             entries.filter { e -> current[e.id.value].let { it == null || e.updatedAt > it } }
         }
         db.entries().upsert(incoming.map(EntryStore::row))

@@ -127,7 +127,8 @@ fun BackupScreen(
             OutlinedButton({ plainAsked = false; onExport(null) }, enabled = !busy) { Text("Export without a password") }
         }
         Text("Restore", style = MaterialTheme.typography.titleMedium)
-        Text("Merge keeps what's on this phone; where both have the same entry, the newer change wins.", style = MaterialTheme.typography.bodySmall)
+        Text("Merge keeps what's on this phone; where both have the same entry, the newer change wins. On a phone with " +
+            "nothing logged yet, it also takes the backup's settings (month start and time zone).", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.MERGE) }, enabled = !busy) { Text("Restore: merge") }
         Text("Replace removes everything on this phone and puts the backup in its place.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton({ onRestore(RestoreMode.REPLACE) }, enabled = !busy) { Text("Restore: replace everything") }

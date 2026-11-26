@@ -66,6 +66,9 @@ fun HomeScreen(
     salaryDay: Int? = null,
     onStartOn: (Int) -> Unit = {},
     onNotNow: (Int) -> Unit = {},
+    /** core-data DATA-006: how many stored records couldn't be read, and where to back up or restore. */
+    damaged: Int = 0,
+    onRepair: () -> Unit = {},
     /** This month's budgets against its spending (Phase 3), fullest first. */
     budgets: List<app.vyaya.core.engine.BudgetProgress> = emptyList(),
 ) {
@@ -88,6 +91,7 @@ fun HomeScreen(
                     }
                     SummaryCard(view, monthEnd, savings, safe, note)
                 }
+                if (damaged > 0) item(key = "damaged") { DamagedCard(damaged, onRepair) }
                 salaryDay?.let { d -> item(key = "salary-day") { SalaryDayCard(d, onStartOn, onNotNow) } }
                 if (budgets.isNotEmpty()) item(key = "budgets") {
                     // Budgets report #5: what this month's spending put in no budget.
@@ -193,6 +197,21 @@ private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: android
             else -> Text("Nothing left to spend this month", style = MaterialTheme.typography.bodyMedium, color = onCard)
         }
         budgetNote?.let { Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = overspent) }
+    }
+}
+
+/** core-data DATA-006: stored records that couldn't be read are left out; the rest can be backed up, or a backup restored. */
+@Composable
+private fun DamagedCard(count: Int, onRepair: () -> Unit) {
+    val error = MaterialTheme.colorScheme.error
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (count == 1) "1 record couldn't be read and is left out" else "$count records couldn't be read and are left out",
+                style = MaterialTheme.typography.titleSmall, color = error)
+            Text("Part of Vyaya's data on this phone is damaged. Everything else works. Export a backup of the rest now, " +
+                "or restore your last backup.", style = MaterialTheme.typography.bodySmall)
+            androidx.compose.material3.Button(onRepair) { Text("Backup and restore") }
+        }
     }
 }
 

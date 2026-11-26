@@ -519,7 +519,10 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 }
 
 enum class RestoreMode {
-    /** Keep everything; where both sides have the same record, the newer `updatedAt` wins. Current settings stay. */
+    /**
+     * Keep everything; where both sides have the same record, the newer `updatedAt` wins. Current settings stay, except
+     * on a phone not set up yet (default settings, nothing logged), which takes the backup's ([Restore.takesSettings]).
+     */
     MERGE,
 
     /** The backup replaces all current data and settings. */
@@ -528,10 +531,17 @@ enum class RestoreMode {
 
 object Restore {
 
-    fun apply(current: Snapshot, backup: Snapshot, mode: RestoreMode): Snapshot = when (mode) {
+    /**
+     * core-backup FLAW-008: merging onto a phone not set up yet (still the default settings, and nothing logged) takes
+     * the backup's settings, so months start on the same day and in the same zone as on the old phone. A phone in use
+     * keeps its own.
+     */
+    fun takesSettings(current: Settings, hasEntries: Boolean): Boolean = !hasEntries && current == Settings.default()
+
+    fun apply(current: Snapshot, backup: Snapshot, mode: RestoreMode, currentHasEntries: Boolean = current.entries.isNotEmpty()): Snapshot = when (mode) {
         RestoreMode.REPLACE -> backup.normalized()
         RestoreMode.MERGE -> Snapshot(
-            settings = current.settings,
+            settings = if (takesSettings(current.settings, currentHasEntries)) backup.settings else current.settings,
             accounts = merge(current.accounts, backup.accounts, { it.id }, { it.updatedAt }),
             categories = merge(current.categories, backup.categories, { it.id }, { it.updatedAt }),
             entries = merge(current.entries, backup.entries, { it.id }, { it.updatedAt }),
