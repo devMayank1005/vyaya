@@ -113,19 +113,33 @@ class CaptureTest {
     }
 
     @Test
-    fun dedup_sim_006_a_bank_sms_naming_another_payee_isnt_taken_for_an_apps_payment() {
-        // From the simulation: ₹20 to Apollo Pharmacy (PhonePe), and a minute earlier ₹20 to Meena Stores (bank SMS only).
-        val apollo = phonepe("20", to = "Apollo Pharmacy", time = t0 + 1.minutes)
-        val meena = RawMessage(Source.SMS, "VM-HDFCBK-S",
-            "Sent Rs.20.00 From HDFC Bank A/C *1234 To Meena Stores On 26/10/26 Ref 429100000003 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0))
-        assertEquals(2, captureAll(listOf(apollo, meena)).first.size)
-        // The same payment named a little differently still is one: "Apollo Pharmacy" and "apollopharmacy@okaxis", "Uber" and "Uber India".
-        val apolloSms = RawMessage(Source.SMS, "VM-HDFCBK-S",
-            "Sent Rs.20.00 From HDFC Bank A/C *1234 To apollopharmacy@okaxis On 26/10/26 Ref 429100000004 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0 + 2.minutes))
-        assertEquals(1, captureAll(listOf(apollo, apolloSms)).first.size)
-        val uber = RawMessage(Source.SMS, "VM-HDFCBK-S",
-            "Sent Rs.20.00 From HDFC Bank A/C *1234 To Uber On 26/10/26 Ref 429100000005 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0 + 2.minutes))
+    fun dedup_sim_006_with_two_same_amount_payments_each_bank_sms_finds_its_own_by_payee() {
+        // ₹20 to Apollo Pharmacy and ₹20 to Meena Stores a minute apart (PhonePe), then both banks' SMS in the other order.
+        fun sms(to: String, ref: String, time: Instant) = RawMessage(Source.SMS, "VM-HDFCBK-S",
+            "Sent Rs.20.00 From HDFC Bank A/C *1234 To $to On 26/10/26 Ref $ref Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(time))
+        var entries = listOf<Entry>()
+        for (m in listOf(phonepe("20", to = "Apollo Pharmacy", time = t0), phonepe("20", to = "Meena Stores", time = t0 + 1.minutes),
+            sms("Meena Stores", "429100000003", t0 + 2.minutes), sms("apollopharmacy@okaxis", "429100000004", t0 + 3.minutes))) {
+            when (val o = Capture.process(m, entries, now)) {
+                is Outcome.Added -> entries = entries + o.entry
+                is Outcome.Duplicate -> o.update?.let { u -> entries = entries.map { if (it.id == u.id) u else it } }
+                else -> {}
+            }
+        }
+        assertEquals(2, entries.size)
+        assertEquals(mapOf<String?, String?>("Apollo Pharmacy" to "429100000004", "Meena Stores" to "429100000003"), entries.associate { it.payee to it.upiRef })
+        // "Uber" and "Uber India" are one payee.
+        val uber = sms("Uber", "429100000005", t0 + 2.minutes)
         assertEquals(1, captureAll(listOf(phonepe("20", to = "Uber India", time = t0 + 1.minutes), uber)).first.size)
+    }
+
+    @Test
+    fun backlog_data_001_a_bank_sms_with_the_merchants_legal_name_is_the_same_payment_when_its_the_only_one() {
+        // Card and UPI SMS can name the merchant's company, not its brand: Swiggy is "BUNDL TECHNOLOGIES".
+        val swiggy = phonepe("450", to = "Swiggy", time = t0)
+        val legal = RawMessage(Source.SMS, "VM-HDFCBK-S",
+            "Sent Rs.450.00 From HDFC Bank A/C *1234 To BUNDL TECHNOLOGIES On 26/10/26 Ref 429100000009 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0 + 2.minutes))
+        assertEquals(1, captureAll(listOf(swiggy, legal)).first.size, "one payment, not two")
     }
 
     @Test

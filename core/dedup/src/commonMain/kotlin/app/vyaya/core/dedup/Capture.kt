@@ -138,7 +138,9 @@ object Capture {
         if (filled.payee == null && entry.payee != null) filled = filled.copy(payee = entry.payee)
         // SIM-006 (filters-dedup report): the bank's reference, so a second payment's SMS of the same amount minutes
         // later (another reference) isn't taken for this one.
-        if (filled.upiRef == null && entry.upiRef != null) filled = filled.copy(upiRef = entry.upiRef)
+        // Only when the names agree: a reference taken from a message naming another payee could keep that payee's own
+        // later SMS apart (a double) if the two were different payments after all.
+        if (filled.upiRef == null && entry.upiRef != null && !payeesConflict(entry, existing)) filled = filled.copy(upiRef = entry.upiRef)
         if (filled.categoryId == null) merchants.categoryFor(filled)?.let { filled = filled.copy(categoryId = it) }
         return if (filled == existing) null else filled.copy(updatedAt = now)
     }
@@ -172,7 +174,7 @@ object Capture {
     private fun duplicateOf(c: Entry, existing: List<Entry>): EntityId? = existing.firstOrNull { e ->
         // DATA-001: a transfer stands for both of its sides; re-reading either side's message is the same money.
         e.source in CAPTURED && e.type == EntryType.TRANSFER && c.upiRef != null && e.upiRef == c.upiRef && e.amount == c.amount
-    }?.id ?: existing.firstOrNull { e ->
+    }?.id ?: existing.filter { e ->
         e.source in CAPTURED && e.type == c.type && e.amount == c.amount && when {
             e.upiRef != null && c.upiRef != null -> e.upiRef == c.upiRef // the bank's reference decides
             e.source == c.source && e.occurredAt.instant == c.occurredAt.instant -> true // the same message read again
@@ -183,10 +185,13 @@ object Capture {
                 EntrySource.SMS -> within(e, c, SAME_SMS_AGAIN) && (e.payee == null && c.payee == null || samePayee(e, c))
                 else -> false
             }
-            // The app's notification and the bank's SMS; SIM-006: not when both name payees that clearly differ.
-            else -> within(e, c, SAME_PAYMENT) && !payeesConflict(e, c)
+            else -> within(e, c, SAME_PAYMENT) // the app's notification and the bank's SMS
         }
-    }?.id
+    }.let { same ->
+        // Backlog 2026-11-26 #1: banks name merchants differently ("BUNDL TECHNOLOGIES" for Swiggy), so the payee only
+        // chooses among several same-amount candidates; one candidate is the same payment, whatever its name.
+        (same.firstOrNull { !payeesConflict(it, c) } ?: same.firstOrNull())?.id
+    }
 
     /**
      * The other side of a transfer between the user's own accounts: a captured entry with the same bank reference and
