@@ -71,7 +71,8 @@ data class Snapshot(
 data class ExportMeta(val appVersion: String, val createdOn: String, val exportedAt: Instant)
 
 sealed interface DecodeResult {
-    data class Success(val snapshot: Snapshot, val meta: ExportMeta) : DecodeResult
+    /** [cleaned]: names, notes and tags that had hidden or control characters, removed (SEC-010; backlog #5). */
+    data class Success(val snapshot: Snapshot, val meta: ExportMeta, val cleaned: Int = 0) : DecodeResult
 
     /**
      * Human-readable problems, at most [BackupCodec.MAX_PROBLEMS] plus a "… more" line. Nothing is restored.
@@ -92,6 +93,21 @@ sealed interface DecodeResult {
  * 2000–2100 (PEN-009), invalid records, duplicates and dangling references.
  */
 object BackupCodec {
+
+    /**
+     * FLAW-011 / backlog #6: an app version or platform label a backup may carry: at most 64 letters, digits, dots,
+     * dashes, underscores, pluses or spaces. The writer, the reader and a test of the app's own version name share it.
+     */
+    fun isPlainLabel(value: String): Boolean = value.length <= MAX_LABEL && value.all { it.isLetterOrDigit() || it in LABEL_PUNCTUATION }
+
+    /** The problems with [meta]'s labels, in the reader's words; empty when both are plain. */
+    internal fun labelProblems(meta: ExportMeta): List<String> = listOfNotNull(
+        meta.appVersion.takeUnless(::isPlainLabel)?.let { labelProblem("app version") },
+        meta.createdOn.takeUnless(::isPlainLabel)?.let { labelProblem("created on") },
+    )
+
+    internal fun labelProblem(what: String) =
+        "The file's $what isn't a plain label of at most $MAX_LABEL letters, digits, dots, dashes or spaces"
 
     const val FORMAT = "vyaya-backup"
 
@@ -118,7 +134,7 @@ object BackupCodec {
      */
     fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult {
         // DATA-001: refuse here, with the reader's own words, anything a restore would refuse.
-        val problems = Consistency.problems(snapshot, meta.exportedAt)
+        val problems = BackupCodec.labelProblems(meta) + Consistency.problems(snapshot, meta.exportedAt)
         if (problems.isNotEmpty()) {
             val shown = problems.take(MAX_PROBLEMS).joinToString("; ")
             val more = if (problems.size > MAX_PROBLEMS) "; … and ${problems.size - MAX_PROBLEMS} more problems" else ""
@@ -247,8 +263,8 @@ object BackupCodec {
  * kept: they wait in [streamed] (dates already moved when restoring anyway) for the caller to take, and only what
  * the checks across records need stays (PEN-003).
  */
-private const val MAX_LABEL = 64
-private const val LABEL_PUNCTUATION = "._- +"
+internal const val MAX_LABEL = 64
+internal const val LABEL_PUNCTUATION = "._- +"
 
 /**
  * [checkExportTime] false: reading the database's own rows (RecordLines), which have no export time to be newer than
@@ -260,6 +276,11 @@ internal class Reader(
 ) {
 
     private val problems = mutableListOf<String>()
+
+    /** Text fields that had hidden or control characters, removed (backlog #5: the restore says so). */
+    private var cleaned = 0
+
+    private fun clean(text: String): String = text.cleanText().also { if (it != text) cleaned++ }
 
     /** How many problems were found so far (a test checks the database mode builds none). */
     internal val problemCount: Int get() = problems.size
@@ -332,20 +353,20 @@ internal class Reader(
 
     fun account(a: AccountV1) {
         val id = id(a.id, "account") ?: return
-        record("account $id") { Account(id, a.name.cleanText(), enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
+        record("account $id") { Account(id, clean(a.name), enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
             ?.also { notAfterExport("account", id, it.updatedAt) }?.let(accounts::add)
     }
 
     fun category(c: CategoryV1) {
         val id = id(c.id, "category") ?: return
         if (id.value.startsWith("sys.")) { problems += "category $id: system ids are built in and can't be stored"; return }
-        record("category $id") { Category(id, c.name.cleanText(), enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
+        record("category $id") { Category(id, clean(c.name), enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
             ?.also { notAfterExport("category", id, it.updatedAt) }?.let(categories::add)
     }
 
     fun person(p: PersonV1) {
         val id = id(p.id, "person") ?: return
-        record("person $id") { Person(id, p.name.cleanText(), instant(p.updatedAt, "updatedAt")!!, p.deleted) }
+        record("person $id") { Person(id, clean(p.name), instant(p.updatedAt, "updatedAt")!!, p.deleted) }
             ?.also { notAfterExport("person", id, it.updatedAt) }?.let(people::add)
     }
 
@@ -355,7 +376,7 @@ internal class Reader(
             val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
             Entry(
                 id, enum<EntryType>(e.type, "type"), Money(e.amountPaise), CapturedAt(instant(e.occurredAt, "occurredAt")!!, zone),
-                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee?.cleanText(), e.note.cleanText(), e.tags.map { it.cleanText() },
+                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee?.let(::clean), clean(e.note), e.tags.map(::clean),
                 enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
                 e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, month(it.month, "generatedBy month")!!) },
@@ -387,7 +408,7 @@ internal class Reader(
         record("recurring rule $id") {
             RecurringRule(
                 id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, "category"),
-                ref(r.accountId, "account"), r.note.cleanText(), r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
+                ref(r.accountId, "account"), clean(r.note), r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
             )
         }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
     }
@@ -397,7 +418,7 @@ internal class Reader(
         record("ledger entry $id") {
             LedgerEntry(
                 id, ref(l.personId, "person")!!, enum<LedgerDirection>(l.direction, "direction"), Money(l.amountPaise),
-                date(l.date, "date")!!, l.note.cleanText(), l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+                date(l.date, "date")!!, clean(l.note), l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
                 l.paymentId?.let { ref(it, "payment") },
             )
         }?.also { notAfterExport("ledger entry", id, it.updatedAt) }?.let(ledger::add)
@@ -411,7 +432,7 @@ internal class Reader(
 
     fun merchantRule(m: MerchantRuleV1) {
         val id = id(m.id, "merchant rule") ?: return
-        record("merchant rule $id") { MerchantRule(id, m.payee.cleanText(), ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
+        record("merchant rule $id") { MerchantRule(id, clean(m.payee), ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
             ?.also { notAfterExport("merchant rule", id, it.updatedAt) }?.let(merchantRules::add)
     }
 
@@ -419,9 +440,7 @@ internal class Reader(
     fun finish(appVersion: String, createdOn: String): DecodeResult {
         // core-backup FLAW-011: the file's metadata is a short, plain label in every version (v1 has no line cap).
         fun label(value: String, what: String) {
-            if (value.length > MAX_LABEL || !value.all { it.isLetterOrDigit() || it in LABEL_PUNCTUATION }) {
-                problems += "The file's $what isn't a plain label of at most $MAX_LABEL letters, digits, dots, dashes or spaces"
-            }
+            if (!BackupCodec.isPlainLabel(value)) problems += BackupCodec.labelProblem(what)
         }
         label(appVersion, "app version"); label(createdOn, "created on")
         val refs = if (streamEntries) entryRefs else entries.map(EntryRef::of)
@@ -450,10 +469,10 @@ internal class Reader(
                 budgets.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 merchantRules.map { MerchantRule(it.id, it.payee, it.categoryId, it.updatedAt.shiftedBack(), it.deleted) },
             ).normalized()
-            return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now))
+            return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now), cleaned)
         }
         val snapshot = Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, merchantRules).normalized()
-        return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt))
+        return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt), cleaned)
     }
 
     /**

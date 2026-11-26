@@ -46,6 +46,13 @@ sealed interface BackupStatus {
     data class OfferSettings(val question: String) : BackupStatus
 }
 
+/** Backlog 2026-11-26 #5: what a restore says, with how many names or notes had hidden characters removed. */
+fun restoredMessage(cleaned: Int): String = when (cleaned) {
+    0 -> "Restored"
+    1 -> "Restored. 1 name or note had hidden characters, removed."
+    else -> "Restored. $cleaned names or notes had hidden characters, removed."
+}
+
 /** Backlog 2026-11-26 #2: what the backup's settings would change, in plain words. */
 fun settingsQuestion(backup: app.vyaya.core.model.Settings, current: app.vyaya.core.model.Settings, today: kotlinx.datetime.LocalDate): String {
     fun day(s: app.vyaya.core.model.Settings) = ordinal(s.monthSchedule.monthContaining(today).startDay)

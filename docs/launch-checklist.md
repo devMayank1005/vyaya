@@ -58,6 +58,22 @@ for side-loading only: Play allows SMS permissions only for default SMS apps.
 5. **From the first beta on** (your decision, branch review 2026-11-18): any database change bumps the Room
    version, adds a migration and a migration test. Any change to what a restore accepts follows CLAUDE.md rule 8.7.
 
+## Updating a dependency (backlog 2026-11-26 #7)
+Every artifact Gradle downloads is checked against `gradle/verification-metadata.xml` (SEC-017), so a version bump
+fails the build until its checksums are added:
+1. Change the version in `gradle/libs.versions.toml`.
+2. Regenerate from an empty cache, as CI starts, running the tasks CI runs:
+   ```
+   GRADLE_USER_HOME=$(mktemp -d) ./gradlew --write-verification-metadata sha256 jvmTest compileKotlinIosSimulatorArm64 \
+     :androidApp:testPlayDebugUnitTest :androidApp:lintPlayDebug :androidApp:assemblePlayRelease :androidApp:assemblePlayStaging
+   ```
+3. Add the downloads that exist per operating system by hand, from the publisher's checksum:
+   - `aapt2` (Linux): Google Maven publishes a `.sha256`;
+   - `kotlin-native-prebuilt` (linux-x86_64): Maven Central publishes a `.sha1` to check the download against.
+4. Read the diff (new components only, for the versions you changed), then push. CI fails if anything is missing.
+
+Pinned CI actions follow the same idea: change the commit SHA, with the tag in the comment (`check-pinned.py`).
+
 ## Before the first beta (open)
 - [x] You approved the privacy policy and the data-safety answers (2026-11-26). Still to fill in: the contact email.
 - [ ] A designed launcher icon (the placeholder is a white rupee mark on the app's teal).

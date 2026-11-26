@@ -114,7 +114,10 @@ class BackupV4Test {
                 else -> it
             }
         }
-        val read = assertIs<DecodeResult.Success>(BackupCodec.decode(signed(dirty), NOW)).snapshot
+        val result = assertIs<DecodeResult.Success>(BackupCodec.decode(signed(dirty), NOW))
+        assertEquals(2, result.cleaned, "backlog #5: how many names or notes had hidden characters removed")
+        assertEquals(0, assertIs<DecodeResult.Success>(BackupCodec.decode(signed(golden), NOW)).cleaned)
+        val read = result.snapshot
         assertEquals("Rahul", read.people.single().name)
         assertEquals("Dinner", read.ledger.single().note)
     }
@@ -129,5 +132,12 @@ class BackupV4Test {
         assertEquals(emptyList(), problems(signed(withHeader("0.1.0-full", createdOn = "ios"))), "real values pass")
         val v1 = BackupCodec.encodeV1(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_SNAPSHOT.entries), META.copy(appVersion = "x".repeat(1_000)))
         assertTrue(problems(v1).any { "app version" in it }, "v1 files too")
+    }
+
+    @Test
+    fun backlog_flaw_005_the_writer_refuses_a_label_the_reader_would_refuse() {
+        val failure = assertIs<EncodeResult.Failure>(BackupCodec.write(snapshot, META.copy(appVersion = "1.2 (beta)")) {})
+        assertTrue("app version" in failure.reason, failure.reason)
+        assertTrue(BackupCodec.isPlainLabel("0.1.0-full") && !BackupCodec.isPlainLabel("1.2 (beta)"))
     }
 }

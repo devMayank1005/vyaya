@@ -60,4 +60,15 @@ class DamagedDataScreenTest {
         compose.onNodeWithText("Backup and restore").performScrollTo().performClick()
         waitFor("Backup and privacy")
     }
+
+    @Test
+    fun backlog_flaw_004_damaged_settings_are_named_with_what_they_fell_back_to() {
+        runBlocking {
+            AppOpen(db).run(now)
+            db.records().upsert(listOf(app.vyaya.core.data.RecordRow("settings", "settings", "{broken", false, 0)))
+        }
+        compose.setContent { VyayaRoot(db, Setup(true, false, false), clock = { now }, opened = 1, onNotificationAccess = {}, onSms = {}, onImport = {}) }
+        waitFor("Your settings couldn't be read")
+        waitFor("your month starts on the 1st, in Asia/Kolkata")
+    }
 }

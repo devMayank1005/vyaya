@@ -65,6 +65,7 @@ class MainActivity : FragmentActivity() {
 
     /** Backlog #2: the backup's settings offered after a merge, until answered. */
     private var offeredSettings: app.vyaya.core.model.Settings? = null
+    private var restoredCleaned = 0
 
     /** The password chosen for the export being saved; cleared once used. */
     private var exportPassword: CharArray? = null
@@ -245,10 +246,11 @@ class MainActivity : FragmentActivity() {
                     val db = (application as VyayaApp).database
                     result.offeredSettings?.let { offered ->
                         offeredSettings = offered
+                        restoredCleaned = result.cleaned
                         val current = app.vyaya.core.data.SnapshotStore(db).loadRecords().settings
                         val today = kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now().toString())
                         BackupStatus.OfferSettings(app.vyaya.ui.settingsQuestion(offered, current, today))
-                    } ?: BackupStatus.Done("Restored")
+                    } ?: BackupStatus.Done(app.vyaya.ui.restoredMessage(result.cleaned))
                 }
                 is RestoreResult.Refused -> when {
                     result.needsPassword() -> BackupStatus.NeedsPassword(null)
@@ -268,7 +270,8 @@ class MainActivity : FragmentActivity() {
             if (use) app.vyaya.core.data.BackupStore(db).useSettings(offered)
             AppOpen(db).run(Clock.System.now())
             opened.intValue++
-            backupStatus.value = BackupStatus.Done(if (use) "Restored, with the backup's settings" else "Restored; this phone's settings kept")
+            val cleanedNote = app.vyaya.ui.restoredMessage(restoredCleaned).removePrefix("Restored")
+            backupStatus.value = BackupStatus.Done((if (use) "Restored, with the backup's settings" else "Restored; this phone's settings kept") + cleanedNote)
         }
     }
 

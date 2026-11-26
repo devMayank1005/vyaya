@@ -515,6 +515,12 @@ private fun VyayaRootContent(
                         onAdd = { adding = true }, onOpen = { editing = it }, today = today, monthEnd = end, savings = savings, safe = safe,
                         salaryDay = salaryDay,
                         damaged = damaged.size, onRepair = { tab = Tab.BACKUP },
+                        // Backlog #4: the settings fell back to the defaults; say so, with what they are now.
+                        damagedSettings = if ("settings:settings" in damaged) settings?.let { st ->
+                            "Your settings couldn't be read, so the defaults are used: your month starts on the " +
+                                "${ordinal(st.monthSchedule.monthContaining(today).startDay)}, in ${st.homeTimeZone.id}. Set them again in Settings, " +
+                                "or restore your last backup."
+                        } else null,
                         onStartOn = { d -> safely { monthStarts.setStartDay(d, today); monthStartVersion++; catalogVersion++ } },
                         onNotNow = { d -> safely { monthStarts.notNow(d); monthStartVersion++ } },
                         // Budgets report #3: only the current month; a past month would be shown against today's limits.

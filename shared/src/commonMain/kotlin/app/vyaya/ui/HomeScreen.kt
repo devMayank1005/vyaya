@@ -69,6 +69,8 @@ fun HomeScreen(
     /** core-data DATA-006: how many stored records couldn't be read, and where to back up or restore. */
     damaged: Int = 0,
     onRepair: () -> Unit = {},
+    /** Backlog #4: when the settings were among them, what they fell back to. */
+    damagedSettings: String? = null,
     /** This month's budgets against its spending (Phase 3), fullest first. */
     budgets: List<app.vyaya.core.engine.BudgetProgress> = emptyList(),
 ) {
@@ -91,7 +93,7 @@ fun HomeScreen(
                     }
                     SummaryCard(view, monthEnd, savings, safe, note)
                 }
-                if (damaged > 0) item(key = "damaged") { DamagedCard(damaged, onRepair) }
+                if (damaged > 0) item(key = "damaged") { DamagedCard(damaged, onRepair, damagedSettings) }
                 salaryDay?.let { d -> item(key = "salary-day") { SalaryDayCard(d, onStartOn, onNotNow) } }
                 if (budgets.isNotEmpty()) item(key = "budgets") {
                     // Budgets report #5: what this month's spending put in no budget.
@@ -202,7 +204,7 @@ private fun SafeLine(safe: app.vyaya.core.engine.SafeToSpend, overspent: android
 
 /** core-data DATA-006: stored records that couldn't be read are left out; the rest can be backed up, or a backup restored. */
 @Composable
-private fun DamagedCard(count: Int, onRepair: () -> Unit) {
+private fun DamagedCard(count: Int, onRepair: () -> Unit, settings: String? = null) {
     val error = MaterialTheme.colorScheme.error
     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -210,6 +212,7 @@ private fun DamagedCard(count: Int, onRepair: () -> Unit) {
                 style = MaterialTheme.typography.titleSmall, color = error)
             Text("Part of Vyaya's data on this phone is damaged. Everything else works. Export a backup of the rest now, " +
                 "or restore your last backup.", style = MaterialTheme.typography.bodySmall)
+            settings?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = error) }
             androidx.compose.material3.Button(onRepair) { Text("Backup and restore") }
         }
     }

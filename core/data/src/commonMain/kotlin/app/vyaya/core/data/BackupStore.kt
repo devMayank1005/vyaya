@@ -23,7 +23,7 @@ import kotlin.time.Instant
 /** What a restore did. */
 sealed interface RestoreResult {
     /** [offeredSettings]: the backup's settings, to offer (merge onto a phone still on the defaults), or null. */
-    data class Restored(val meta: ExportMeta, val offeredSettings: Settings? = null) : RestoreResult
+    data class Restored(val meta: ExportMeta, val offeredSettings: Settings? = null, val cleaned: Int = 0) : RestoreResult
 
     /** Nothing was changed; [failure] says why (and whether "Restore anyway" may be offered). */
     data class Refused(val failure: DecodeResult.Failure) : RestoreResult
@@ -136,7 +136,7 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
                     // DATA-006: what was found damaged may be repaired now; reads find whatever still is.
                     db.clearDamaged()
                     val offer = current?.takeIf { Restore.offersSettings(it, records.settings, hadEntries) }?.let { records.settings }
-                    RestoreResult.Restored(result.meta, offer)
+                    RestoreResult.Restored(result.meta, offer, result.cleaned)
                 }
             }
         } catch (refusal: Refusal) {
