@@ -42,6 +42,15 @@ sealed interface BackupStatus {
     data class Refused(val failure: DecodeResult.Failure) : BackupStatus
     /** The picked backup is password-protected; [problem] when the last password didn't open it. */
     data class NeedsPassword(val problem: String?) : BackupStatus
+    /** Restored by merging; the backup's settings differ and this phone is still on the defaults: ask (backlog #2). */
+    data class OfferSettings(val question: String) : BackupStatus
+}
+
+/** Backlog 2026-11-26 #2: what the backup's settings would change, in plain words. */
+fun settingsQuestion(backup: app.vyaya.core.model.Settings, current: app.vyaya.core.model.Settings, today: kotlinx.datetime.LocalDate): String {
+    fun day(s: app.vyaya.core.model.Settings) = ordinal(s.monthSchedule.monthContaining(today).startDay)
+    return "Use the backup's settings? There your month starts on the ${day(backup)}, in ${backup.homeTimeZone.id}; " +
+        "here on the ${day(current)}, in ${current.homeTimeZone.id}."
 }
 
 /**
@@ -70,6 +79,8 @@ fun BackupScreen(
     /** Phase 3: whether the home-screen widget shows safe to spend (off by default; never while the lock is on). */
     widgetAmounts: Boolean = false,
     onWidgetAmounts: (Boolean) -> Unit = {},
+    /** Backlog #2: the answer to [BackupStatus.OfferSettings] (true: use the backup's settings). */
+    onSettingsChoice: (Boolean) -> Unit = {},
 ) {
     val busy = status is BackupStatus.Working
     var secretText by remember { mutableStateOf("") }
@@ -86,6 +97,14 @@ fun BackupScreen(
             BackupStatus.Idle -> {}
             is BackupStatus.Working -> { CircularProgressIndicator(); Text(status.what) }
             is BackupStatus.Done -> Text(status.message, color = MaterialTheme.colorScheme.primary)
+            is BackupStatus.OfferSettings -> {
+                Text("Restored.", color = MaterialTheme.colorScheme.primary)
+                Text(status.question, style = MaterialTheme.typography.bodyMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button({ onSettingsChoice(true) }) { Text("Use the backup's") }
+                    OutlinedButton({ onSettingsChoice(false) }) { Text("Keep this phone's") }
+                }
+            }
             is BackupStatus.Refused -> {
                 Text("Nothing was changed:", color = MaterialTheme.colorScheme.error)
                 status.failure.problems.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }

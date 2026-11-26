@@ -63,6 +63,9 @@ class MainActivity : FragmentActivity() {
         restore = { input, mode, anyway, password -> backupFiles().restore(input, mode, Clock.System.now(), anyway, password) },
     )
 
+    /** Backlog #2: the backup's settings offered after a merge, until answered. */
+    private var offeredSettings: app.vyaya.core.model.Settings? = null
+
     /** The password chosen for the export being saved; cleared once used. */
     private var exportPassword: CharArray? = null
 
@@ -162,6 +165,7 @@ class MainActivity : FragmentActivity() {
                     },
                     onRestoreAnyway = { AppLock.confirmThen(authenticator, "Restore a backup over your data") { showRestore { restoreFlow.restoreAnyway() } } },
                     addRequests = addRequests.intValue,
+                    onSettingsChoice = { use -> answerSettings(use) },
                     onWidgetChanged = { QuickAddWidget.refresh(this) },
                 )
             }
@@ -238,7 +242,13 @@ class MainActivity : FragmentActivity() {
                     // A restore can bring rules, settings and change times: run the open routine on what is now there.
                     AppOpen((application as VyayaApp).database).run(Clock.System.now())
                     opened.intValue++
-                    BackupStatus.Done("Restored")
+                    val db = (application as VyayaApp).database
+                    result.offeredSettings?.let { offered ->
+                        offeredSettings = offered
+                        val current = app.vyaya.core.data.SnapshotStore(db).loadRecords().settings
+                        val today = kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now().toString())
+                        BackupStatus.OfferSettings(app.vyaya.ui.settingsQuestion(offered, current, today))
+                    } ?: BackupStatus.Done("Restored")
                 }
                 is RestoreResult.Refused -> when {
                     result.needsPassword() -> BackupStatus.NeedsPassword(null)
@@ -247,6 +257,18 @@ class MainActivity : FragmentActivity() {
                 }
                 null -> BackupStatus.Working("Pick the backup file again")
             }
+        }
+    }
+
+    /** Backlog #2: the backup's settings used, or this phone's kept; then the open routine runs on what is there. */
+    private fun answerSettings(use: Boolean) {
+        val offered = offeredSettings.also { offeredSettings = null } ?: return
+        lifecycleScope.launch {
+            val db = (application as VyayaApp).database
+            if (use) app.vyaya.core.data.BackupStore(db).useSettings(offered)
+            AppOpen(db).run(Clock.System.now())
+            opened.intValue++
+            backupStatus.value = BackupStatus.Done(if (use) "Restored, with the backup's settings" else "Restored; this phone's settings kept")
         }
     }
 

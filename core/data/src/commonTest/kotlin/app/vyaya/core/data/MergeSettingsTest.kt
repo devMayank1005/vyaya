@@ -64,4 +64,34 @@ class MergeSettingsTest {
         assertEquals(2, EntryStore(used).all().size)
         used.close()
     }
+
+    @Test
+    fun backlog_flaw_002_payments_captured_before_the_restore_get_the_question_not_silence() = runTest {
+        val backup = oldPhoneBackup()
+        val phone = inMemoryDatabase()
+        AppOpen(phone).run(t + 1.days)
+        // Notification access came first: a payment was captured before the restore.
+        CaptureStore(phone).process(app.vyaya.core.parser.RawMessage(app.vyaya.core.parser.Source.NOTIFICATION, "com.phonepe.app", "₹120 paid to Swiggy",
+            CapturedAt(t + 1.days, TimeZone.of("Asia/Kolkata"))), t + 1.days)
+        val restored = assertIs<RestoreResult.Restored>(BackupStore(phone).restore(backup.lineSequence(), RestoreMode.MERGE, t + 2.days))
+        assertEquals(Settings.default(), SnapshotStore(phone).loadRecords().settings, "not changed without asking")
+        val offered = restored.offeredSettings!!
+        assertEquals(ny, offered.homeTimeZone)
+        BackupStore(phone).useSettings(offered)
+        assertEquals(ny to 25, SnapshotStore(phone).loadRecords().settings.let { it.homeTimeZone to it.monthSchedule.monthContaining(LocalDate(2026, 11, 26)).startDay })
+        assertEquals(2, EntryStore(phone).all().size, "nothing else changes")
+        phone.close()
+    }
+
+    @Test
+    fun backlog_flaw_002_no_question_when_this_phone_was_set_up_or_the_settings_are_the_same() = runTest {
+        val backup = oldPhoneBackup()
+        val used = inMemoryDatabase()
+        AppOpen(used).run(t + 1.days)
+        MonthStartStore(used).setStartDay(10, LocalDate(2026, 11, 27))
+        EntryStore(used).save(listOf(Entry(EntityId.random(), EntryType.EXPENSE, Money(50_00), CapturedAt(t, TimeZone.of("Asia/Kolkata")), null, null,
+            null, "Chai", "", emptyList(), EntrySource.MANUAL, null, emptyList(), null, t, t, false)))
+        assertEquals(null, assertIs<RestoreResult.Restored>(BackupStore(used).restore(backup.lineSequence(), RestoreMode.MERGE, t + 2.days)).offeredSettings)
+        used.close()
+    }
 }

@@ -81,8 +81,10 @@ fun VyayaRoot(
     addRequests: Int = 0,
     /** The widget's "show amounts" setting changed: redraw the widget. */
     onWidgetChanged: () -> Unit = {},
+    /** Backlog #2: the answer when the backup's settings are offered after a merge. */
+    onSettingsChoice: (Boolean) -> Unit = {},
 ) = VyayaTheme {
-    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected, onBudgetSet = onBudgetSet, addRequests = addRequests, onWidgetChanged = onWidgetChanged)
+    VyayaRootContent(db = db, setup = setup, clock = clock, opened = opened, onNotificationAccess = onNotificationAccess, onSms = onSms, onImport = onImport, onBattery = onBattery, zone = zone, backupStatus = backupStatus, onExport = onExport, onExportCsv = onExportCsv, onRestore = onRestore, onRestoreAnyway = onRestoreAnyway, onPassword = onPassword, locked = locked, onUnlock = onUnlock, lockEnabled = lockEnabled, onLockEnabled = onLockEnabled, deviceSecure = deviceSecure, onRulesChanged = onRulesChanged, showDetected = showDetected, onBudgetSet = onBudgetSet, addRequests = addRequests, onWidgetChanged = onWidgetChanged, onSettingsChoice = onSettingsChoice)
 }
 
 @Composable
@@ -116,6 +118,8 @@ private fun VyayaRootContent(
     addRequests: Int = 0,
     /** The widget's "show amounts" setting changed: redraw the widget. */
     onWidgetChanged: () -> Unit = {},
+    /** Backlog #2: the answer when the backup's settings are offered after a merge. */
+    onSettingsChoice: (Boolean) -> Unit = {},
 ) {
     // Kept across the lock: a request is answered once, after unlocking, not again at every unlock.
     var addHandled by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(0) }
@@ -544,6 +548,7 @@ private fun VyayaRootContent(
                 Tab.BACKUP -> BackupScreen(backupStatus, onExport, onRestore, onRestoreAnyway, onPassword, lockEnabled, onLockEnabled, deviceSecure,
                     onCategories = { catalogView = "categories" }, onAccounts = { catalogView = "accounts" }, onExportCsv = onExportCsv,
                     onPayees = { catalogView = "payees" }, onBudgets = { catalogView = "budgets" },
+                    onSettingsChoice = { use -> onSettingsChoice(use); catalogVersion++ },
                     widgetAmounts = widgetAmounts,
                     onWidgetAmounts = { on -> safely { quickLook.setShowAmounts(on); widgetAmounts = on; onWidgetChanged() } },
                     startDay = records?.settings?.let { st -> st.monthSchedule.monthContaining(clock().toLocalDateTime(st.homeTimeZone).date).startDay },

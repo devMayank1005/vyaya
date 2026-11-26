@@ -560,6 +560,14 @@ object Restore {
      */
     fun takesSettings(current: Settings, hasEntries: Boolean): Boolean = !hasEntries && current == Settings.default()
 
+    /**
+     * Backlog 2026-11-26 #2: payments captured before the restore (notification access usually comes first) count as
+     * "logged", so the backup's settings aren't taken by themselves; they are offered, when this phone is still on the
+     * defaults and the backup's differ.
+     */
+    fun offersSettings(current: Settings, backup: Settings, hasEntries: Boolean): Boolean =
+        hasEntries && current == Settings.default() && backup != current
+
     fun apply(current: Snapshot, backup: Snapshot, mode: RestoreMode, currentHasEntries: Boolean = current.entries.isNotEmpty()): Snapshot = when (mode) {
         RestoreMode.REPLACE -> backup.normalized()
         RestoreMode.MERGE -> Snapshot(

@@ -11,6 +11,7 @@ import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.ExportMeta
 import app.vyaya.core.backup.RecordCounts
 import app.vyaya.core.backup.BackupCodec
+import app.vyaya.core.model.Settings
 import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.backup.Restore
 import app.vyaya.core.backup.RestoreMode
@@ -21,7 +22,8 @@ import kotlin.time.Instant
 
 /** What a restore did. */
 sealed interface RestoreResult {
-    data class Restored(val meta: ExportMeta) : RestoreResult
+    /** [offeredSettings]: the backup's settings, to offer (merge onto a phone still on the defaults), or null. */
+    data class Restored(val meta: ExportMeta, val offeredSettings: Settings? = null) : RestoreResult
 
     /** Nothing was changed; [failure] says why (and whether "Restore anyway" may be offered). */
     data class Refused(val failure: DecodeResult.Failure) : RestoreResult
@@ -125,6 +127,7 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
                     batch += result.snapshot.entries // a v1 file comes whole
                     flush()
                     val records = result.snapshot.copy(entries = emptyList())
+                    val current = if (mode == RestoreMode.MERGE) snapshots.loadInTransaction(withEntries = false).settings else null
                     snapshots.saveInTransaction(
                         if (mode == RestoreMode.REPLACE) records
                         // The other records are few: merged in memory by the same rule (entries were merged above).
@@ -132,13 +135,17 @@ class BackupStore(private val db: VyayaDatabase, private val pageSize: Int = 2_0
                     )
                     // DATA-006: what was found damaged may be repaired now; reads find whatever still is.
                     db.clearDamaged()
-                    RestoreResult.Restored(result.meta)
+                    val offer = current?.takeIf { Restore.offersSettings(it, records.settings, hadEntries) }?.let { records.settings }
+                    RestoreResult.Restored(result.meta, offer)
                 }
             }
         } catch (refusal: Refusal) {
             RestoreResult.Refused(refusal.failure)
         }
     }
+
+    /** The backup's settings the user chose to use ([RestoreResult.Restored.offeredSettings]); nothing else changes. */
+    suspend fun useSettings(settings: Settings) = snapshots.save(Snapshot.empty().copy(settings = settings))
 
     /** Replace writes them all; merge keeps the current copy unless the backup's is newer ([Restore.apply]'s rule). */
     private suspend fun writeEntries(entries: List<Entry>, mode: RestoreMode) {
