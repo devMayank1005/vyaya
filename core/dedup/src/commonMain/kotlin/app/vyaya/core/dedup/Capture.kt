@@ -128,13 +128,16 @@ object Capture {
 
     /**
      * What a later message for the same payment adds to [existing] (only captured entries are duplicates): the account
-     * (catalog report #4) and the payee when it had none; then, with no category yet, the payee's remembered one
+     * (catalog report #4), the payee and the bank reference (SIM-006) when it had none; then, with no category yet, the payee's remembered one
      * (merchant memory report #1). Null when it adds nothing.
      */
     private fun filledFrom(entry: Entry, existing: Entry, now: Instant, merchants: MerchantMemory): Entry? {
         var filled = existing
         if (filled.accountId == null && entry.accountId != null) filled = filled.copy(accountId = entry.accountId)
         if (filled.payee == null && entry.payee != null) filled = filled.copy(payee = entry.payee)
+        // SIM-006 (filters-dedup report): the bank's reference, so a second payment's SMS of the same amount minutes
+        // later (another reference) isn't taken for this one.
+        if (filled.upiRef == null && entry.upiRef != null) filled = filled.copy(upiRef = entry.upiRef)
         if (filled.categoryId == null) merchants.categoryFor(filled)?.let { filled = filled.copy(categoryId = it) }
         return if (filled == existing) null else filled.copy(updatedAt = now)
     }
@@ -179,7 +182,8 @@ object Capture {
                 EntrySource.SMS -> within(e, c, SAME_SMS_AGAIN) && (e.payee == null && c.payee == null || samePayee(e, c))
                 else -> false
             }
-            else -> within(e, c, SAME_PAYMENT) // the app's notification and the bank's SMS
+            // The app's notification and the bank's SMS; SIM-006: not when both name payees that clearly differ.
+            else -> within(e, c, SAME_PAYMENT) && !payeesConflict(e, c)
         }
     }?.id
 
@@ -210,6 +214,17 @@ object Capture {
     private fun samePayee(a: Entry, b: Entry): Boolean {
         val x = payeeKey(a.payee ?: return false)
         return x.isNotEmpty() && x == payeeKey(b.payee ?: return false)
+    }
+
+    /**
+     * Both name a payee, and neither name starts with the other: "Meena Stores" and "Apollo Pharmacy". Banks shorten
+     * and reformat names ("Uber" and "Uber India", "apollopharmacy@okaxis"), so a shorter form of the same name is no
+     * conflict, and a message without a payee never is.
+     */
+    private fun payeesConflict(a: Entry, b: Entry): Boolean {
+        val x = a.payee?.let(::payeeKey).orEmpty()
+        val y = b.payee?.let(::payeeKey).orEmpty()
+        return x.isNotEmpty() && y.isNotEmpty() && !x.startsWith(y) && !y.startsWith(x)
     }
 
     fun payeeKey(payee: String): String = payee.substringBefore('@').lowercase().filter { it.isLetterOrDigit() }

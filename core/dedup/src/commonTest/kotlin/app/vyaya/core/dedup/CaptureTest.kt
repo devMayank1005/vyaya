@@ -97,6 +97,38 @@ class CaptureTest {
     }
 
     @Test
+    fun dedup_sim_006_a_second_payments_sms_doesnt_merge_into_the_first_ones_entry() {
+        // Payment A: PhonePe's notification, then its bank SMS (reference …01). Payment B: the same amount minutes later,
+        // the bank SMS only (reference …02). B's SMS must not be taken for A's again.
+        var entries = listOf<Entry>()
+        for (m in listOf(phonepe("20", time = t0), hdfcSms("20.00", "429100000001", t0 + 1.minutes), hdfcSms("20.00", "429100000002", t0 + 3.minutes))) {
+            when (val o = Capture.process(m, entries, now)) {
+                is Outcome.Added -> entries = entries + o.entry
+                is Outcome.Duplicate -> o.update?.let { u -> entries = entries.map { if (it.id == u.id) u else it } }
+                else -> {}
+            }
+        }
+        assertEquals(2, entries.size)
+        assertEquals(setOf("429100000001", "429100000002"), entries.mapNotNull { it.upiRef }.toSet(), "A keeps its SMS's reference")
+    }
+
+    @Test
+    fun dedup_sim_006_a_bank_sms_naming_another_payee_isnt_taken_for_an_apps_payment() {
+        // From the simulation: ₹20 to Apollo Pharmacy (PhonePe), and a minute earlier ₹20 to Meena Stores (bank SMS only).
+        val apollo = phonepe("20", to = "Apollo Pharmacy", time = t0 + 1.minutes)
+        val meena = RawMessage(Source.SMS, "VM-HDFCBK-S",
+            "Sent Rs.20.00 From HDFC Bank A/C *1234 To Meena Stores On 26/10/26 Ref 429100000003 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0))
+        assertEquals(2, captureAll(listOf(apollo, meena)).first.size)
+        // The same payment named a little differently still is one: "Apollo Pharmacy" and "apollopharmacy@okaxis", "Uber" and "Uber India".
+        val apolloSms = RawMessage(Source.SMS, "VM-HDFCBK-S",
+            "Sent Rs.20.00 From HDFC Bank A/C *1234 To apollopharmacy@okaxis On 26/10/26 Ref 429100000004 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0 + 2.minutes))
+        assertEquals(1, captureAll(listOf(apollo, apolloSms)).first.size)
+        val uber = RawMessage(Source.SMS, "VM-HDFCBK-S",
+            "Sent Rs.20.00 From HDFC Bank A/C *1234 To Uber On 26/10/26 Ref 429100000005 Not You? Call 18002586161/SMS BLOCK UPI to 7308080808", at(t0 + 2.minutes))
+        assertEquals(1, captureAll(listOf(phonepe("20", to = "Uber India", time = t0 + 1.minutes), uber)).first.size)
+    }
+
+    @Test
     fun re_reading_either_sms_of_a_transfer_adds_nothing() { // DATA-001 (branch review)
         val sent = RawMessage(Source.SMS, "AX-HDFCBK-S",
             "Sent Rs.14999.00\nFrom HDFC Bank A/C *1234\nTo Rahul Sharma\nOn 30/10/26\nRef 219300000004\nNot You?", at(t0))
@@ -234,7 +266,7 @@ class CaptureTest {
         val fromApp = assertIs<Outcome.Added>(Capture.process(phonepe("250"), emptyList(), now, listOf(hdfc))).entry
         val dup = assertIs<Outcome.Duplicate>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(fromApp), now, listOf(hdfc)))
         assertEquals(fromApp.id, dup.of)
-        assertEquals(fromApp.copy(accountId = hdfc.id, updatedAt = now), dup.update)
+        assertEquals(fromApp.copy(accountId = hdfc.id, upiRef = "429112345678", updatedAt = now), dup.update) // and the reference (SIM-006)
         val typed = fromApp.copy(source = EntrySource.MANUAL)
         assertIs<Outcome.Review>(Capture.process(hdfcSms("250.00", "429112345678", t0 + 1.minutes), listOf(typed), now, listOf(hdfc)),
             "an entry the user typed is only a possible duplicate, and is left as they made it")
