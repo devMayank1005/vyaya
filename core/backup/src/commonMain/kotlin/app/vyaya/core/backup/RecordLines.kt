@@ -51,7 +51,7 @@ object RecordLines {
     /** The entry in [line]; null when it isn't a valid entry line. */
     fun entryOf(line: String): Entry? {
         val record = decode(line, "entry", EntryV3.serializer()) ?: return null
-        return Reader(Instant.fromEpochSeconds(0)).run { entry(record); entriesRead.singleOrNull() }
+        return Reader(Instant.fromEpochSeconds(0), checkExportTime = false).run { entry(record); entriesRead.singleOrNull() }
     }
 
     fun of(snapshot: Snapshot): SnapshotLines {
@@ -63,7 +63,7 @@ object RecordLines {
             entries = c.entries.map { line("entry", EntryV3.serializer(), it) },
             recurring = c.recurring.map { line("recurring", RecurringV3.serializer(), it) },
             people = c.people.map { line("person", PersonV1.serializer(), it) },
-            ledger = c.ledger.map { line("ledger", LedgerV1.serializer(), it) },
+            ledger = c.ledger.map { line("ledger", LedgerV4.serializer(), it) },
             budgets = c.budgets.map { line("budget", BudgetV1.serializer(), it) },
             merchantRules = c.merchantRules.map { line("merchantRule", MerchantRuleV1.serializer(), it) },
         )
@@ -72,7 +72,7 @@ object RecordLines {
     /** The snapshot in [lines]; null when any line isn't a valid record of its type, or the settings aren't valid. */
     fun snapshotOf(lines: SnapshotLines): Snapshot? {
         val settings = runCatching { json.decodeFromString(SettingsLine.serializer(), lines.settings) }.getOrNull() ?: return null
-        val reader = Reader(Instant.fromEpochSeconds(0))
+        val reader = Reader(Instant.fromEpochSeconds(0), checkExportTime = false)
         reader.header(settings.currency, anyTime.toString(), settings.settings)
         fun <T> each(list: List<String>, type: String, serializer: KSerializer<T>, read: (T) -> Unit): Boolean =
             list.all { line -> decode(line, type, serializer)?.also(read) != null }
@@ -81,7 +81,7 @@ object RecordLines {
             each(lines.entries, "entry", EntryV3.serializer(), reader::entry) &&
             each(lines.recurring, "recurring", RecurringV3.serializer(), reader::recurring) &&
             each(lines.people, "person", PersonV1.serializer(), reader::person) &&
-            each(lines.ledger, "ledger", LedgerV1.serializer(), reader::ledger) &&
+            each(lines.ledger, "ledger", LedgerV4.serializer(), reader::ledger) &&
             each(lines.budgets, "budget", BudgetV1.serializer(), reader::budget) &&
             each(lines.merchantRules, "merchantRule", MerchantRuleV1.serializer(), reader::merchantRule)
         if (!decoded) return null

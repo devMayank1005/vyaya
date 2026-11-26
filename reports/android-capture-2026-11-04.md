@@ -124,7 +124,7 @@ Your decision: go with the recommendations.
 | 3 SEC-003 | ✅ Fixed (digests pending) | `AppVerifier`: a known certificate digest decides; otherwise Play Store, Galaxy Store or preinstalled. Unverified notifications go to Review (`UNVERIFIED_APP`). `<queries>` names every listed app. **The digest list is still empty**: to be read from the real apps on your phone |
 | 4 FLAW-004 | ⏳ Open | Needs a check on your phone (which SMS app gives people info) |
 | 5 FLAW-005 | ✅ Fixed | `ListenerHealth`; rebind when dropped and when the app opens; the setup card shows a stopped listener with Battery settings |
-| 6 DATA-006 | ⏳ Open | Wallet cashback: your decision (counted as income for now) |
+| 6 DATA-006 | ✅ Decided: income (2026-11-26) | Kept as income, as now: spending from the wallet comes as a PhonePe payment (an expense), so the cashback balances it |
 | 7 DATA-007 | ✅ Fixed | A live SMS is dated at receive time, like the import |
-| 8 SEC-008 | ⏳ Open | Encryption at rest, with the app lock |
-| 9 FLAW-009 | ⏳ Open | Import message counts |
+| 8 SEC-008 | ⚠️ Accepted risk | Accepted risk for the beta (your decision, 2026-11-26): the Android sandbox, the phone's own encryption, Auto Backup and device transfer off, and a non-debuggable release (checked by `scripts/check-release.py`) protect it. Revisit before production if the listing is to say "encrypted on your phone" (SQLCipher with a Keystore key) |
+| 9 FLAW-009 | ✅ Fixed (`4435740`) | "12 added, 3 to check in Detected" |

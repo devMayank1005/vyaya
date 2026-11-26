@@ -33,12 +33,24 @@ import kotlin.time.Clock
 
 class MainActivity : FragmentActivity() {
 
-    private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = SmsFeature.AVAILABLE, smsGranted = false))
+    private val setup = mutableStateOf(Setup(notificationAccess = false, smsAvailable = false, smsGranted = false))
 
     /** Counts the open routine's runs, so the screens read categories and settings again after it. */
     private val opened = mutableIntStateOf(0)
 
     private val backupStatus = mutableStateOf<BackupStatus>(BackupStatus.Idle)
+
+    /** Phase 3: the widget's Add and the Quick Settings tile ask for the add form; each request opens it once. */
+    private val addRequests = mutableIntStateOf(0)
+
+    private fun askedToAdd(intent: Intent?) {
+        if (intent?.action == QuickAddWidget.ACTION_ADD) addRequests.intValue++
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        askedToAdd(intent)
+    }
 
     // SEC-003: the app lock, and the phone's own check before a backup leaves or replaces the data.
     private val appLock by lazy { (application as VyayaApp).appLock }
@@ -50,6 +62,10 @@ class MainActivity : FragmentActivity() {
         pick = { restoreFrom.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
         restore = { input, mode, anyway, password -> backupFiles().restore(input, mode, Clock.System.now(), anyway, password) },
     )
+
+    /** Backlog #2: the backup's settings offered after a merge, until answered. */
+    private var offeredSettings: app.vyaya.core.model.Settings? = null
+    private var restoredCleaned = 0
 
     /** The password chosen for the export being saved; cleared once used. */
     private var exportPassword: CharArray? = null
@@ -68,6 +84,29 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private val exportCsvTo = registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+        uri ?: return@registerForActivityResult
+        backupStatus.value = BackupStatus.Working("Writing the spreadsheet…")
+        lifecycleScope.launch {
+            val written = runCatching { contentResolver.openOutputStream(uri)?.use { backupFiles().exportCsv(it) } }.getOrNull()
+            backupStatus.value = if (written != null) BackupStatus.Done(csvSavedMessage(written))
+            else {
+                // csv report #2: no cut-off spreadsheet is left in the user's folder looking complete.
+                runCatching { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) }
+                BackupStatus.Refused(DecodeResult.Failure(listOf("The spreadsheet couldn't be written. Nothing was saved.")))
+            }
+        }
+    }
+
+    /** Budgets report #2: asked once a budget exists, so the request comes with a reason the user just saw. */
+    private val askToNotify = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private fun askToNotifyIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) askToNotify.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     private val restoreFrom: ActivityResultLauncher<Array<String>> = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         showRestore { restoreFlow.picked(uri) }
@@ -81,6 +120,7 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as VyayaApp
+        if (savedInstanceState == null) askedToAdd(intent) // not again when re-created (rotation)
         setContent {
             MaterialTheme {
                 VyayaRoot(
@@ -97,6 +137,13 @@ class MainActivity : FragmentActivity() {
                             exportTo.launch("vyaya-backup-${java.time.LocalDate.now()}.${if (password != null) "vyaya" else "json"}")
                         }
                     },
+                    // The spreadsheet has no password, so it leaves the app only after the phone's own check (SEC-003).
+                    onExportCsv = {
+                        AppLock.confirmThen(authenticator, "Export your entries as a spreadsheet") {
+                            exportCsvTo.launch("vyaya-entries-${java.time.LocalDate.now()}.csv")
+                        }
+                    },
+                    onBudgetSet = ::askToNotifyIfNeeded,
                     onPassword = { pw -> showRestore { restoreFlow.withPassword(pw) } },
                     locked = locked.value,
                     onUnlock = ::askToUnlock,
@@ -110,12 +157,17 @@ class MainActivity : FragmentActivity() {
                             appLock.enabled = on
                             lockEnabled.value = on
                             secureWindow(on)
+                            // Amounts never show on the widget while the lock is on: hidden at once (widget report #2).
+                            if (on) QuickAddWidget.hideNow(this) else QuickAddWidget.refresh(this)
                         }
                     },
                     onRestore = { mode ->
                         AppLock.confirmThen(authenticator, "Restore a backup over your data") { restoreFlow.start(mode) }
                     },
                     onRestoreAnyway = { AppLock.confirmThen(authenticator, "Restore a backup over your data") { showRestore { restoreFlow.restoreAnyway() } } },
+                    addRequests = addRequests.intValue,
+                    onSettingsChoice = { use -> answerSettings(use) },
+                    onWidgetChanged = { QuickAddWidget.refresh(this) },
                 )
             }
         }
@@ -131,6 +183,8 @@ class MainActivity : FragmentActivity() {
     }
 
     override fun onStop() {
+        // Whatever changed in the app shows on the widget (when it shows amounts at all).
+        QuickAddWidget.refresh(this)
         appLock.onStop()
         super.onStop()
     }
@@ -167,7 +221,7 @@ class MainActivity : FragmentActivity() {
         setup.value = Setup(
             notificationAccess = access,
             listenerStopped = if (checkListener) ListenerHealth(this).status(access) == ListenerHealth.Status.STOPPED else setup.value.listenerStopped,
-            smsAvailable = SmsFeature.AVAILABLE,
+            smsAvailable = SmsFeature.available(this),
             smsGranted = SmsFeature.permissions.isNotEmpty() &&
                 SmsFeature.permissions.all { ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED },
         )
@@ -189,7 +243,14 @@ class MainActivity : FragmentActivity() {
                     // A restore can bring rules, settings and change times: run the open routine on what is now there.
                     AppOpen((application as VyayaApp).database).run(Clock.System.now())
                     opened.intValue++
-                    BackupStatus.Done("Restored")
+                    val db = (application as VyayaApp).database
+                    result.offeredSettings?.let { offered ->
+                        offeredSettings = offered
+                        restoredCleaned = result.cleaned
+                        val current = app.vyaya.core.data.SnapshotStore(db).loadRecords().settings
+                        val today = kotlinx.datetime.LocalDate.parse(java.time.LocalDate.now().toString())
+                        BackupStatus.OfferSettings(app.vyaya.ui.settingsQuestion(offered, current, today))
+                    } ?: BackupStatus.Done(app.vyaya.ui.restoredMessage(result.cleaned))
                 }
                 is RestoreResult.Refused -> when {
                     result.needsPassword() -> BackupStatus.NeedsPassword(null)
@@ -201,10 +262,23 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Backlog #2: the backup's settings used, or this phone's kept; then the open routine runs on what is there. */
+    private fun answerSettings(use: Boolean) {
+        val offered = offeredSettings.also { offeredSettings = null } ?: return
+        lifecycleScope.launch {
+            val db = (application as VyayaApp).database
+            if (use) app.vyaya.core.data.BackupStore(db).useSettings(offered)
+            AppOpen(db).run(Clock.System.now())
+            opened.intValue++
+            val cleanedNote = app.vyaya.ui.restoredMessage(restoredCleaned).removePrefix("Restored")
+            backupStatus.value = BackupStatus.Done((if (use) "Restored, with the backup's settings" else "Restored; this phone's settings kept") + cleanedNote)
+        }
+    }
+
     private fun importSms() {
         lifecycleScope.launch {
-            val added = SmsFeature.import(applicationContext)
-            Toast.makeText(this@MainActivity, "Added $added payments from the last 30 days", Toast.LENGTH_SHORT).show()
+            val imported = SmsFeature.import(applicationContext)
+            Toast.makeText(this@MainActivity, imported.message(), Toast.LENGTH_SHORT).show()
         }
     }
 }

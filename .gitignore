@@ -30,3 +30,6 @@ Thumbs.db
 
 # Never commit real SMS/notification samples; only anonymised ones in test resources.
 private-samples/
+
+# Python bytecode from scripts/
+__pycache__/

@@ -2,9 +2,12 @@ package app.vyaya.core.data
 
 import app.vyaya.core.backup.RecordLines
 import app.vyaya.core.dedup.Capture
+import app.vyaya.core.dedup.MerchantMemory
 import app.vyaya.core.dedup.Outcome
+import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
+import app.vyaya.core.model.EntryType
 import app.vyaya.core.parser.MessageParser
 import app.vyaya.core.parser.MessageSplitter
 import app.vyaya.core.parser.ParseResult
@@ -25,28 +28,29 @@ class EntryStore(private val db: VyayaDatabase) {
 
     suspend fun byId(id: EntityId): Entry? = db.entries().byId(id.value)?.let(::entryOf)
 
-    suspend fun all(): List<Entry> = db.entries().all().map(::entryOf)
+    suspend fun all(): List<Entry> = db.entries().all().mapNotNull(::entryOf)
 
     /** Entries dated between [from] and [to], or carrying one of [refs]. */
     suspend fun nearOrWithRef(from: Instant, to: Instant, refs: List<String>): List<Entry> =
-        db.entries().nearOrWithRef(from.toEpochMilliseconds(), to.toEpochMilliseconds(), refs).map(::entryOf)
+        db.entries().nearOrWithRef(from.toEpochMilliseconds(), to.toEpochMilliseconds(), refs).mapNotNull(::entryOf)
 
     /** Entries dated from [from] (inclusive) to [to] (exclusive). */
     suspend fun inRange(from: Instant, to: Instant): List<Entry> =
-        db.entries().inRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map(::entryOf)
+        db.entries().inRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).mapNotNull(::entryOf)
 
     /** [inRange], again each time the entries change. */
     fun watchRange(from: Instant, to: Instant): Flow<List<Entry>> =
-        db.entries().watchRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map { rows -> rows.map(::entryOf) }
+        db.entries().watchRange(from.toEpochMilliseconds(), to.toEpochMilliseconds()).map { rows -> rows.mapNotNull(::entryOf) }
 
-    internal suspend fun generated(): List<Entry> = db.entries().generated().map(::entryOf)
+    internal suspend fun generated(): List<Entry> = db.entries().generated().mapNotNull(::entryOf)
 
-    internal suspend fun changedAfter(t: Instant): List<Entry> = db.entries().changedAfter(t.toEpochMilliseconds()).map(::entryOf)
+    internal suspend fun changedAfter(t: Instant): List<Entry> = db.entries().changedAfter(t.toEpochMilliseconds()).mapNotNull(::entryOf)
 
     internal suspend fun delete(ids: List<EntityId>) = BackupStore.lookupChunks(ids.map { it.value }).forEach { db.entries().delete(it) }
 
-    internal fun entryOf(row: EntryRow): Entry =
-        RecordLines.entryOf(row.line) ?: error("entry ${row.id}: its stored line is not a valid entry") // written only by save()
+    /** Null, and reported as damage (DATA-006), when the stored line doesn't read back: only save() writes rows. */
+    internal fun entryOf(row: EntryRow): Entry? =
+        RecordLines.entryOf(row.line) ?: null.also { db.reportDamaged("entry:${row.id}") }
 
     companion object {
         fun row(e: Entry) = EntryRow(
@@ -62,6 +66,9 @@ class EntryStore(private val db: VyayaDatabase) {
             deleted = e.deleted,
             updatedAtMs = e.updatedAt.toEpochMilliseconds(),
             createdAtMs = e.createdAt.toEpochMilliseconds(),
+            categoryId = e.categoryId?.value,
+            accountId = e.accountId?.value,
+            toAccountId = e.toAccountId?.value,
         )
     }
 }
@@ -71,9 +78,19 @@ class EntryStore(private val db: VyayaDatabase) {
  * entry, a transfer, a duplicate (nothing saved) or a review item. Detected payments are added automatically (the
  * user's choice); the app's Detected inbox lists them for edit or undo.
  */
-class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInbox = DetectedInbox(db)) {
+class CaptureStore(
+    private val db: VyayaDatabase,
+    private val inbox: DetectedInbox = DetectedInbox(db),
+    /**
+     * Called after a capture saved something (an entry added, a transfer, a duplicate that filled something in), once the
+     * transaction is committed and outside the capture lock: the budget alerts (budgets report #2). Its failure never
+     * affects the capture.
+     */
+    private val afterSave: suspend () -> Unit = {},
+) {
 
     private val entries = EntryStore(db)
+    private val ignored = IgnoredStore(db)
 
     /** Every capture rule looks at most this far from a message's time (recurring entries: 5 days); references, any time. */
     private val window = 6.days
@@ -83,24 +100,65 @@ class CaptureStore(private val db: VyayaDatabase, private val inbox: DetectedInb
      * and each message in one database transaction, so a crash leaves nothing half-saved. Each part of a message is
      * looked up near its own date (DATA-002), and split and parsed once (FLAW-009).
      */
-    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
+    suspend fun process(raw: RawMessage, now: Instant): List<Outcome> {
+        val outcomes = saveAll(raw, now)
+        val saved = outcomes.any { it is Outcome.Added || it is Outcome.Transfer || (it is Outcome.Duplicate && it.update != null) }
+        if (saved) {
+            try {
+                afterSave()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // An alert that couldn't be worked out is skipped; the payment is saved.
+            }
+        }
+        return outcomes
+    }
+
+    private suspend fun saveAll(raw: RawMessage, now: Instant): List<Outcome> = lock.withLock {
         db.useWriterConnection { transactor ->
             transactor.immediateTransaction {
+                val (accounts, merchants) = captureContext()
                 MessageSplitter.split(raw).map { part ->
                     val parsed = MessageParser.parse(part)
                     val refs = listOfNotNull((parsed as? ParseResult.Transaction)?.txn?.upiRef)
                     val time = part.receivedAt.instant
-                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now)
+                    val outcome = Capture.process(part, parsed, entries.nearOrWithRef(time - window, time + window, refs), now, accounts, merchants)
                     when (outcome) {
                         is Outcome.Added -> entries.save(listOf(outcome.entry))
                         is Outcome.Transfer -> entries.save(listOf(outcome.entry))
+                        is Outcome.Duplicate -> outcome.update?.let { entries.save(listOf(it)) }
                         else -> {}
                     }
                     inbox.record(part, outcome)
+                    // Split-bills report #2: money in from a friend who owes you is asked about ("Rahul paid you back?").
+                    if (outcome is Outcome.Added && outcome.entry.type == EntryType.INCOME) inbox.askRepayment(outcome.entry)
+                    // The Ignored tab: a skipped message that shows an amount, as a summary (never its text).
+                    if (outcome is Outcome.Ignored) {
+                        app.vyaya.core.parser.Extractors.amount(part.text)?.let { ignored.record(part, outcome.reason, it, now) }
+                    }
                     outcome
                 }
             }
         }
+    }
+
+    /** How many times capture decoded the records (a test checks the cache). */
+    internal var recordReads = 0
+        private set
+
+    private var cached: Pair<RangeFingerprint, Pair<List<Account>, MerchantMemory>>? = null
+
+    /**
+     * Accounts and merchant memory, decoded again only when the records changed (merchant memory report #5: with
+     * thousands of them, decoding for every message made an SMS import slow). Called under [lock], in the transaction.
+     */
+    private suspend fun captureContext(): Pair<List<Account>, MerchantMemory> {
+        val fingerprint = db.records().captureFingerprint()
+        cached?.takeIf { it.first == fingerprint }?.let { return it.second }
+        val records = SnapshotStore(db).captureRecordsInTransaction()
+        recordReads++
+        return (records.accounts to MerchantMemory(records.merchantRules, records.categories)).also { cached = fingerprint to it }
     }
 
     private companion object {

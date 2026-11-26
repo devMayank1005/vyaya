@@ -5,13 +5,14 @@ import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
 import app.vyaya.core.model.Money
 import app.vyaya.core.model.MonthSchedule
+import app.vyaya.core.model.SystemCategories
 import app.vyaya.core.model.monthOf
 
 /**
  * One budget month: money in, money out, and what's left (plan.md Part E invariant 2).
  *
  * Only [Entry.countsAsIncome] and [Entry.countsAsSpending] entries count: transfers between the user's own
- * accounts, Saved, and deleted entries never do. Lent and borrowed money lives in the ledger, not here.
+ * accounts, Saved, and deleted entries never do; of a split bill, only the user's own share ([Entry.ownShare]). Lent and borrowed money lives in the ledger, not here.
  * [left] is calculated, never stored (CLAUDE.md rule 8.5).
  */
 data class MonthSummary(
@@ -35,8 +36,10 @@ data class MonthSummary(
                 when {
                     e.countsAsIncome -> income += e.amount
                     e.countsAsSpending -> {
-                        spent += e.amount
-                        if (e.splits.isEmpty()) add(e.categoryId, e.amount) else e.splits.forEach { add(it.categoryId, it.amount) }
+                        // Split bills: friends' shares (the Lent & Borrowed split) are owed back, not spent.
+                        spent += e.ownShare
+                        if (e.splits.isEmpty()) add(e.categoryId, e.amount)
+                        else e.splits.filter { it.categoryId != SystemCategories.LENT.id }.forEach { add(it.categoryId, it.amount) }
                     }
                 }
             }

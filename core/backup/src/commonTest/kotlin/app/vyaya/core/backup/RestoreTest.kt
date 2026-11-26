@@ -28,9 +28,11 @@ class RestoreTest {
         val extra = Person(id("00000000-0000-4000-8000-0000000000aa"), "Priya", earlier, false)
         val current = Snapshot.empty().copy(people = listOf(mine))
         val backup = GOLDEN_SNAPSHOT.copy(people = listOf(theirs, extra), ledger = emptyList())
-        val merged = Restore.apply(current, backup, RestoreMode.MERGE)
+        // A phone in use (something logged): its settings stay. FLAW-008: one not set up yet takes the backup's.
+        val merged = Restore.apply(current, backup, RestoreMode.MERGE, currentHasEntries = true)
         assertEquals(listOf(mine, extra).sortedBy { it.id.value }, merged.people)
         assertEquals(current.settings, merged.settings)
+        assertEquals(backup.settings, Restore.apply(current, backup, RestoreMode.MERGE, currentHasEntries = false).settings)
         assertEquals(GOLDEN_SNAPSHOT.entries, merged.entries)
     }
 

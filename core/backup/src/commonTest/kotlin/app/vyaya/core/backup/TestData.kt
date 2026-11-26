@@ -79,7 +79,7 @@ val GOLDEN_SNAPSHOT = Snapshot(
     people = listOf(Person(RAHUL, "Rahul", T, false)),
     ledger = listOf(LedgerEntry(L1, RAHUL, LedgerDirection.LENT, Money(30000), LocalDate(2026, 10, 20), "Dinner", false, T, false)),
     budgets = listOf(Budget(B1, FOOD, Money(500000), T, false)),
-    merchantRules = listOf(MerchantRule(M1, "Swiggy", FOOD, T, false)),
+    merchantRules = listOf(MerchantRule(M1, "swiggy", FOOD, T, false)), // as earlier versions stored it (golden files)
 )
 
 val GOLDEN_JSON = """
@@ -242,9 +242,10 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8, generated: Boolean = fal
             val first = Money(random.nextLong(1, amount.paise))
             listOf(Split(categoryIds.random(random), first), Split(categoryIds.random(random), amount - first))
         } else emptyList()
+        val from = pickOrNull(accounts)?.id // and a transfer goes to another account (FLAW-012)
         entries += Entry(
             EntityId.random(), EntryType.entries.random(random), amount, CapturedAt(instant(), TimeZone.of(ZONES.random(random))),
-            pickOrNull(accounts)?.id, pickOrNull(accounts)?.id, pickOrNull(categoryIds), if (random.nextBoolean()) name() else null,
+            from, pickOrNull(accounts.filter { it.id != from })?.id, pickOrNull(categoryIds), if (random.nextBoolean()) name() else null,
             if (random.nextBoolean()) name() else "", List(random.nextInt(0, 3)) { "tag$it" }, EntrySource.entries.random(random),
             if (random.nextBoolean()) "${random.nextLong(100_000_000_000, 999_999_999_999)}" else null, splits,
             pickOrNull(entries)?.id, instant(), instant(), random.nextBoolean(),

@@ -156,4 +156,80 @@ class RecurringTest {
         assertTrue(added.all { it.occurredAt.timeZone == IST && it.occurredAt.instant.toString().endsWith("T06:30:00Z") })
         assertTrue(added.all { it.amount == Money(1_100_000) && !it.deleted })
     }
+
+    private fun paid(rupees: Long, at: String, source: EntrySource = EntrySource.NOTIFICATION, type: EntryType = EntryType.EXPENSE, deleted: Boolean = false) =
+        Entry(EntityId.random(), type, rupees(rupees), CapturedAt(Instant.parse(at), IST), null, null, null, "Sharma", "", emptyList(), source, null,
+            emptyList(), null, now, now, deleted)
+
+    @Test
+    fun safe_data_001_a_bill_paid_a_few_days_early_is_not_made_again() {
+        val rent = rule(day = 20, startsOn = LocalDate(2026, 10, 20))
+        val made = catchUp(listOf(rent), emptyList(), LocalDate(2026, 10, 20))
+        val upi = paid(11_000, "2026-10-18T06:00:00Z")
+        val out = Recurring.linkPaidOrAsk(made, listOf(upi), generated = emptyList(), now).save
+        val key = out.single { it.generatedBy != null }
+        assertEquals(Generation(rent.id, YearMonth(2026, 10)), key.generatedBy)
+        assertTrue(key.deleted, "the month is done, without a second entry")
+        assertEquals(upi.id, key.linkedEntryId, "it says which payment it was")
+        assertEquals(upi.copy(categoryId = RENT, note = "Rent", updatedAt = now), out.single { it.id == upi.id }, "the payment takes the rule's category")
+    }
+
+    @Test
+    fun safe_data_001_only_the_same_amount_and_type_near_the_due_date_and_never_twice() {
+        val rent = rule(day = 20, startsOn = LocalDate(2026, 10, 20))
+        val made = catchUp(listOf(rent), emptyList(), LocalDate(2026, 10, 20))
+        fun linked(vararg nearby: Entry, generated: List<Entry> = emptyList()) =
+            Recurring.linkPaidOrAsk(made, nearby.toList(), generated, now).save.single { it.generatedBy != null }.linkedEntryId
+        assertEquals(null, linked(paid(10_999, "2026-10-18T06:00:00Z")), "another amount")
+        assertEquals(null, linked(paid(11_000, "2026-10-14T06:00:00Z")), "6 days early")
+        assertEquals(null, linked(paid(11_000, "2026-10-18T06:00:00Z", type = EntryType.INCOME)), "money in")
+        assertEquals(null, linked(paid(11_000, "2026-10-18T06:00:00Z", deleted = true)))
+        assertEquals(null, linked(made.single().copy(id = EntityId.random(), generatedBy = null)), "a recurring entry is not a payment")
+        val typed = paid(11_000, "2026-10-19T06:00:00Z", source = EntrySource.MANUAL)
+        assertEquals(typed.id, linked(typed), "typed in by hand counts too")
+        val near = paid(11_000, "2026-10-21T06:00:00Z"); val far = paid(11_000, "2026-10-16T06:00:00Z")
+        assertEquals(near.id, linked(far, near), "the nearest to the due date")
+        // Already stands for another rule's month (an earlier run linked it): not used again.
+        val otherKey = Generation(EntityId.random(), YearMonth(2026, 10))
+        val other = Entry(otherKey.entryId, EntryType.EXPENSE, rupees(11_000), near.occurredAt, null, null, null, null, "", emptyList(),
+            EntrySource.RECURRING, null, emptyList(), near.id, now, now, true, otherKey)
+        assertEquals(far.id, linked(far, near, generated = listOf(other)))
+        assertEquals(made, Recurring.linkPaidOrAsk(made, emptyList(), emptyList(), now).save, "nothing nearby: made as usual")
+    }
+
+    @Test
+    fun safe_data_001_two_rules_of_one_amount_take_one_payment_each() {
+        val a = rule(day = 10, startsOn = LocalDate(2026, 10, 10)); val b = rule(day = 10, startsOn = LocalDate(2026, 10, 10))
+        val made = catchUp(listOf(a, b), emptyList(), LocalDate(2026, 10, 10))
+        val one = paid(11_000, "2026-10-09T06:00:00Z")
+        val out = Recurring.linkPaidOrAsk(made, listOf(one), emptyList(), now).save
+        assertEquals(1, out.count { it.generatedBy != null && it.deleted }, "one rule takes the payment")
+        assertEquals(1, out.count { it.generatedBy != null && !it.deleted }, "the other is made as usual")
+    }
+
+    @Test
+    fun review_flaw_003_a_payment_already_in_another_category_is_asked_about_not_taken() {
+        val rent = rule(day = 20, startsOn = LocalDate(2026, 10, 20)) // category RENT
+        val made = catchUp(listOf(rent), emptyList(), LocalDate(2026, 10, 20))
+        val food = paid(11_000, "2026-10-18T06:00:00Z").copy(categoryId = FOOD) // e.g. merchant memory put it in Food
+        val r = Recurring.linkPaidOrAsk(made, listOf(food), emptyList(), now)
+        assertEquals(emptyList(), r.save, "nothing made or linked yet: the user decides")
+        assertEquals(listOf(made.single() to food), r.ask)
+        // Clear cases still link on their own: no category, or the rule's own.
+        assertEquals(1, Recurring.linkPaidOrAsk(made, listOf(food.copy(categoryId = null)), emptyList(), now).save.count { it.deleted })
+        assertEquals(1, Recurring.linkPaidOrAsk(made, listOf(food.copy(categoryId = RENT)), emptyList(), now).save.count { it.deleted })
+        assertEquals(made, Recurring.linkPaidOrAsk(made, emptyList(), emptyList(), now).save, "nothing nearby: made as usual")
+    }
+
+    @Test
+    fun linking_keeps_what_the_payment_already_has_and_passes_other_entries_through() {
+        val rent = rule(day = 20, startsOn = LocalDate(2026, 10, 20))
+        val made = catchUp(listOf(rent), emptyList(), LocalDate(2026, 10, 20))
+        val account = EntityId.random()
+        val upi = paid(11_000, "2026-10-18T06:00:00Z").copy(accountId = account, note = "October rent")
+        val payment = Recurring.linkPaidOrAsk(made, listOf(upi), emptyList(), now).save.single { it.id == upi.id }
+        assertEquals(account to "October rent", payment.accountId to payment.note, "its own account and note stay")
+        val typed = paid(500, "2026-10-18T06:00:00Z", source = EntrySource.MANUAL)
+        assertEquals(listOf(typed), Recurring.linkPaidOrAsk(listOf(typed), listOf(upi), emptyList(), now).save, "not a rule's entry: as it is")
+    }
 }

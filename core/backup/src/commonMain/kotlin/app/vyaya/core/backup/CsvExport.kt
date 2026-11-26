@@ -1,5 +1,9 @@
 package app.vyaya.core.backup
 
+import app.vyaya.core.model.cleanText
+import app.vyaya.core.model.Account
+import app.vyaya.core.model.Category
+import app.vyaya.core.model.Entry
 import app.vyaya.core.model.EntrySource
 import app.vyaya.core.model.EntryType
 import app.vyaya.core.model.Money
@@ -17,7 +21,12 @@ import kotlinx.datetime.toLocalDateTime
  */
 object CsvExport {
 
-    private val HEADER = listOf("date", "time", "type", "amount", "category", "account", "payee", "note", "tags", "source", "upi_ref", "id")
+    private val HEADER = listOf(
+        "date", "time", "type", "amount", "signed_amount", "category", "account", "to_account", "payee", "note", "tags", "source", "upi_ref", "id",
+    )
+
+    /** The `signed_amount` column: a number, never neutralised (its minus sign is not a formula). */
+    private const val SIGNED = 4
 
     private val TYPE = mapOf(EntryType.EXPENSE to "Expense", EntryType.INCOME to "Income", EntryType.TRANSFER to "Transfer", EntryType.SAVED to "Saved")
     private val SOURCE = mapOf(
@@ -27,45 +36,67 @@ object CsvExport {
     )
     private val FORMULA_START = setOf('=', '+', '-', '@', '\t', '\r')
 
+    /** The whole file for [snapshot]; the database export writes the same bytes page by page ([start], [row]). */
     fun export(snapshot: Snapshot): String {
-        val categoryNames = (snapshot.categories + SystemCategories.all).associate { it.id to it.name }
-        val accountNames = snapshot.accounts.associate { it.id to it.name }
-        val out = StringBuilder("﻿")
-        out.row(HEADER)
+        val names = Names(snapshot.categories, snapshot.accounts)
+        val out = StringBuilder(start())
         snapshot.entries
             .filterNot { it.deleted }
-            .sortedWith(compareBy({ it.occurredAt.instant }, { it.id.value }))
-            .forEach { e ->
-                val local = e.occurredAt.instant.toLocalDateTime(e.occurredAt.timeZone)
-                val category = if (e.splits.isEmpty()) e.categoryId?.let { categoryNames[it] }.orEmpty()
-                else e.splits.joinToString(" + ") { "${categoryNames[it.categoryId].orEmpty()} ${plain(it.amount)}" }
-                out.row(
-                    listOf(
-                        local.date.toString(),
-                        "${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
-                        TYPE.getValue(e.type),
-                        plain(e.amount),
-                        category,
-                        e.accountId?.let { accountNames[it] }.orEmpty(),
-                        e.payee.orEmpty(),
-                        e.note,
-                        e.tags.joinToString("; "),
-                        SOURCE.getValue(e.source),
-                        e.upiRef.orEmpty(),
-                        e.id.value,
-                    ),
-                )
-            }
+            .sortedWith(ORDER)
+            .forEach { out.append(row(it, names)) }
         return out.toString()
+    }
+
+    /** The order of the rows: by time (to the millisecond, as the database keeps it), then by id. */
+    val ORDER: Comparator<Entry> = compareBy({ it.occurredAt.instant.toEpochMilliseconds() }, { it.id.value })
+
+    /** What a row shows for a category or account id. System categories (Saved, Transfer) are always named. */
+    class Names(categories: List<Category>, accounts: List<Account>) {
+        internal val categories = (categories + SystemCategories.all).associate { it.id to it.name }
+        internal val accounts = accounts.associate { it.id to it.name }
+    }
+
+    /** The byte order mark and the header line. */
+    fun start(): String = "\uFEFF" + line(HEADER)
+
+    /** One entry's line, ending in CRLF. */
+    fun row(e: Entry, names: Names): String {
+        val local = e.occurredAt.instant.toLocalDateTime(e.occurredAt.timeZone)
+        val category = if (e.splits.isEmpty()) e.categoryId?.let { names.categories[it] }.orEmpty()
+        else e.splits.joinToString(" + ") { "${names.categories[it.categoryId].orEmpty()} ${plain(it.amount)}" }
+        return line(
+            listOf(
+                local.date.toString(),
+                "${local.hour.toString().padStart(2, '0')}:${local.minute.toString().padStart(2, '0')}",
+                TYPE.getValue(e.type),
+                plain(e.amount),
+                // csv report #5: spending negative, income positive, so SUM is what's left; transfers and money put
+                // aside move nothing in or out, as the engine counts them.
+                when (e.type) {
+                    EntryType.EXPENSE -> "-" + plain(e.ownShare) // split bills: friends' shares are owed back, not spent
+                    EntryType.INCOME -> plain(e.amount)
+                    EntryType.TRANSFER, EntryType.SAVED -> ""
+                },
+                category,
+                e.accountId?.let { names.accounts[it] }.orEmpty(),
+                e.toAccountId?.let { names.accounts[it] }.orEmpty(), // csv report #7
+                e.payee.orEmpty(),
+                e.note,
+                e.tags.joinToString("; "),
+                SOURCE.getValue(e.source),
+                e.upiRef.orEmpty(),
+                e.id.value,
+            ),
+        )
     }
 
     /** RFC 4180 quoting of one already-neutralised value. */
     fun cell(value: String): String =
         if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) "\"" + value.replace("\"", "\"\"") + "\"" else value
 
-    private fun StringBuilder.row(values: List<String>) {
-        append(values.joinToString(",") { cell(neutralise(it)) }).append("\r\n")
-    }
+    private fun line(values: List<String>): String =
+        // SEC-010: no invisible or control characters in any cell (a stored record from before cleaning, too).
+        values.withIndex().joinToString(",") { (i, v) -> cell(if (i == SIGNED) v else neutralise(v.cleanText())) } + "\r\n"
 
     private fun neutralise(value: String): String = if (value.isNotEmpty() && value[0] in FORMULA_START) "'$value" else value
 

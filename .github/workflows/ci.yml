@@ -13,13 +13,26 @@ jobs:
   core-jvm:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v6
-      - run: ./gradlew compileCommonMainKotlinMetadata jvmTest koverVerify --console=plain
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
+      # core-model SEC-017: every action is pinned to a commit SHA (a moved tag can't change what CI runs).
+      - name: Actions are pinned
+        run: python3 -m unittest scripts/test_check_pinned.py && python3 scripts/check-pinned.py
+      # core-model SEC-016: no logging in production code (no SMS text, payee or amount can reach a log).
+      - name: No logging in production code
+        run: python3 -m unittest scripts/test_check_no_logging.py && python3 scripts/check-no-logging.py
+      # :koverVerify is the shared-core gate (root project); the Android gate runs in the android job.
+      - run: ./gradlew compileCommonMainKotlinMetadata jvmTest :koverVerify --console=plain
+      # Launch prep: Room writes the database schema it compiled to core/data/schemas; it must be the one committed, so a
+      # schema change is always seen in review (and, from the first beta, comes with a version bump and a migration).
+      - name: Database schema is committed
+        run: |
+          git status --porcelain core/data/schemas
+          test -z "$(git status --porcelain core/data/schemas)" || { echo "::error::core/data/schemas changed: commit it (from the beta: bump the version and add a migration)"; exit 1; }
       - if: always()
         run: python3 scripts/test-summary.py jvmTest
 
@@ -27,12 +40,12 @@ jobs:
   core-ios:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
       - run: ./gradlew iosSimulatorArm64Test --console=plain
       - if: always()
         run: python3 scripts/test-summary.py iosSimulatorArm64Test
@@ -43,22 +56,30 @@ jobs:
           xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Debug
           -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
-  # The Android app: Robolectric and Compose UI tests for both flavors, and R8 release builds.
+  # The Android app: Robolectric and Compose UI tests for both flavors, the 70 % coverage gate for the Android code and
+  # the shared screens (CLAUDE.md), and R8 release builds.
   # Robolectric 4.17 needs Java 21+ to run tests; the app compiles with the Java 17 toolchain.
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           distribution: temurin
           java-version: |
             21
             17
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6
       - run: >-
           ./gradlew :shared:testAndroidHostTest :androidApp:testPlayDebugUnitTest :androidApp:testFullDebugUnitTest
-          :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
+          :androidApp:koverVerify :androidApp:lintPlayDebug :androidApp:lintFullDebug :androidApp:assemblePlayRelease :androidApp:assembleFullRelease
           -Pvyaya.testJdk=21 --console=plain
       - if: always()
         run: python3 scripts/test-summary.py testPlayDebugUnitTest && python3 scripts/test-summary.py testFullDebugUnitTest
+      # Launch prep: neither release build is debuggable, backs up, asks for the network, exports anything new, or ships
+      # unobfuscated; the classes found by name survive R8.
+      - name: Release build checks
+        run: |
+          for f in play full; do
+            python3 scripts/check-release.py androidApp/build/outputs/apk/$f/release/androidApp-$f-release-unsigned.apk androidApp/build/outputs/mapping/${f}Release/mapping.txt
+          done

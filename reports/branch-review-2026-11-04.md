@@ -87,7 +87,7 @@ Your decision: fix 1–6 and 8–10; 7 later. Each fix started with a failing te
 | 4 DATA-004 | ✅ Fixed: one capture at a time, each in one database transaction (40 concurrent pairs → 40 entries) |
 | 5 DATA-005 | ✅ Fixed: the inbox item follows its entry to TRANSFER; a transfer isn't undone |
 | 6 FLAW-006 | ✅ Fixed: only messages giving a code are OTPs |
-| 7 FLAW-007 | ⏳ Later: screenshot and Shortcut trust rules, with those features |
+| 7 FLAW-007 | ⚠️ Deferred (2026-11-26) | Screenshot and Shortcut trust rules come with those features (none exists yet) |
 | 8 DATA-008 | ✅ Fixed: ClockRepair also removes generated entries not yet due |
 | 9 FLAW-009 | ✅ Fixed: split and parse once |
 | 10 FLAW-010 | ✅ Fixed: lookup by id; bad rows skipped |

@@ -19,6 +19,7 @@ import app.vyaya.core.model.MonthSchedule
 import app.vyaya.core.model.Person
 import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.model.Settings
+import app.vyaya.core.model.cleanText
 import app.vyaya.core.model.Split
 import app.vyaya.core.model.StartDayChange
 import app.vyaya.core.model.SystemCategories
@@ -70,7 +71,8 @@ data class Snapshot(
 data class ExportMeta(val appVersion: String, val createdOn: String, val exportedAt: Instant)
 
 sealed interface DecodeResult {
-    data class Success(val snapshot: Snapshot, val meta: ExportMeta) : DecodeResult
+    /** [cleaned]: names, notes and tags that had hidden or control characters, removed (SEC-010; backlog #5). */
+    data class Success(val snapshot: Snapshot, val meta: ExportMeta, val cleaned: Int = 0) : DecodeResult
 
     /**
      * Human-readable problems, at most [BackupCodec.MAX_PROBLEMS] plus a "… more" line. Nothing is restored.
@@ -92,10 +94,25 @@ sealed interface DecodeResult {
  */
 object BackupCodec {
 
+    /**
+     * FLAW-011 / backlog #6: an app version or platform label a backup may carry: at most 64 letters, digits, dots,
+     * dashes, underscores, pluses or spaces. The writer, the reader and a test of the app's own version name share it.
+     */
+    fun isPlainLabel(value: String): Boolean = value.length <= MAX_LABEL && value.all { it.isLetterOrDigit() || it in LABEL_PUNCTUATION }
+
+    /** The problems with [meta]'s labels, in the reader's words; empty when both are plain. */
+    internal fun labelProblems(meta: ExportMeta): List<String> = listOfNotNull(
+        meta.appVersion.takeUnless(::isPlainLabel)?.let { labelProblem("app version") },
+        meta.createdOn.takeUnless(::isPlainLabel)?.let { labelProblem("created on") },
+    )
+
+    internal fun labelProblem(what: String) =
+        "The file's $what isn't a plain label of at most $MAX_LABEL letters, digits, dots, dashes or spaces"
+
     const val FORMAT = "vyaya-backup"
 
     /** The schema this app writes. It reads every earlier one (v1 and v2 are migrated when read). */
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
     internal const val V1 = 1
     const val MAX_PROBLEMS = 20
 
@@ -117,7 +134,7 @@ object BackupCodec {
      */
     fun write(snapshot: Snapshot, meta: ExportMeta, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit): EncodeResult {
         // DATA-001: refuse here, with the reader's own words, anything a restore would refuse.
-        val problems = Consistency.problems(snapshot, meta.exportedAt)
+        val problems = BackupCodec.labelProblems(meta) + Consistency.problems(snapshot, meta.exportedAt)
         if (problems.isNotEmpty()) {
             val shown = problems.take(MAX_PROBLEMS).joinToString("; ")
             val more = if (problems.size > MAX_PROBLEMS) "; … and ${problems.size - MAX_PROBLEMS} more problems" else ""
@@ -142,6 +159,14 @@ object BackupCodec {
         read(text.lineSequence(), now, limits, restoreAnyway)
 
     /** Writes the old v2 format. Kept only to produce migration test fixtures. */
+    /** Writes the old v3 format. Kept only to produce migration test fixtures; the app always writes v4. */
+    internal fun encodeV3(snapshot: Snapshot, meta: ExportMeta): String {
+        val out = StringBuilder()
+        val result = BackupLines.write(toContent(snapshot, meta), 3, BackupLimits()) { out.append(it).append('\n') }
+        check(result is EncodeResult.Success) { (result as EncodeResult.Failure).reason }
+        return out.toString()
+    }
+
     internal fun encodeV2(snapshot: Snapshot, meta: ExportMeta): String {
         val out = StringBuilder()
         val result = BackupLines.write(toContent(snapshot, meta), 2, BackupLimits()) { out.append(it).append('\n') }
@@ -188,8 +213,8 @@ object BackupCodec {
             },
             people = s.people.map { PersonV1(it.id.value, it.name, it.updatedAt.toString(), it.deleted) },
             ledger = s.ledger.map { l ->
-                LedgerV1(l.id.value, l.personId.value, l.direction.name, l.amount.paise, l.date.toString(), l.note, l.settled,
-                    l.updatedAt.toString(), l.deleted)
+                LedgerV4(l.id.value, l.personId.value, l.direction.name, l.amount.paise, l.date.toString(), l.note, l.settled,
+                    l.updatedAt.toString(), l.deleted, l.paymentId?.value)
             },
             budgets = s.budgets.map { BudgetV1(it.id.value, it.categoryId.value, it.limit.paise, it.updatedAt.toString(), it.deleted) },
             merchantRules = s.merchantRules.map { MerchantRuleV1(it.id.value, it.payee, it.categoryId.value, it.updatedAt.toString(), it.deleted) },
@@ -238,9 +263,27 @@ object BackupCodec {
  * kept: they wait in [streamed] (dates already moved when restoring anyway) for the caller to take, and only what
  * the checks across records need stays (PEN-003).
  */
-internal class Reader(private val now: Instant, private val restoreAnyway: Boolean = false, private val streamEntries: Boolean = false) {
+internal const val MAX_LABEL = 64
+internal const val LABEL_PUNCTUATION = "._- +"
+
+/**
+ * [checkExportTime] false: reading the database's own rows (RecordLines), which have no export time to be newer than
+ * (branch review 2026-11-06 FLAW-008: a problem string per record was built and thrown away).
+ */
+internal class Reader(
+    private val now: Instant, private val restoreAnyway: Boolean = false, private val streamEntries: Boolean = false,
+    private val checkExportTime: Boolean = true,
+) {
 
     private val problems = mutableListOf<String>()
+
+    /** Text fields that had hidden or control characters, removed (backlog #5: the restore says so). */
+    private var cleaned = 0
+
+    private fun clean(text: String): String = text.cleanText().also { if (it != text) cleaned++ }
+
+    /** How many problems were found so far (a test checks the database mode builds none). */
+    internal val problemCount: Int get() = problems.size
 
     private val earliest = Instant.parse("2000-01-01T00:00:00Z")
     private val latest = Instant.parse("2101-01-01T00:00:00Z")
@@ -292,7 +335,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         if (currency != "INR") problems += "Unsupported currency '$currency' (only INR)"
         val zone = try { TimeZone.of(s.timezone) } catch (e: Exception) { problems += "settings: unknown time zone '${s.timezone}'"; null }
         val at = instant(exportedAt, "exportedAt")
-        if (at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
+        if (checkExportTime && at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
             if (restoreAnyway) {
                 resetFutureDates = true // FLAW-001: the user confirmed
             } else {
@@ -310,20 +353,20 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     fun account(a: AccountV1) {
         val id = id(a.id, "account") ?: return
-        record("account $id") { Account(id, a.name, enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
+        record("account $id") { Account(id, clean(a.name), enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
             ?.also { notAfterExport("account", id, it.updatedAt) }?.let(accounts::add)
     }
 
     fun category(c: CategoryV1) {
         val id = id(c.id, "category") ?: return
         if (id.value.startsWith("sys.")) { problems += "category $id: system ids are built in and can't be stored"; return }
-        record("category $id") { Category(id, c.name, enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
+        record("category $id") { Category(id, clean(c.name), enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
             ?.also { notAfterExport("category", id, it.updatedAt) }?.let(categories::add)
     }
 
     fun person(p: PersonV1) {
         val id = id(p.id, "person") ?: return
-        record("person $id") { Person(id, p.name, instant(p.updatedAt, "updatedAt")!!, p.deleted) }
+        record("person $id") { Person(id, clean(p.name), instant(p.updatedAt, "updatedAt")!!, p.deleted) }
             ?.also { notAfterExport("person", id, it.updatedAt) }?.let(people::add)
     }
 
@@ -333,7 +376,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
             val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
             Entry(
                 id, enum<EntryType>(e.type, "type"), Money(e.amountPaise), CapturedAt(instant(e.occurredAt, "occurredAt")!!, zone),
-                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee, e.note, e.tags,
+                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee?.let(::clean), clean(e.note), e.tags.map(::clean),
                 enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
                 e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, month(it.month, "generatedBy month")!!) },
@@ -365,17 +408,18 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         record("recurring rule $id") {
             RecurringRule(
                 id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, "category"),
-                ref(r.accountId, "account"), r.note, r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
+                ref(r.accountId, "account"), clean(r.note), r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
             )
         }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
     }
 
-    fun ledger(l: LedgerV1) {
+    fun ledger(l: LedgerV4) {
         val id = id(l.id, "ledger entry") ?: return
         record("ledger entry $id") {
             LedgerEntry(
                 id, ref(l.personId, "person")!!, enum<LedgerDirection>(l.direction, "direction"), Money(l.amountPaise),
-                date(l.date, "date")!!, l.note, l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+                date(l.date, "date")!!, clean(l.note), l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+                l.paymentId?.let { ref(it, "payment") },
             )
         }?.also { notAfterExport("ledger entry", id, it.updatedAt) }?.let(ledger::add)
     }
@@ -388,12 +432,17 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     fun merchantRule(m: MerchantRuleV1) {
         val id = id(m.id, "merchant rule") ?: return
-        record("merchant rule $id") { MerchantRule(id, m.payee, ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
+        record("merchant rule $id") { MerchantRule(id, clean(m.payee), ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
             ?.also { notAfterExport("merchant rule", id, it.updatedAt) }?.let(merchantRules::add)
     }
 
     /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
     fun finish(appVersion: String, createdOn: String): DecodeResult {
+        // core-backup FLAW-011: the file's metadata is a short, plain label in every version (v1 has no line cap).
+        fun label(value: String, what: String) {
+            if (!BackupCodec.isPlainLabel(value)) problems += BackupCodec.labelProblem(what)
+        }
+        label(appVersion, "app version"); label(createdOn, "created on")
         val refs = if (streamEntries) entryRefs else entries.map(EntryRef::of)
         problems += Consistency.crossRecord(accounts, categories, refs, recurring, people, ledger, budgets, merchantRules)
 
@@ -420,10 +469,10 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
                 budgets.map { it.copy(updatedAt = it.updatedAt.shiftedBack()) },
                 merchantRules.map { MerchantRule(it.id, it.payee, it.categoryId, it.updatedAt.shiftedBack(), it.deleted) },
             ).normalized()
-            return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now))
+            return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, now), cleaned)
         }
         val snapshot = Snapshot(settings, accounts, categories, entries, recurring, people, ledger, budgets, merchantRules).normalized()
-        return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt))
+        return DecodeResult.Success(snapshot, ExportMeta(appVersion, createdOn, exportedAt), cleaned)
     }
 
     /**
@@ -433,11 +482,12 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
     private fun keyNotAfterExport(e: Entry) {
         // Against the backup's own export time, also when restoring anyway: a key for the month the backup was made in
         // is genuine even if this phone's clock hasn't reached that month (PR #2 review).
-        Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
+        if (checkExportTime) Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
     }
 
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
     private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
+        if (!checkExportTime) return
         val at = exportedAt ?: return
         if (times.any { it > at }) problems += Consistency.changedAfterExport(what, id, at)
     }
@@ -510,7 +560,10 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 }
 
 enum class RestoreMode {
-    /** Keep everything; where both sides have the same record, the newer `updatedAt` wins. Current settings stay. */
+    /**
+     * Keep everything; where both sides have the same record, the newer `updatedAt` wins. Current settings stay, except
+     * on a phone not set up yet (default settings, nothing logged), which takes the backup's ([Restore.takesSettings]).
+     */
     MERGE,
 
     /** The backup replaces all current data and settings. */
@@ -519,10 +572,25 @@ enum class RestoreMode {
 
 object Restore {
 
-    fun apply(current: Snapshot, backup: Snapshot, mode: RestoreMode): Snapshot = when (mode) {
+    /**
+     * core-backup FLAW-008: merging onto a phone not set up yet (still the default settings, and nothing logged) takes
+     * the backup's settings, so months start on the same day and in the same zone as on the old phone. A phone in use
+     * keeps its own.
+     */
+    fun takesSettings(current: Settings, hasEntries: Boolean): Boolean = !hasEntries && current == Settings.default()
+
+    /**
+     * Backlog 2026-11-26 #2: payments captured before the restore (notification access usually comes first) count as
+     * "logged", so the backup's settings aren't taken by themselves; they are offered, when this phone is still on the
+     * defaults and the backup's differ.
+     */
+    fun offersSettings(current: Settings, backup: Settings, hasEntries: Boolean): Boolean =
+        hasEntries && current == Settings.default() && backup != current
+
+    fun apply(current: Snapshot, backup: Snapshot, mode: RestoreMode, currentHasEntries: Boolean = current.entries.isNotEmpty()): Snapshot = when (mode) {
         RestoreMode.REPLACE -> backup.normalized()
         RestoreMode.MERGE -> Snapshot(
-            settings = current.settings,
+            settings = if (takesSettings(current.settings, currentHasEntries)) backup.settings else current.settings,
             accounts = merge(current.accounts, backup.accounts, { it.id }, { it.updatedAt }),
             categories = merge(current.categories, backup.categories, { it.id }, { it.updatedAt }),
             entries = merge(current.entries, backup.entries, { it.id }, { it.updatedAt }),

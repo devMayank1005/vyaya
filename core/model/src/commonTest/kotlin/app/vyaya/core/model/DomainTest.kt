@@ -209,12 +209,14 @@ class DomainTest {
     @Test
     fun merchant_rules_compare_by_value() {
         val a = MerchantRule(id(), "Swiggy", id(), now, false)
-        val same = MerchantRule(a.id, " SWIGGY", a.categoryId, now, false)
+        val same = MerchantRule(a.id, " Swiggy ", a.categoryId, now, false)
         assertEquals(a, same)
         assertEquals(a.hashCode(), same.hashCode())
+        // Merchant memory report #6: kept as written; "SWIGGY" is the same payee to capture (by key), not the same text.
+        assertNotEquals(a, MerchantRule(a.id, "SWIGGY", a.categoryId, now, false))
         assertNotEquals(a, MerchantRule(a.id, "Swiggy", a.categoryId, now, true))
         assertNotEquals<Any>(a, "swiggy")
-        assertTrue(a.toString().contains("payee=swiggy"))
+        assertTrue(a.toString().contains("payee=Swiggy"))
     }
 
     @Test
@@ -239,7 +241,7 @@ class DomainTest {
             LedgerEntry(id(), p, LedgerDirection.BORROWED, Money(0), LocalDate(2026, 10, 1), "", false, now, false)
         }
         assertFailsWith<IllegalArgumentException> { Budget(id(), id(), Money(0), now, false) }
-        assertEquals("swiggy", MerchantRule(id(), "  SWIGGY ", id(), now, false).payee)
+        assertEquals("SWIGGY", MerchantRule(id(), "  SWIGGY ", id(), now, false).payee)
         assertFailsWith<IllegalArgumentException> { MerchantRule(id(), " ", id(), now, false) }
     }
 
@@ -250,5 +252,18 @@ class DomainTest {
         assertEquals(TimeZone.of("Asia/Kolkata"), s.homeTimeZone)
         assertEquals(MonthSchedule.of(1), s.monthSchedule)
         assertTrue(s.alertsEnabled)
+    }
+
+    @Test
+    fun backup_flaw_012_an_entry_cant_link_to_itself_or_move_money_to_its_own_account() {
+        val t = kotlin.time.Instant.parse("2026-11-26T06:00:00Z")
+        val account = EntityId.random()
+        fun entry(id: EntityId = EntityId.random(), type: EntryType = EntryType.EXPENSE, from: EntityId? = null, to: EntityId? = null, linked: EntityId? = null) =
+            Entry(id, type, Money(100_00), CapturedAt(t, kotlinx.datetime.TimeZone.UTC), from, to, null, null, "", emptyList(), EntrySource.MANUAL, null,
+                emptyList(), linked, t, t, false)
+        val id = EntityId.random()
+        kotlin.test.assertFailsWith<IllegalArgumentException> { entry(id = id, linked = id) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { entry(type = EntryType.TRANSFER, from = account, to = account) }
+        entry(type = EntryType.TRANSFER, from = account, to = EntityId.random()); entry(linked = EntityId.random()) // fine
     }
 }

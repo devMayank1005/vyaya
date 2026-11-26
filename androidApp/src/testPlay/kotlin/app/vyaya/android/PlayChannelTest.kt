@@ -27,4 +27,11 @@ class PlayChannelTest {
         val asked = info.requestedPermissions.orEmpty().toSet()
         assertTrue(asked.none { it.contains("SMS") })
     }
+
+    @Test
+    fun the_play_build_never_offers_sms_whatever_the_device() {
+        val context: Context = ApplicationProvider.getApplicationContext()
+        org.robolectric.Shadows.shadowOf(context.packageManager).setSystemFeature(android.content.pm.PackageManager.FEATURE_TELEPHONY, true)
+        assertEquals(false, SmsFeature.available(context))
+    }
 }

@@ -100,4 +100,13 @@ class BudgetMonthTest {
             assertEquals(month, BudgetMonth.containing(month.lastDay, startDay), "last day maps to same month")
         }
     }
+
+    @Test
+    fun model_flaw_015_a_month_must_end_after_it_starts_and_start_on_a_real_day() {
+        kotlin.test.assertFailsWith<IllegalArgumentException> { BudgetMonth(kotlinx.datetime.LocalDate(2026, 11, 1), kotlinx.datetime.LocalDate(2026, 10, 1), 1) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { BudgetMonth(kotlinx.datetime.LocalDate(2026, 11, 1), kotlinx.datetime.LocalDate(2026, 11, 1), 1) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { BudgetMonth(kotlinx.datetime.LocalDate(2026, 11, 1), kotlinx.datetime.LocalDate(2026, 12, 1), 99) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { BudgetMonth(kotlinx.datetime.LocalDate(2026, 11, 1), kotlinx.datetime.LocalDate(2026, 12, 1), 0) }
+        BudgetMonth(kotlinx.datetime.LocalDate(2026, 11, 1), kotlinx.datetime.LocalDate(2026, 12, 1), 1) // a real one
+    }
 }

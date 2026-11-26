@@ -6,9 +6,11 @@ import app.vyaya.core.backup.EncodeResult
 import app.vyaya.core.backup.ExportMeta
 import app.vyaya.core.backup.RestoreMode
 import app.vyaya.core.data.BackupStore
+import app.vyaya.core.data.CsvStore
 import app.vyaya.core.data.RestoreResult
 import app.vyaya.core.data.VyayaDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -43,6 +45,26 @@ class BackupFiles(
             result
         } catch (e: IOException) {
             EncodeResult.Failure("The backup couldn't be written: ${e.message ?: "storage error"}")
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /**
+     * The spreadsheet of every entry ([CsvStore], page by page). Written to a temporary file in app storage first and
+     * copied to [out] (left open for the caller) only when complete (csv report #2), so a failure never leaves a cut-off
+     * spreadsheet, and the database's read never waits on a slow cloud provider (#6). Null when it couldn't be written.
+     */
+    suspend fun exportCsv(out: OutputStream): CsvStore.Written? = withContext(Dispatchers.IO) {
+        val temp = File.createTempFile("csv", ".tmp", dir)
+        try {
+            val written = temp.bufferedWriter(Charsets.UTF_8).use { w -> CsvStore(db).export { w.write(it) } }
+            temp.inputStream().use { it.copyTo(out) }
+            out.flush()
+            written
+        } catch (e: Exception) {
+            coroutineContext.ensureActive() // only this export being cancelled goes on as cancellation
+            null
         } finally {
             temp.delete()
         }
@@ -92,3 +114,8 @@ class BackupFiles(
 
 /** The backup is encrypted and no password was given: the app asks for it. */
 fun RestoreResult.needsPassword(): Boolean = this is RestoreResult.Refused && failure.problems == listOf(BackupFiles.NEEDS_PASSWORD)
+
+/** What the screen says after a spreadsheet export (csv report #3: rows that couldn't be read are said, not hidden). */
+fun csvSavedMessage(w: CsvStore.Written): String =
+    "Spreadsheet saved: ${w.rows} ${if (w.rows == 1) "entry" else "entries"}" +
+        if (w.skipped > 0) ". ${w.skipped} couldn't be read and were left out." else ""

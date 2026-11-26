@@ -93,4 +93,4 @@ Your decision: fix 1, 2, 3 and 5.
 | 3 SEC-003 | ✅ Fixed | A bare header (`HDFCBK`) goes to Review |
 | 4 FLAW-004 | ⏳ Open | Grow the trusted list from your real samples (your manual task) |
 | 5 FLAW-005 | ✅ Fixed | Typed-in match needs the same payee within 24 h, or within 2 h when it has no payee |
-| 6 SIM-006 | ⏳ Open | 24 of 140,938 same-amount payments minutes apart merge |
+| 6 SIM-006 | ✅ Fixed (`351e87c`) | Entries keep the merged reference; clearly different payees aren't one payment. Missed 27 → 1 of 138,346. See backlog 2026-11-26 #1 (real payee names) |

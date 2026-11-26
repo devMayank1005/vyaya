@@ -129,6 +129,9 @@ data class Entry(
         tags.forEach { require(it.isNotBlank() && it.length <= MAX_TAG) { "tags must be 1..$MAX_TAG characters" } }
         require(upiRef == null || upiRef.length <= 64) { "upiRef too long" }
         require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
+        // core-backup FLAW-012: a link to itself, or money moved to the account it came from, can't be real.
+        require(linkedEntryId != id) { "an entry can't be linked to itself" }
+        require(!(type == EntryType.TRANSFER && accountId != null && accountId == toAccountId)) { "a transfer goes to another account" }
         if (generatedBy != null) {
             require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
             require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and month" }
@@ -147,6 +150,13 @@ data class Entry(
 
     /** Only expenses count towards spending; transfers, Saved and lent/borrowed never do. */
     val countsAsSpending: Boolean get() = type == EntryType.EXPENSE
+
+    /**
+     * Split bills (option A, the user's choice): what of this payment is the user's own. A split in the system
+     * "Lent & Borrowed" category is friends' shares, owed back (in the People ledger), so not the user's spending.
+     */
+    val ownShare: Money
+        get() = if (splits.isEmpty()) amount else Money(splits.filter { it.categoryId != SystemCategories.LENT.id }.sumOf { it.amount.paise })
 
     val countsAsIncome: Boolean get() = type == EntryType.INCOME
 
@@ -213,6 +223,8 @@ data class LedgerEntry(
     val settled: Boolean,
     val updatedAt: Instant,
     val deleted: Boolean,
+    /** Split bills: the payment this share was part of (backup v4); deleting or changing it takes the share back. */
+    val paymentId: EntityId? = null,
 ) {
     init {
         requirePositive(amount, "Ledger amount")
@@ -232,8 +244,11 @@ class MerchantRule(
     val updatedAt: Instant,
     val deleted: Boolean,
 ) {
-    /** Stored trimmed and lowercase so "SWIGGY" and "Swiggy" are one rule. */
-    val payee: String = payee.trim().lowercase()
+    /**
+     * Stored trimmed, as the user wrote it (merchant memory report #6). Capture matches payees by key (case and a UPI
+     * handle don't matter), so "SWIGGY" and "Swiggy" still find the same rule.
+     */
+    val payee: String = payee.trim()
 
     init { requireName(this.payee, "Merchant payee") }
 

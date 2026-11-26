@@ -86,4 +86,16 @@ class MonthSummaryTest {
             assertEquals(expected, s.spent, "seed=$seed")
         }
     }
+
+    @Test
+    fun split_bills_only_your_own_share_is_spending() {
+        // ₹1,200 dinner with two friends: ₹400 is yours (Food), ₹800 they owe you (the People ledger), not spending.
+        val dinner = entry(EntryType.EXPENSE, rupees(1_200), "2026-10-10T14:00:00Z",
+            splits = listOf(Split(FOOD, rupees(400)), Split(app.vyaya.core.model.SystemCategories.LENT.id, rupees(800))))
+        val s = MonthSummary.of(listOf(dinner), calendar, october)
+        assertEquals(rupees(400), s.spent)
+        assertEquals(mapOf<app.vyaya.core.model.EntityId?, app.vyaya.core.model.Money>(FOOD to rupees(400)), s.spentByCategory)
+        assertEquals(rupees(400), dinner.ownShare)
+        assertEquals(rupees(1_200), entry(EntryType.EXPENSE, rupees(1_200), "2026-10-10T14:00:00Z").ownShare, "not split: all yours")
+    }
 }

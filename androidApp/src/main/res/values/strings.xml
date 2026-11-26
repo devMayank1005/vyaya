@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Vyaya</string>
+    <string name="widget_hidden">Tap Add to log a payment</string>
+    <string name="widget_add">Add</string>
+    <string name="widget_add_description">Add a payment in Vyaya</string>
+    <string name="widget_description">Add a payment in one tap. Amounts are hidden unless you show them in Vyaya\'s settings.</string>
+    <string name="tile_label">Add payment</string>
 </resources>

@@ -75,7 +75,7 @@ FLAW-003 and FLAW-004 and had not had their own break phase until now, so this c
 |---|---|---|
 | 1 FLAW-001 | ✅ Fixed `dadadfc` | `withStartDay` throws when a change would take effect before one already in place (test first) |
 | 2 FLAW-002 | ✅ Fixed `dadadfc` | `@ConsistentCopyVisibility`: `copy()` is private (compile-time; verified the bypass no longer compiles) |
-| 3 PEN-003 | ⏳ Open | Lookup cost linear in the number of changes |
-| 4 DATA-004 | ⏳ Open | Zone-name aliases unequal |
+| 3 PEN-003 | ✅ Closed (bounded, 2026-11-26) | A restored schedule takes at most one change a month in 2000–2100 (about 1,200), and the settings line is capped at 16 KB: the linear lookup stays small |
+| 4 DATA-004 | ⚠️ Accepted risk (2026-11-26) | De-dup compares instants and a merge goes by id and change time, so `Asia/Calcutta` vs `Asia/Kolkata` changes nothing that matters (also core-backup DATA-013) |
 | 5 PEN-005 | 🟡 Covered at the backup boundary | Dates outside 2000–2100 are refused on restore (`7e1c842`) |
 | 6–8 | Info | — |

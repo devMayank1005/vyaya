@@ -78,6 +78,7 @@ class StreamingBackup private constructor(
         fun begin(meta: ExportMeta, settingsLine: String, counts: RecordCounts, limits: BackupLimits = BackupLimits(), sink: (String) -> Unit):
             Pair<StreamingBackup?, EncodeResult.Failure?> {
             if (counts.total > limits.maxRecords) return null to EncodeResult.Failure("Too many records to back up: ${counts.total} (limit ${limits.maxRecords})")
+            BackupCodec.labelProblems(meta).firstOrNull()?.let { return null to EncodeResult.Failure(it) } // backlog #6
             limits.tooManyToWrite(counts.list())?.let { return null to it }
             val (currency, settings) = RecordLines.settingsOf(settingsLine) ?: return null to EncodeResult.Failure("The settings can't be read")
             val header = HeaderV2(

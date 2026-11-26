@@ -1,5 +1,7 @@
 package app.vyaya.ui
 
+import app.vyaya.core.model.cleanText
+
 import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -22,7 +24,19 @@ data class EntryInput(
     val payee: String,
     val note: String,
     val date: LocalDate,
+    val accountId: EntityId? = null,
+    /** Merchant memory: also put this payee's later detected payments in [categoryId]. */
+    val alwaysForPayee: Boolean = false,
+    /** Merchant memory report #3: also put the payee's earlier payments that have no category in [categoryId]. */
+    val alsoEarlier: Boolean = false,
+    /** Split bills: the user's own parts (category, amount as typed); empty when not split across categories. */
+    val splitCategories: List<Pair<EntityId, String>> = emptyList(),
+    /** Split bills: each friend's share (person, amount as typed); empty when not shared. */
+    val friendShares: List<Pair<EntityId, String>> = emptyList(),
 ) {
+    /** Saved through the split store (one transaction with the friends' ledger entries). */
+    val isSplit: Boolean get() = splitCategories.isNotEmpty() || friendShares.isNotEmpty()
+
     /**
      * The entry to save, or null when the amount isn't one (empty, zero, more than 2 decimals, too large) or a field is
      * too long. A new entry is typed in (MANUAL) and happens now if [date] is today, at noon otherwise. An edit keeps
@@ -36,11 +50,13 @@ data class EntryInput(
             date == now.toLocalDateTime(zone).date -> CapturedAt(now, zone)
             else -> CapturedAt(date.atTime(LocalTime(12, 0)).toInstant(zone), zone)
         }
-        val payee = payee.trim().ifEmpty { null }
+        val payee = payee.cleanText().trim().ifEmpty { null }
         // MVP DATA-001: an entry a rule made keeps the rule's type, or no backup would be accepted again.
         val type = if (existing?.generatedBy != null) existing.type else type
-        existing?.copy(type = type, amount = money, occurredAt = occurredAt, categoryId = categoryId, payee = payee, note = note.trim(), updatedAt = now)
-            ?: Entry(EntityId.random(), type, money, occurredAt, null, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
+        // A split's parts are set again by the split store (split-bills #3), so an edit never keeps parts of the old amount.
+        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.cleanText().trim(),
+            splits = emptyList(), updatedAt = now)
+            ?: Entry(EntityId.random(), type, money, occurredAt, accountId, null, categoryId, payee, note.cleanText().trim(), emptyList(), EntrySource.MANUAL, null,
                 emptyList(), null, now, now, false)
     }.getOrNull()
 
@@ -49,8 +65,8 @@ data class EntryInput(
         val money = Money.parse(amount.trim())
         return when {
             money == null || money.paise <= 0 -> "Enter an amount (up to 2 decimals, at most ₹100 crore)"
-            payee.trim().length > MAX_PAYEE -> "Payee: at most $MAX_PAYEE characters"
-            note.trim().length > MAX_NOTE -> "Note: at most $MAX_NOTE characters"
+            payee.cleanText().trim().length > MAX_PAYEE -> "Payee: at most $MAX_PAYEE characters"
+            note.cleanText().trim().length > MAX_NOTE -> "Note: at most $MAX_NOTE characters"
             existing?.generatedBy != null && kotlin.math.abs(monthIndex(date) - existing.generatedBy!!.month.let { it.year * 12 + it.month.ordinal }) > 1 ->
                 "A recurring entry stays in its month or the month either side (${existing.generatedBy!!.month})"
             else -> null
