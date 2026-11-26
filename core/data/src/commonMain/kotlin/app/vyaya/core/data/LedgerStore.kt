@@ -1,5 +1,7 @@
 package app.vyaya.core.data
 
+import app.vyaya.core.model.cleanText
+
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.engine.Balances
 import app.vyaya.core.model.EntityId
@@ -22,9 +24,9 @@ class LedgerStore(private val db: VyayaDatabase) {
     suspend fun people(): List<Person> = snapshots.loadRecords().people.filter { !it.deleted }.sortedBy { it.name.lowercase() }
 
     suspend fun addPerson(name: String, now: Instant): Person =
-        Person(EntityId.random(), name.trim(), now, false).also { save(people = listOf(it)) }
+        Person(EntityId.random(), name.cleanText().trim(), now, false).also { save(people = listOf(it)) }
 
-    suspend fun renamePerson(p: Person, name: String, now: Instant) = save(people = listOf(p.copy(name = name.trim(), updatedAt = now)))
+    suspend fun renamePerson(p: Person, name: String, now: Instant) = save(people = listOf(p.copy(name = name.cleanText().trim(), updatedAt = now)))
 
     suspend fun deletePerson(p: Person, now: Instant) = save(people = listOf(p.copy(deleted = true, updatedAt = now)))
 
@@ -34,7 +36,7 @@ class LedgerStore(private val db: VyayaDatabase) {
 
     /** LENT: they owe you. BORROWED: you owe them. */
     suspend fun add(person: EntityId, direction: LedgerDirection, amount: Money, date: LocalDate, note: String, now: Instant): LedgerEntry =
-        LedgerEntry(EntityId.random(), person, direction, amount, date, note.trim(), false, now, false).also { save(ledger = listOf(it)) }
+        LedgerEntry(EntityId.random(), person, direction, amount, date, note.cleanText().trim(), false, now, false).also { save(ledger = listOf(it)) }
 
     /**
      * Part of what [person] owes coming back (or part of what you owe going back, when you owe them): an entry the

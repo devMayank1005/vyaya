@@ -1,5 +1,7 @@
 package app.vyaya.core.data
 
+import app.vyaya.core.model.cleanText
+
 import androidx.room.immediateTransaction
 import androidx.room.useWriterConnection
 import app.vyaya.core.backup.Snapshot
@@ -32,7 +34,7 @@ class RulesStore(private val db: VyayaDatabase) {
         accountId: EntityId? = null,
     ): RecurringRule {
         val today = now.toLocalDateTime(zone).date
-        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, accountId, note, false, Recurring.startsOnFor(today, dayOfMonth), now, false)
+        val rule = RecurringRule(EntityId.random(), type, amount, dayOfMonth, categoryId, accountId, note.cleanText().trim(), false, Recurring.startsOnFor(today, dayOfMonth), now, false)
         save(rule)
         return rule
     }

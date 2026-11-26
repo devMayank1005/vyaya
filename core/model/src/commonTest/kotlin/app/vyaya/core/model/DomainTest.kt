@@ -253,4 +253,17 @@ class DomainTest {
         assertEquals(MonthSchedule.of(1), s.monthSchedule)
         assertTrue(s.alertsEnabled)
     }
+
+    @Test
+    fun backup_flaw_012_an_entry_cant_link_to_itself_or_move_money_to_its_own_account() {
+        val t = kotlin.time.Instant.parse("2026-11-26T06:00:00Z")
+        val account = EntityId.random()
+        fun entry(id: EntityId = EntityId.random(), type: EntryType = EntryType.EXPENSE, from: EntityId? = null, to: EntityId? = null, linked: EntityId? = null) =
+            Entry(id, type, Money(100_00), CapturedAt(t, kotlinx.datetime.TimeZone.UTC), from, to, null, null, "", emptyList(), EntrySource.MANUAL, null,
+                emptyList(), linked, t, t, false)
+        val id = EntityId.random()
+        kotlin.test.assertFailsWith<IllegalArgumentException> { entry(id = id, linked = id) }
+        kotlin.test.assertFailsWith<IllegalArgumentException> { entry(type = EntryType.TRANSFER, from = account, to = account) }
+        entry(type = EntryType.TRANSFER, from = account, to = EntityId.random()); entry(linked = EntityId.random()) // fine
+    }
 }

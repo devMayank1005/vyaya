@@ -4,6 +4,7 @@ import app.vyaya.core.filters.Filters
 import app.vyaya.core.filters.IgnoreReason
 import app.vyaya.core.filters.ReviewReason
 import app.vyaya.core.filters.Verdict
+import app.vyaya.core.model.cleanText
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -146,7 +147,7 @@ object Capture {
     internal fun toEntry(txn: ParsedTxn, source: Source, now: Instant): Entry? = runCatching {
         Entry(
             EntityId.random(), if (txn.direction == Direction.DEBIT) EntryType.EXPENSE else EntryType.INCOME, txn.amount, txn.occurredAt,
-            null, null, null, txn.counterparty?.take(100), "", emptyList(),
+            null, null, null, txn.counterparty?.cleanText()?.trim()?.ifEmpty { null }?.take(100), "", emptyList(),
             when (source) {
                 // The SMS app's notification is the bank's SMS, read without SMS permission (Play build). The Play build
                 // has no SMS import and the full build doesn't listen to it, so the two never meet for one payment.

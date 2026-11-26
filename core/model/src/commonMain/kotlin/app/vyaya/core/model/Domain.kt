@@ -129,6 +129,9 @@ data class Entry(
         tags.forEach { require(it.isNotBlank() && it.length <= MAX_TAG) { "tags must be 1..$MAX_TAG characters" } }
         require(upiRef == null || upiRef.length <= 64) { "upiRef too long" }
         require(splits.size <= MAX_SPLITS) { "at most $MAX_SPLITS splits" }
+        // core-backup FLAW-012: a link to itself, or money moved to the account it came from, can't be real.
+        require(linkedEntryId != id) { "an entry can't be linked to itself" }
+        require(!(type == EntryType.TRANSFER && accountId != null && accountId == toAccountId)) { "a transfer goes to another account" }
         if (generatedBy != null) {
             require(source == EntrySource.RECURRING) { "only recurring entries have a generation key" }
             require(id == generatedBy.entryId) { "a generated entry's id must come from its rule and month" }

@@ -104,4 +104,30 @@ class BackupV4Test {
             BackupLines.write(BackupCodec.toContent(snapshot, META), BackupCodec.SCHEMA_VERSION + 1, BackupLimits()) {}
         }
     }
+
+    @Test
+    fun sec_010_a_restored_backup_has_no_invisible_or_control_characters() {
+        val dirty = golden.map {
+            when {
+                it.startsWith("""{"t":"person"""") -> it.replace("\"name\":\"Rahul\"", "\"name\":\"Ra\\u200Bhul\"")
+                it.startsWith("""{"t":"ledger"""") -> it.replace("\"note\":\"Dinner\"", "\"note\":\"\\u202EDin\\u0000ner\"")
+                else -> it
+            }
+        }
+        val read = assertIs<DecodeResult.Success>(BackupCodec.decode(signed(dirty), NOW)).snapshot
+        assertEquals("Rahul", read.people.single().name)
+        assertEquals("Dinner", read.ledger.single().note)
+    }
+
+    @Test
+    fun backup_flaw_011_header_metadata_is_short_and_plain_in_every_version() {
+        fun withHeader(appVersion: String, createdOn: String = "android") =
+            golden.map { if (it.startsWith("""{"t":"header"""")) it.replace("\"appVersion\":\"1.0.0\"", "\"appVersion\":\"$appVersion\"")
+                .replace("\"createdOn\":\"android\"", "\"createdOn\":\"$createdOn\"") else it }
+        assertTrue(problems(signed(withHeader("1".repeat(65)))).any { "app version" in it }, "too long")
+        assertTrue(problems(signed(withHeader("1.0.0", createdOn = "<script>"))).any { "created on" in it }, "odd characters")
+        assertEquals(emptyList(), problems(signed(withHeader("0.1.0-full", createdOn = "ios"))), "real values pass")
+        val v1 = BackupCodec.encodeV1(GOLDEN_V3_SNAPSHOT.copy(entries = GOLDEN_SNAPSHOT.entries), META.copy(appVersion = "x".repeat(1_000)))
+        assertTrue(problems(v1).any { "app version" in it }, "v1 files too")
+    }
 }

@@ -40,7 +40,10 @@ value class Money(val paise: Long) {
     override fun toString(): String = format()
 
     companion object {
-        /** ₹100 crore. Anything larger in a personal SMS/notification is a parse error or a scam. */
+        /**
+         * ₹100 crore: the largest amount an entry can have, so a parse error can't make an absurd one. It isn't a scam
+         * defence (core-model FLAW-018): scams are filtered in core/filters.
+         */
         val MAX = Money(1_00_00_00_000L * 100)
 
         fun ofRupees(rupees: Long, paise: Int = 0): Money {

@@ -51,7 +51,7 @@ object RecordLines {
     /** The entry in [line]; null when it isn't a valid entry line. */
     fun entryOf(line: String): Entry? {
         val record = decode(line, "entry", EntryV3.serializer()) ?: return null
-        return Reader(Instant.fromEpochSeconds(0)).run { entry(record); entriesRead.singleOrNull() }
+        return Reader(Instant.fromEpochSeconds(0), checkExportTime = false).run { entry(record); entriesRead.singleOrNull() }
     }
 
     fun of(snapshot: Snapshot): SnapshotLines {
@@ -72,7 +72,7 @@ object RecordLines {
     /** The snapshot in [lines]; null when any line isn't a valid record of its type, or the settings aren't valid. */
     fun snapshotOf(lines: SnapshotLines): Snapshot? {
         val settings = runCatching { json.decodeFromString(SettingsLine.serializer(), lines.settings) }.getOrNull() ?: return null
-        val reader = Reader(Instant.fromEpochSeconds(0))
+        val reader = Reader(Instant.fromEpochSeconds(0), checkExportTime = false)
         reader.header(settings.currency, anyTime.toString(), settings.settings)
         fun <T> each(list: List<String>, type: String, serializer: KSerializer<T>, read: (T) -> Unit): Boolean =
             list.all { line -> decode(line, type, serializer)?.also(read) != null }

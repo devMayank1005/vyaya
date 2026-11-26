@@ -53,4 +53,14 @@ class RecordLinesTest {
         // Settings that read but aren't valid (unknown time zone).
         assertNull(RecordLines.snapshotOf(lines.copy(settings = lines.settings.replace("Asia/Kolkata", "Mars/Olympus"))))
     }
+
+    @Test
+    fun branch_flaw_008_reading_the_databases_rows_builds_no_export_time_problems() {
+        // The database's rows have no export time: none of them can be "changed after the backup was made".
+        val reader = Reader(kotlin.time.Instant.fromEpochSeconds(0), checkExportTime = false)
+        val content = BackupCodec.toContent(GOLDEN_V3_SNAPSHOT, META)
+        reader.header("INR", "2000-01-01T00:00:00Z", content.settings)
+        content.people.forEach(reader::person); content.categories.forEach(reader::category)
+        assertEquals(0, reader.problemCount)
+    }
 }

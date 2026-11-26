@@ -19,6 +19,7 @@ import app.vyaya.core.model.MonthSchedule
 import app.vyaya.core.model.Person
 import app.vyaya.core.model.RecurringRule
 import app.vyaya.core.model.Settings
+import app.vyaya.core.model.cleanText
 import app.vyaya.core.model.Split
 import app.vyaya.core.model.StartDayChange
 import app.vyaya.core.model.SystemCategories
@@ -246,9 +247,22 @@ object BackupCodec {
  * kept: they wait in [streamed] (dates already moved when restoring anyway) for the caller to take, and only what
  * the checks across records need stays (PEN-003).
  */
-internal class Reader(private val now: Instant, private val restoreAnyway: Boolean = false, private val streamEntries: Boolean = false) {
+private const val MAX_LABEL = 64
+private const val LABEL_PUNCTUATION = "._- +"
+
+/**
+ * [checkExportTime] false: reading the database's own rows (RecordLines), which have no export time to be newer than
+ * (branch review 2026-11-06 FLAW-008: a problem string per record was built and thrown away).
+ */
+internal class Reader(
+    private val now: Instant, private val restoreAnyway: Boolean = false, private val streamEntries: Boolean = false,
+    private val checkExportTime: Boolean = true,
+) {
 
     private val problems = mutableListOf<String>()
+
+    /** How many problems were found so far (a test checks the database mode builds none). */
+    internal val problemCount: Int get() = problems.size
 
     private val earliest = Instant.parse("2000-01-01T00:00:00Z")
     private val latest = Instant.parse("2101-01-01T00:00:00Z")
@@ -300,7 +314,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         if (currency != "INR") problems += "Unsupported currency '$currency' (only INR)"
         val zone = try { TimeZone.of(s.timezone) } catch (e: Exception) { problems += "settings: unknown time zone '${s.timezone}'"; null }
         val at = instant(exportedAt, "exportedAt")
-        if (at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
+        if (checkExportTime && at != null && at > now + 1.days) { // FLAW-004: most often this phone's clock is behind
             if (restoreAnyway) {
                 resetFutureDates = true // FLAW-001: the user confirmed
             } else {
@@ -318,20 +332,20 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     fun account(a: AccountV1) {
         val id = id(a.id, "account") ?: return
-        record("account $id") { Account(id, a.name, enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
+        record("account $id") { Account(id, a.name.cleanText(), enum<AccountKind>(a.kind, "kind"), a.mask, instant(a.updatedAt, "updatedAt")!!, a.deleted) }
             ?.also { notAfterExport("account", id, it.updatedAt) }?.let(accounts::add)
     }
 
     fun category(c: CategoryV1) {
         val id = id(c.id, "category") ?: return
         if (id.value.startsWith("sys.")) { problems += "category $id: system ids are built in and can't be stored"; return }
-        record("category $id") { Category(id, c.name, enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
+        record("category $id") { Category(id, c.name.cleanText(), enum<CategoryKind>(c.kind, "kind"), instant(c.updatedAt, "updatedAt")!!, c.deleted) }
             ?.also { notAfterExport("category", id, it.updatedAt) }?.let(categories::add)
     }
 
     fun person(p: PersonV1) {
         val id = id(p.id, "person") ?: return
-        record("person $id") { Person(id, p.name, instant(p.updatedAt, "updatedAt")!!, p.deleted) }
+        record("person $id") { Person(id, p.name.cleanText(), instant(p.updatedAt, "updatedAt")!!, p.deleted) }
             ?.also { notAfterExport("person", id, it.updatedAt) }?.let(people::add)
     }
 
@@ -341,7 +355,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
             val zone = try { TimeZone.of(e.timezone) } catch (x: Exception) { throw IllegalArgumentException("unknown time zone '${e.timezone}'") }
             Entry(
                 id, enum<EntryType>(e.type, "type"), Money(e.amountPaise), CapturedAt(instant(e.occurredAt, "occurredAt")!!, zone),
-                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee, e.note, e.tags,
+                ref(e.accountId, "account"), ref(e.toAccountId, "account"), ref(e.categoryId, "category"), e.payee?.cleanText(), e.note.cleanText(), e.tags.map { it.cleanText() },
                 enum<EntrySource>(e.source, "source"), e.upiRef, e.splits.map { Split(ref(it.categoryId, "category")!!, Money(it.amountPaise)) },
                 ref(e.linkedEntryId, "linked entry"), instant(e.createdAt, "createdAt")!!, instant(e.updatedAt, "updatedAt")!!, e.deleted,
                 e.generatedBy?.let { Generation(ref(it.ruleId, "recurring rule")!!, month(it.month, "generatedBy month")!!) },
@@ -373,7 +387,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         record("recurring rule $id") {
             RecurringRule(
                 id, enum<EntryType>(r.type, "type"), Money(r.amountPaise), r.dayOfMonth, ref(r.categoryId, "category"),
-                ref(r.accountId, "account"), r.note, r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
+                ref(r.accountId, "account"), r.note.cleanText(), r.paused, date(r.startsOn, "startsOn")!!, instant(r.updatedAt, "updatedAt")!!, r.deleted,
             )
         }?.also { notAfterExport("recurring rule", id, it.updatedAt) }?.let(recurring::add)
     }
@@ -383,7 +397,7 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
         record("ledger entry $id") {
             LedgerEntry(
                 id, ref(l.personId, "person")!!, enum<LedgerDirection>(l.direction, "direction"), Money(l.amountPaise),
-                date(l.date, "date")!!, l.note, l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
+                date(l.date, "date")!!, l.note.cleanText(), l.settled, instant(l.updatedAt, "updatedAt")!!, l.deleted,
                 l.paymentId?.let { ref(it, "payment") },
             )
         }?.also { notAfterExport("ledger entry", id, it.updatedAt) }?.let(ledger::add)
@@ -397,12 +411,19 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
 
     fun merchantRule(m: MerchantRuleV1) {
         val id = id(m.id, "merchant rule") ?: return
-        record("merchant rule $id") { MerchantRule(id, m.payee, ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
+        record("merchant rule $id") { MerchantRule(id, m.payee.cleanText(), ref(m.categoryId, "category")!!, instant(m.updatedAt, "updatedAt")!!, m.deleted) }
             ?.also { notAfterExport("merchant rule", id, it.updatedAt) }?.let(merchantRules::add)
     }
 
     /** Checks references and duplicates across all records, then gives the snapshot or every problem found. */
     fun finish(appVersion: String, createdOn: String): DecodeResult {
+        // core-backup FLAW-011: the file's metadata is a short, plain label in every version (v1 has no line cap).
+        fun label(value: String, what: String) {
+            if (value.length > MAX_LABEL || !value.all { it.isLetterOrDigit() || it in LABEL_PUNCTUATION }) {
+                problems += "The file's $what isn't a plain label of at most $MAX_LABEL letters, digits, dots, dashes or spaces"
+            }
+        }
+        label(appVersion, "app version"); label(createdOn, "created on")
         val refs = if (streamEntries) entryRefs else entries.map(EntryRef::of)
         problems += Consistency.crossRecord(accounts, categories, refs, recurring, people, ledger, budgets, merchantRules)
 
@@ -442,11 +463,12 @@ internal class Reader(private val now: Instant, private val restoreAnyway: Boole
     private fun keyNotAfterExport(e: Entry) {
         // Against the backup's own export time, also when restoring anyway: a key for the month the backup was made in
         // is genuine even if this phone's clock hasn't reached that month (PR #2 review).
-        Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
+        if (checkExportTime) Consistency.keyAfterExport(e, exportedAt ?: return, homeZone ?: TimeZone.UTC)?.let { problems += it }
     }
 
     /** SEC-005: nothing in a backup can be newer than the backup itself, or it would win every future merge. */
     private fun notAfterExport(what: String, id: EntityId, vararg times: Instant) {
+        if (!checkExportTime) return
         val at = exportedAt ?: return
         if (times.any { it > at }) problems += Consistency.changedAfterExport(what, id, at)
     }

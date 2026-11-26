@@ -1,5 +1,6 @@
 package app.vyaya.core.backup
 
+import app.vyaya.core.model.cleanText
 import app.vyaya.core.model.Account
 import app.vyaya.core.model.Category
 import app.vyaya.core.model.Entry
@@ -94,7 +95,8 @@ object CsvExport {
         if (value.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) "\"" + value.replace("\"", "\"\"") + "\"" else value
 
     private fun line(values: List<String>): String =
-        values.withIndex().joinToString(",") { (i, v) -> cell(if (i == SIGNED) v else neutralise(v)) } + "\r\n"
+        // SEC-010: no invisible or control characters in any cell (a stored record from before cleaning, too).
+        values.withIndex().joinToString(",") { (i, v) -> cell(if (i == SIGNED) v else neutralise(v.cleanText())) } + "\r\n"
 
     private fun neutralise(value: String): String = if (value.isNotEmpty() && value[0] in FORMULA_START) "'$value" else value
 

@@ -1,5 +1,7 @@
 package app.vyaya.core.data
 
+import app.vyaya.core.model.cleanText
+
 import app.vyaya.core.backup.BackupLimits
 import app.vyaya.core.backup.Snapshot
 import app.vyaya.core.data.CatalogResult.Refused
@@ -41,7 +43,7 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
      * new entries stay in one category.
      */
     suspend fun addCategory(name: String, kind: CategoryKind, now: Instant): CatalogResult<Category> {
-        val n = name.trim()
+        val n = name.cleanText().trim()
         nameProblem(n)?.let { return Refused(it) }
         val all = allCategories()
         val same = all.filter { it.kind == kind && it.name.equals(n, ignoreCase = true) }
@@ -54,7 +56,7 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
     // Each change applies to the record as it is now (by id), so an older copy can't undo an earlier change.
     suspend fun renameCategory(c: Category, name: String, now: Instant): CatalogResult<Category> {
         val current = categories().firstOrNull { it.id == c.id } ?: return Refused(GONE)
-        val n = name.trim()
+        val n = name.cleanText().trim()
         nameProblem(n)?.let { return Refused(it) }
         if (categories().any { it.id != c.id && it.kind == current.kind && it.name.equals(n, ignoreCase = true) }) return Refused(CATEGORY_TAKEN)
         return saveCategory(current.copy(name = n, updatedAt = now))
@@ -71,7 +73,7 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
 
     /** A new account; or a deleted one with the name back, with this type and these last digits ([mask], 3–6). */
     suspend fun addAccount(name: String, kind: AccountKind, mask: String?, now: Instant): CatalogResult<Account> {
-        val n = name.trim()
+        val n = name.cleanText().trim()
         val m = mask?.trim()?.ifEmpty { null }
         (nameProblem(n) ?: maskProblem(m))?.let { return Refused(it) }
         val all = allAccounts()
@@ -85,7 +87,7 @@ class CatalogStore(private val db: VyayaDatabase, private val limits: BackupLimi
     /** Changes an account's name, type and last digits together (catalog report #1). */
     suspend fun updateAccount(a: Account, name: String, kind: AccountKind, mask: String?, now: Instant): CatalogResult<Account> {
         val current = accounts().firstOrNull { it.id == a.id } ?: return Refused(GONE)
-        val n = name.trim()
+        val n = name.cleanText().trim()
         val m = mask?.trim()?.ifEmpty { null }
         (nameProblem(n) ?: maskProblem(m))?.let { return Refused(it) }
         if (accounts().any { it.id != a.id && it.name.equals(n, ignoreCase = true) }) return Refused(ACCOUNT_TAKEN)

@@ -108,4 +108,11 @@ class CsvExportTest {
         val cells = rows(GOLDEN_SNAPSHOT.copy(entries = listOf(dinner)))[1].split(",")
         assertEquals(listOf("1200.00", "-400.00"), cells.subList(3, 5), "amount is the payment; signed_amount, so SUM gives what's left")
     }
+
+    @Test
+    fun sec_010_invisible_characters_never_reach_the_spreadsheet() {
+        val row = rows(Snapshot.empty().copy(entries = listOf(entry("\u202Eyggiws", note = "a\u0000b\u200Bc")))).drop(1).single()
+        assertTrue(row.none { it == '\u202E' || it == '\u0000' || it == '\u200B' }, row)
+        assertTrue("yggiws" in row && "abc" in row, row)
+    }
 }

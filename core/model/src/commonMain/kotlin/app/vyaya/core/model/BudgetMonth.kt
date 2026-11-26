@@ -19,6 +19,12 @@ import kotlin.time.Instant
  */
 data class BudgetMonth(val start: LocalDate, val endExclusive: LocalDate, val startDay: Int) {
 
+    init {
+        // core-model FLAW-015: only [containing] made these sure; now no month can be built that ends before it starts.
+        require(start < endExclusive) { "a month ends after it starts ($start..$endExclusive)" }
+        require(startDay in 1..31) { "a month starts on day 1..31, not $startDay" }
+    }
+
     /** The last day of this month; month-end Saved is logged on this date. */
     val lastDay: LocalDate get() = endExclusive.minus(1, DateTimeUnit.DAY)
 

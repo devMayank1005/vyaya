@@ -36,21 +36,24 @@ class BackupLimitsTest {
 
     // --- PEN-002: a line limit close to what real records need ----------------------------------
 
-    /** Every text field at its maximum length, made of a character JSON must escape as six characters. */
+    /** Every text field at its maximum length, made of the costliest character JSON escapes (a quote, two characters). */
     private fun largestValidSnapshot(): Snapshot {
-        fun worst(n: Int) = "\u0001".repeat(n)
+        // The costliest character a record can hold in JSON: a quote ("\"", 2 characters). Control characters (6 each,
+        // "\u0001") are no longer valid text: input and restore remove them (SEC-010).
+        fun worst(n: Int) = "\"".repeat(n)
         val big = Money.MAX // the largest amount allowed (DATA-004)
         val categories = List(Entry.MAX_SPLITS) { Category(EntityId.random(), worst(100), CategoryKind.EXPENSE, T, false) }
         val account = Account(EntityId.random(), worst(100), AccountKind.CARD, "123456", T, false)
+        val other = Account(EntityId.random(), worst(100), AccountKind.BANK, "654321", T, false) // a transfer goes elsewhere (FLAW-012)
         val person = Person(EntityId.random(), worst(100), T, false)
         val splitAmount = Money(Money.MAX.paise / Entry.MAX_SPLITS)
         val entry = Entry(
             EntityId.random(), EntryType.TRANSFER, Money(splitAmount.paise * Entry.MAX_SPLITS), CapturedAt(T, IST),
-            account.id, account.id, categories[0].id, worst(100), worst(500), List(Entry.MAX_TAGS) { worst(Entry.MAX_TAG) },
+            account.id, other.id, categories[0].id, worst(100), worst(500), List(Entry.MAX_TAGS) { worst(Entry.MAX_TAG) },
             EntrySource.SCREENSHOT, worst(64), categories.map { Split(it.id, splitAmount) }, EntityId.random(), T, T, true,
         )
         return GOLDEN_SNAPSHOT.copy(
-            accounts = listOf(account),
+            accounts = listOf(account, other),
             categories = categories,
             entries = listOf(entry, entry.copy(id = entry.linkedEntryId!!, linkedEntryId = entry.id)),
             recurring = listOf(RecurringRule(EntityId.random(), EntryType.INCOME, big, 31, categories[0].id, account.id, worst(500), true,

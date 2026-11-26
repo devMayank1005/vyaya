@@ -22,6 +22,9 @@ jobs:
       # core-model SEC-017: every action is pinned to a commit SHA (a moved tag can't change what CI runs).
       - name: Actions are pinned
         run: python3 -m unittest scripts/test_check_pinned.py && python3 scripts/check-pinned.py
+      # core-model SEC-016: no logging in production code (no SMS text, payee or amount can reach a log).
+      - name: No logging in production code
+        run: python3 -m unittest scripts/test_check_no_logging.py && python3 scripts/check-no-logging.py
       # :koverVerify is the shared-core gate (root project); the Android gate runs in the android job.
       - run: ./gradlew compileCommonMainKotlinMetadata jvmTest :koverVerify --console=plain
       # Launch prep: Room writes the database schema it compiled to core/data/schemas; it must be the one committed, so a

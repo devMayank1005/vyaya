@@ -242,9 +242,10 @@ fun randomSnapshot(random: Random, maxPerList: Int = 8, generated: Boolean = fal
             val first = Money(random.nextLong(1, amount.paise))
             listOf(Split(categoryIds.random(random), first), Split(categoryIds.random(random), amount - first))
         } else emptyList()
+        val from = pickOrNull(accounts)?.id // and a transfer goes to another account (FLAW-012)
         entries += Entry(
             EntityId.random(), EntryType.entries.random(random), amount, CapturedAt(instant(), TimeZone.of(ZONES.random(random))),
-            pickOrNull(accounts)?.id, pickOrNull(accounts)?.id, pickOrNull(categoryIds), if (random.nextBoolean()) name() else null,
+            from, pickOrNull(accounts.filter { it.id != from })?.id, pickOrNull(categoryIds), if (random.nextBoolean()) name() else null,
             if (random.nextBoolean()) name() else "", List(random.nextInt(0, 3)) { "tag$it" }, EntrySource.entries.random(random),
             if (random.nextBoolean()) "${random.nextLong(100_000_000_000, 999_999_999_999)}" else null, splits,
             pickOrNull(entries)?.id, instant(), instant(), random.nextBoolean(),

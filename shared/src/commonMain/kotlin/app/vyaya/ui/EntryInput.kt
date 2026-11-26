@@ -1,5 +1,7 @@
 package app.vyaya.ui
 
+import app.vyaya.core.model.cleanText
+
 import app.vyaya.core.model.CapturedAt
 import app.vyaya.core.model.EntityId
 import app.vyaya.core.model.Entry
@@ -48,13 +50,13 @@ data class EntryInput(
             date == now.toLocalDateTime(zone).date -> CapturedAt(now, zone)
             else -> CapturedAt(date.atTime(LocalTime(12, 0)).toInstant(zone), zone)
         }
-        val payee = payee.trim().ifEmpty { null }
+        val payee = payee.cleanText().trim().ifEmpty { null }
         // MVP DATA-001: an entry a rule made keeps the rule's type, or no backup would be accepted again.
         val type = if (existing?.generatedBy != null) existing.type else type
         // A split's parts are set again by the split store (split-bills #3), so an edit never keeps parts of the old amount.
-        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.trim(),
+        existing?.copy(type = type, amount = money, occurredAt = occurredAt, accountId = accountId, categoryId = categoryId, payee = payee, note = note.cleanText().trim(),
             splits = emptyList(), updatedAt = now)
-            ?: Entry(EntityId.random(), type, money, occurredAt, accountId, null, categoryId, payee, note.trim(), emptyList(), EntrySource.MANUAL, null,
+            ?: Entry(EntityId.random(), type, money, occurredAt, accountId, null, categoryId, payee, note.cleanText().trim(), emptyList(), EntrySource.MANUAL, null,
                 emptyList(), null, now, now, false)
     }.getOrNull()
 
@@ -63,8 +65,8 @@ data class EntryInput(
         val money = Money.parse(amount.trim())
         return when {
             money == null || money.paise <= 0 -> "Enter an amount (up to 2 decimals, at most ₹100 crore)"
-            payee.trim().length > MAX_PAYEE -> "Payee: at most $MAX_PAYEE characters"
-            note.trim().length > MAX_NOTE -> "Note: at most $MAX_NOTE characters"
+            payee.cleanText().trim().length > MAX_PAYEE -> "Payee: at most $MAX_PAYEE characters"
+            note.cleanText().trim().length > MAX_NOTE -> "Note: at most $MAX_NOTE characters"
             existing?.generatedBy != null && kotlin.math.abs(monthIndex(date) - existing.generatedBy!!.month.let { it.year * 12 + it.month.ordinal }) > 1 ->
                 "A recurring entry stays in its month or the month either side (${existing.generatedBy!!.month})"
             else -> null
